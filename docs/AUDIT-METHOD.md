@@ -73,6 +73,16 @@ unui mock. Aici traia C1. Fuzzeaza buy/sell/buyback/harvest/deepen prin router-u
 Plus `test_fork_the_harness_actually_trades`, care dovedeste ca handler-ul chiar muta bani, ca sa nu
 fie invariantele adevarate degeaba (pe o secventa de reverturi inghitite).
 
+**`test/ForkCurveGradInvariant.t.sol`** - fuzzeaza exact suprafata lui C1 pe v4 real. Cumpara curba,
+incearca sa OTRAVEASCA pool-ul pre-deschis inca gol (un swap de un wei il muta la orice pret, fix
+atacul), apoi absolveste, si verifica:
+- `graduationPutsTheRaiseInThePool`: dupa absolvire raise-ul e in POOL, nu in fee model. Pe C1 se
+  scurgea la fee router si, pe CreatorKeep, la creator. Lansarea foloseste dinadins CreatorKeep, ca
+  invarianta sa pice zgomotos daca fixul regreseaza vreodata.
+- `graduatorHoldsNothing`: graduatorul nu ramane cu token sau pereche.
+Plus `test_fork_a_poisoned_empty_pool_cannot_steal_the_raise`, care reproduce C1 determinist si arata
+ca e neutralizat (pool otravit la podea, absolvit, raise tot in pool, creator zero).
+
 ## Ce a dovedit executia simbolica
 
 `test/symbolic/CurveMathSymbolic.t.sol`, cu halmos. `check_` ruleaza doar sub halmos; `forge test`
@@ -91,10 +101,10 @@ le ignora.
 
 ## Ce NU acopera nimic din toate astea, si de ce mai trebuie un audit extern candva
 
-- **Absolvirea curbei pe v4 real.** `ForkDirectInvariant` fuzzeaza acum masina DIRECTA contra v4
-  adevarat, deci stratul de callback-uri nu mai e complet neacoperit. Dar absolvirea CURBEI (unde a
-  fost C1) merge printr-un graduator mock in fuzzing si e doar pe fork cu exemple, nu fuzzlata. O
-  invarianta de fork peste `finalize()` + `graduate()` pe v4 real ar fi urmatorul pas.
+- **Interactiunile cu v4 sunt acum fuzzlate pe ambele masini** (`ForkDirectInvariant`,
+  `ForkCurveGradInvariant`), inclusiv atacul C1. Ce ramane neacoperit de fuzzing: LayerZero (doar
+  teste pe fork cu exemple), si combinatiile cross-contract pe care nu stim sa le exprimam ca
+  proprietate - exact ce aduce un auditor extern.
 - **Bug-uri de logica de business** pe care nicio invarianta nu le exprima fiindca nu stim sa le
   cerem. Un auditor extern aduce proprietati la care noi nu ne-am gandit.
 - **Economia** (farmarea punctelor prin volum spalat, L12) - decizie de proiectare, nu proprietate.
