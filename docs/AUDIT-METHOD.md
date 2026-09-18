@@ -86,6 +86,14 @@ atacul), apoi absolveste, si verifica:
 Plus `test_fork_a_poisoned_empty_pool_cannot_steal_the_raise`, care reproduce C1 determinist si arata
 ca e neutralizat (pool otravit la podea, absolvit, raise tot in pool, creator zero).
 
+**`test/ForkBridgeInvariant.t.sol`** - proprietatea anti-backdoor a bridge-ului, contra endpointului
+LayerZero REAL de pe 4663. Fuzzeaza trimiteri repetate si verifica:
+- `canonicalSupplyIsImmutable`: supply-ul pe 4663 nu se misca niciodata, orice s-ar bridge-ui. Tokenul
+  nu are mint; asta dovedeste ca nicio cale de send nu il infleaza. Un backdoor de mint pica aici.
+- `lockedEqualsSent`: adaptorul (lock-box) tine la wei exact cat a plecat din float-ul local. Blocat
+  == datorat detinatorilor de pe alt lant.
+- `lockedNeverExceedsSupply`: nu se poate bloca mai mult decat exista.
+
 ## Ce a dovedit executia simbolica
 
 `test/symbolic/CurveMathSymbolic.t.sol`, cu halmos. `check_` ruleaza doar sub halmos; `forge test`
@@ -120,10 +128,11 @@ un mutant nou punand o intrare `{file, find, replace, why}` in `scripts/mutation
 
 ## Ce NU acopera nimic din toate astea, si de ce mai trebuie un audit extern candva
 
-- **Interactiunile cu v4 sunt acum fuzzlate pe ambele masini** (`ForkDirectInvariant`,
-  `ForkCurveGradInvariant`), inclusiv atacul C1. Ce ramane neacoperit de fuzzing: LayerZero (doar
-  teste pe fork cu exemple), si combinatiile cross-contract pe care nu stim sa le exprimam ca
-  proprietate - exact ce aduce un auditor extern.
+- **v4 SI LayerZero sunt acum fuzzlate pe fork** (`ForkDirectInvariant`, `ForkCurveGradInvariant`,
+  `ForkBridgeInvariant`), inclusiv atacul C1 si proprietatea anti-backdoor a lock-box-ului (supply-ul
+  pe 4663 imutabil, blocat == trimis). Ce ramane: partea de RECEIVE a bridge-ului (unlock) are nevoie
+  de lantul destinatie, deci e doar pe teste cu exemple, nu fuzzlata; si combinatiile cross-contract
+  pe care nu stim sa le exprimam ca proprietate - exact ce aduce un auditor extern.
 - **Bug-uri de logica de business** pe care nicio invarianta nu le exprima fiindca nu stim sa le
   cerem. Un auditor extern aduce proprietati la care noi nu ne-am gandit.
 - **Economia** (farmarea punctelor prin volum spalat, L12) - decizie de proiectare, nu proprietate.
