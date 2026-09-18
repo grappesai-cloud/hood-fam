@@ -31,6 +31,9 @@ halmos --match-contract CurveMathSymbolic --function check_buyCostsAtLeastWhatIt
 # 4. static
 slither . --filter-paths "lib/|node_modules/|test/|script/" --exclude-dependencies \
   --exclude-informational --exclude-optimization --exclude-low
+
+# 5. mutation: introdu bug-uri intentionat si verifica ca testele le prind
+python3 scripts/mutation/run.py
 ```
 
 ## Ce acopera invariantele, si ce inseamna daca pica
@@ -98,6 +101,22 @@ le ignora.
   pentru solver. Important: solver-ul nu a gasit contraexemplu, doar nu reuseste sa demonstreze
   absenta lui; daca ar exista unul, z3 l-ar fi gasit repede. Le tinem ca "acoperite de fuzzing,
   demonstratie simbolica blocata de mulDiv", nu ca "dovedite".
+
+## Mutation testing: testam testele
+
+Un strat de teste care trece nu inseamna nimic daca nu prinde bug-uri. `scripts/mutation/run.py`
+introduce bug-uri intentionat in codul critic (o rotunjire inversata, o taxa scoasa, o garda
+stearsa), ruleaza suita rapida dupa fiecare, si verifica ca suita PICA. Un mutant care supravietuieste
+(suita trece cu bug cu tot) nu e un bug in contract - e un gol in teste, si exact asta cautam.
+
+Prima rulare: 6 din 7 omorati, 1 supravietuitor. Supravietuitorul: stergerea plafonului
+`snipeDecaySeconds` (fixul M3) nu era prinsa de suita rapida, fiindca singurul test care il verifica
+era pe FORK (`ForkDirect`), iar jobul de fork e `continue-on-error` in CI - deci o regresie pe plafonul
+ala ar fi trecut prin CI nedetectata. Inchis cu `test_a_launch_cannot_set_a_decay_window_past_the_ceiling`
+in `test/DirectHook.t.sol`, in suita rapida care gateuieste. Dupa fix: 7 din 7 omorati.
+
+Asta e valoarea mutation testing-ului: nu gaseste bug-uri in cod, gaseste minciuni in teste. Adauga
+un mutant nou punand o intrare `{file, find, replace, why}` in `scripts/mutation/mutants.json`.
 
 ## Ce NU acopera nimic din toate astea, si de ce mai trebuie un audit extern candva
 

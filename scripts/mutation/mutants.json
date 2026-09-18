@@ -1,0 +1,9 @@
+[
+  {"id":"curvemath-round-down","file":"src/libraries/CurveMath.sol","find":"up ? Math.Rounding.Ceil : Math.Rounding.Floor","replace":"Math.Rounding.Floor","why":"buys round DOWN not up -> reserve should go insolvent"},
+  {"id":"splitter-protocol-zero","file":"src/direct/HoodRevenueSplitter.sol","find":"uint256 protocol = (unaccounted * PROTOCOL_BPS) / BPS;","replace":"uint256 protocol = 0;","why":"protocol takes nothing -> accounting should drift"},
+  {"id":"splitter-double-protocol","file":"src/direct/HoodRevenueSplitter.sol","find":"uint256 rest = unaccounted - protocol;","replace":"uint256 rest = unaccounted;","why":"rest not reduced by protocol -> over-books, splitter insolvent"},
+  {"id":"buyback-no-block-guard","file":"src/direct/HoodBuybackModule.sol","find":"if (lastRunBlock[token] == uint64(block.number)) revert AlreadyRanThisBlock();","replace":"","why":"remove the once-per-block guard (H2) -> DirectSwap test should kill"},
+  {"id":"hook-no-decay-bound","file":"src/direct/HoodLaunchHook.sol","find":"if (p.snipeDecaySeconds > MAX_SNIPE_DECAY_SECONDS) revert BadTax();","replace":"","why":"remove the snipe-decay ceiling (M3) -> ForkDirect bound test should kill"},
+  {"id":"staking-weight-flat","file":"src/HoodStaking.sol","find":"uint256 weight = Math.mulDiv(amount, weightBps, BPS);","replace":"uint256 weight = amount;","why":"ignore the lock multiplier -> staking reward-split test should kill"},
+  {"id":"curve-fee-off-by-swap","file":"src/HoodCurve.sol","find":"protocolFee = Math.mulDiv(total, protocolFeeBps, bps);\n        creatorFee = total - protocolFee;","replace":"creatorFee = Math.mulDiv(total, protocolFeeBps, bps);\n        protocolFee = total - creatorFee;","why":"swap protocol/creator legs -> fee-split test should kill"}
+]

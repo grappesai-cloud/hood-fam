@@ -107,6 +107,29 @@ contract DirectHookTest is Test {
         fresh.initialize(p);
     }
 
+    /// @dev The snipe surcharge must decay within a bounded window (M3): without a ceiling on
+    ///      `snipeDecaySeconds` a launch could set a 98% rate decaying over a century, a permanent
+    ///      honeypot every screener reads as the base rate. This lives in the FAST suite on purpose:
+    ///      mutation testing showed the bound was only covered by a fork test, and the fork job does
+    ///      not gate CI, so a regression here would have slipped through.
+    function test_a_launch_cannot_set_a_decay_window_past_the_ceiling() public {
+        HookHarness fresh = new HookHarness(IPoolManager(makeAddr("pmDecay")), portal);
+        HoodLaunchHook.InitParams memory p;
+        p.token = makeAddr("token");
+        p.splitter = makeAddr("splitter");
+        p.buyTaxBps = 100;
+        p.sellTaxBps = 100;
+        p.snipeTaxBps = 500;
+        p.snipeDecaySeconds = uint32(fresh.MAX_SNIPE_DECAY_SECONDS()) + 1;
+        vm.expectRevert(HoodLaunchHook.BadTax.selector);
+        fresh.initialize(p);
+
+        // and the boundary itself is allowed
+        HookHarness ok = new HookHarness(IPoolManager(makeAddr("pmDecayOk")), portal);
+        p.snipeDecaySeconds = uint32(ok.MAX_SNIPE_DECAY_SECONDS());
+        ok.initialize(p); // no revert
+    }
+
     function test_a_launch_cannot_charge_more_than_a_tenth_per_side() public {
         HookHarness fresh = new HookHarness(IPoolManager(makeAddr("pm3")), portal);
         HoodLaunchHook.InitParams memory p;
