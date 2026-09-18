@@ -413,9 +413,16 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
 
     /// @inheritdoc IHoodFactory
     function recordVolume(address token, uint256 pairAmount) external {
-        Launch memory l = _launches[token];
+        // This runs on every trade, so it reads the launch row a field at a time from storage rather
+        // than copying the whole struct into memory: the common path (a trade under the copycat
+        // lock's threshold, which is most trades) only needs the reporter check and the pair asset,
+        // three slots instead of the fourteen a `Launch memory` load would fetch cold. The ticker
+        // hashes are read only if a trade actually trips the lock.
+        Launch storage l = _launches[token];
         // Either machine may report: a curve for its own token, a hook for its own pool.
-        bool reporter = (l.curve != address(0) && msg.sender == l.curve) || (l.hook != address(0) && msg.sender == l.hook);
+        address curve = l.curve;
+        address hook = l.hook;
+        bool reporter = (curve != address(0) && msg.sender == curve) || (hook != address(0) && msg.sender == hook);
         if (!reporter) revert NotACurve();
 
         VolumeWindow memory w = volumeWindow[token];
@@ -429,15 +436,17 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         uint256 threshold = lockThreshold[l.pairToken];
         if (threshold == 0 || w.volume < threshold) return;
 
+        bytes32 sHash = l.symbolHash;
         uint64 until = uint64(block.timestamp) + LOCK_DURATION;
-        if (symbolLockedUntil[l.symbolHash] + LOCK_REFRESH < until) {
-            symbolLockedUntil[l.symbolHash] = until;
-            symbolLockOwner[l.symbolHash] = token;
-            if (l.imageHash != EMPTY_HASH) {
-                imageLockedUntil[l.imageHash] = until;
-                imageLockOwner[l.imageHash] = token;
+        if (symbolLockedUntil[sHash] + LOCK_REFRESH < until) {
+            symbolLockedUntil[sHash] = until;
+            symbolLockOwner[sHash] = token;
+            bytes32 iHash = l.imageHash;
+            if (iHash != EMPTY_HASH) {
+                imageLockedUntil[iHash] = until;
+                imageLockOwner[iHash] = token;
             }
-            emit TickerLocked(token, l.symbolHash, until);
+            emit TickerLocked(token, sHash, until);
         }
     }
 }
