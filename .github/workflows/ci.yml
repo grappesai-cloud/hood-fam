@@ -1,0 +1,82 @@
+name: ci
+
+# Two gates, both of which have caught something real: the contracts have to pass their own tests
+# and stay inside the size an account may hold, and the TypeScript that talks to them has to
+# compile against ABIs generated from those same artifacts.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: npm ci
+      - name: tests
+        run: forge test --no-match-path 'test/Fork*.t.sol' -vv
+      - name: size limit
+        run: |
+          forge build --sizes --json > sizes.json
+          node -e "
+            const s = JSON.parse(require('fs').readFileSync('sizes.json','utf8'));
+            const over = Object.entries(s).filter(([n, v]) => v.runtime_size > 24576 && n.startsWith('Hood'));
+            if (over.length) { console.error('over the limit:', over); process.exit(1); }
+            console.log('all contracts fit');
+          "
+
+  fork:
+    runs-on: ubuntu-latest
+    # The fork suites are the ones that talk to the real Uniswap v4 and the real LayerZero endpoint
+    # on 4663. They need the public RPC, which rate limits, so they do not gate a pull request.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: npm ci
+      - run: forge test --match-path 'test/Fork*.t.sol' --fork-url https://rpc.mainnet.chain.robinhood.com -vv
+
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: npm ci
+      - run: forge build
+      - run: npm run abis
+      - name: the generated ABIs have to match what is committed
+        run: git diff --exit-code packages/sdk/src/abi.generated.ts
+      - run: npx tsc -p packages/sdk/tsconfig.json
+      - run: npx tsc -p packages/mcp/tsconfig.json --noEmit
+      - run: npx tsc -p apps/api/tsconfig.json --noEmit
+      - run: npx tsc -p apps/keeper/tsconfig.json --noEmit
+      - run: npx tsc -p apps/web/tsconfig.json --noEmit
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    # Reported, not gating: the verdicts on the current findings live in docs/SECURITY.md, and a
+    # new one should be read by a person rather than fail a build on its own.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: pip install slither-analyzer
+      - run: slither . --filter-paths "lib/|node_modules/|test/|script/" --exclude-dependencies --exclude-informational --exclude-optimization --exclude-low

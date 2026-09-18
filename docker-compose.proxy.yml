@@ -1,0 +1,35 @@
+# An overlay for a box that already terminates TLS: Coolify's Traefik, an nginx, any proxy that
+# reaches containers by name on a shared network.
+#
+# It publishes nothing on the host. The base file maps 8080 and 4665 because a box of its own has
+# nothing else on them; a shared box usually does, and a published port bypasses the host firewall
+# (Docker writes its own iptables rules), which would leave the API answering in the clear beside
+# the proxy that is supposed to front it.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d db api web backup
+#
+# The proxy then routes to hood-web:4665 and hood-api:8080 over the `proxy` network. Name that
+# network with PROXY_NETWORK (default `coolify`); it has to exist already, since it belongs to the
+# proxy and not to this stack. The keeper moves behind a profile, because a box that only serves
+# the site has no business holding a hot key: run it with --profile keeper where it belongs.
+services:
+  db:
+    container_name: hood-db
+
+  api:
+    container_name: hood-api
+    ports: !reset []
+    networks: [default, proxy]
+
+  web:
+    container_name: hood-web
+    ports: !reset []
+    networks: [default, proxy]
+
+  keeper:
+    profiles: ["keeper"]
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-coolify}

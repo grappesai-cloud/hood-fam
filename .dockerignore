@@ -1,0 +1,20 @@
+# The build context is everything in this directory, and everything in it lands in a layer.
+# node_modules and .next are rebuilt inside the image; the rest has no business in one.
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+out
+cache
+broadcast
+.git
+.github
+*.tsbuildinfo
+
+# secrets and local overrides: a .env in a build context ends up in the image
+.env
+.env.*
+!.env.example
+**/.env.local

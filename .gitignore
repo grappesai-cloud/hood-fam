@@ -1,0 +1,16 @@
+# foundry
+out/
+cache/
+broadcast/
+
+# node
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+
+# secrets and local overrides: nothing under here belongs in a repository
+.env
+.env.*
+!.env.example
+apps/web/.env.local

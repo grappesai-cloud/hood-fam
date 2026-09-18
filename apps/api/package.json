@@ -1,0 +1,32 @@
+{
+  "name": "@hood/api",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsc -p tsconfig.json && node dist/index.js",
+    "seasons": "node dist/seasons-cli.js",
+    "airdrop": "node dist/airdrop-cli.js",
+    "demo": "node dist/demo-cli.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@aws-sdk/client-s3": "^3.1135.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/rate-limit": "^11.2.0",
+    "@hood/sdk": "*",
+    "@openzeppelin/merkle-tree": "^1.0.8",
+    "fastify": "^5.0.0",
+    "pg": "^8.13.0",
+    "viem": "^2.21.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.6.0"
+  }
+}

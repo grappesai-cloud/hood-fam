@@ -1,0 +1,50 @@
+import { http, createConfig } from "wagmi";
+import { zeroAddress } from "viem";
+import { injected, walletConnect } from "wagmi/connectors";
+import { robinhood, type HoodAddresses } from "@hood/sdk";
+
+/// A phone has no extension to inject a wallet, so without this the site is desktop only. It costs
+/// a project id from WalletConnect and nothing else; with none set the connector is simply not
+/// offered, rather than offered and broken, because a wallet picker that fails on tap is worse than
+/// one that is not there.
+const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim();
+
+export const wagmiConfig = createConfig({
+  chains: [robinhood],
+  connectors: [
+    injected(),
+    ...(walletConnectProjectId
+      ? [walletConnect({ projectId: walletConnectProjectId, showQrModal: true })]
+      : []),
+  ],
+  transports: { [robinhood.id]: http(process.env.NEXT_PUBLIC_RPC ?? robinhood.rpcUrls.default.http[0]) },
+  ssr: true,
+});
+
+export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8080";
+
+/// An address this deployment never set. Docker passes every build arg through whether it was
+/// filled in or not, so an unset address arrives as the empty string rather than as undefined, and
+/// `??` would hand that empty string to wagmi: every read fails and every write goes nowhere,
+/// without anything saying the deployment is unwired. Empty is absent.
+function configured(value?: string): `0x${string}` | undefined {
+  const address = value?.trim();
+  return address ? (address as `0x${string}`) : undefined;
+}
+
+export const addresses: HoodAddresses = {
+  factory: configured(process.env.NEXT_PUBLIC_FACTORY) ?? zeroAddress,
+  feeRouter: configured(process.env.NEXT_PUBLIC_FEE_ROUTER) ?? zeroAddress,
+  staking: configured(process.env.NEXT_PUBLIC_STAKING) ?? zeroAddress,
+  graduator: configured(process.env.NEXT_PUBLIC_GRADUATOR) ?? zeroAddress,
+  bridgeFactory: configured(process.env.NEXT_PUBLIC_BRIDGE_FACTORY),
+};
+
+/// The direct machine: no curve, the supply is the liquidity from block one.
+export const directAddresses = {
+  portal: configured(process.env.NEXT_PUBLIC_PORTAL),
+  deployer: configured(process.env.NEXT_PUBLIC_DIRECT_DEPLOYER),
+  buybackModule: configured(process.env.NEXT_PUBLIC_BUYBACK_MODULE),
+};
+
+export const EXPLORER = "https://robinhoodchain.blockscout.com";

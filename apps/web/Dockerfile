@@ -1,0 +1,54 @@
+# The app. Next.js in standalone mode so the runtime image carries no build tooling.
+FROM node:22-slim AS build
+WORKDIR /app
+# wagmi's WebSocket transport pulls native modules (bufferutil) that compile at install time
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_RPC
+ARG NEXT_PUBLIC_FACTORY
+ARG NEXT_PUBLIC_FEE_ROUTER
+ARG NEXT_PUBLIC_STAKING
+ARG NEXT_PUBLIC_GRADUATOR
+ARG NEXT_PUBLIC_BRIDGE_FACTORY
+ARG NEXT_PUBLIC_PORTAL
+ARG NEXT_PUBLIC_DIRECT_DEPLOYER
+ARG NEXT_PUBLIC_BUYBACK_MODULE
+ARG NEXT_PUBLIC_SEASON_DROP
+ARG NEXT_PUBLIC_SITE_URL
+ARG NEXT_PUBLIC_DEMO
+ARG NEXT_PUBLIC_DEMO_WALLET
+ARG NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL NEXT_PUBLIC_RPC=$NEXT_PUBLIC_RPC \
+    NEXT_PUBLIC_FACTORY=$NEXT_PUBLIC_FACTORY NEXT_PUBLIC_FEE_ROUTER=$NEXT_PUBLIC_FEE_ROUTER \
+    NEXT_PUBLIC_STAKING=$NEXT_PUBLIC_STAKING NEXT_PUBLIC_GRADUATOR=$NEXT_PUBLIC_GRADUATOR \
+    NEXT_PUBLIC_BRIDGE_FACTORY=$NEXT_PUBLIC_BRIDGE_FACTORY \
+    NEXT_PUBLIC_PORTAL=$NEXT_PUBLIC_PORTAL NEXT_PUBLIC_DIRECT_DEPLOYER=$NEXT_PUBLIC_DIRECT_DEPLOYER \
+    NEXT_PUBLIC_BUYBACK_MODULE=$NEXT_PUBLIC_BUYBACK_MODULE \
+    NEXT_PUBLIC_SEASON_DROP=$NEXT_PUBLIC_SEASON_DROP \
+    NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
+    NEXT_PUBLIC_DEMO=$NEXT_PUBLIC_DEMO NEXT_PUBLIC_DEMO_WALLET=$NEXT_PUBLIC_DEMO_WALLET \
+    NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=$NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+COPY package.json package-lock.json* ./
+COPY packages/sdk/package.json packages/sdk/
+COPY apps/web/package.json apps/web/
+# not --omit=optional: Tailwind's lightningcss and Next's swc ship as optional platform
+# binaries. Dev dependencies ARE needed here, because the build is what needs them.
+RUN npm ci --no-audit --no-fund
+COPY packages/sdk packages/sdk
+COPY apps/web apps/web
+RUN npx tsc -p packages/sdk/tsconfig.json && cd apps/web && npx next build
+# and once the build is done, what built it does not travel with it
+RUN npm prune --omit=dev
+
+FROM node:22-slim
+WORKDIR /app
+ENV NODE_ENV=production PORT=4665
+COPY --from=build /app/node_modules node_modules
+COPY --from=build /app/packages/sdk packages/sdk
+COPY --from=build /app/apps/web apps/web
+COPY package.json ./
+EXPOSE 4665
+# not `npx --yes`: that reaches for the registry when the package is not where it expects
+# it, which is a download at container start and a supply chain nobody reviewed.
+USER node
+CMD ["node", "node_modules/next/dist/bin/next", "start", "apps/web", "-p", "4665"]

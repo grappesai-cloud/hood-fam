@@ -1,0 +1,38 @@
+[profile.default]
+src = "src"
+out = "out"
+test = "test"
+libs = ["lib"]
+eth_rpc_timeout = 600
+solc = "0.8.26"
+optimizer = true
+optimizer_runs = 400
+via_ir = true
+evm_version = "cancun"
+# The local direct-launch suite deploys v4-core's PoolManager from the artifact the package ships:
+# the contract does not compile under this project's optimizer settings, and the artifact is the
+# bytecode Uniswap built with theirs.
+fs_permissions = [
+    { access = "read", path = "out" },
+    { access = "read", path = "node_modules/@uniswap/v4-core/out" },
+]
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "@layerzerolabs/=node_modules/@layerzerolabs/",
+    "solidity-bytes-utils/=node_modules/solidity-bytes-utils/",
+    "@uniswap/v4-core/=node_modules/@uniswap/v4-core/",
+    "@uniswap/v4-periphery/=node_modules/@uniswap/v4-periphery/",
+    "v4-core/=node_modules/@uniswap/v4-core/src/",
+    "v4-periphery/=node_modules/@uniswap/v4-periphery/src/",
+    "solmate/=node_modules/@uniswap/v4-core/lib/solmate/",
+    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+]
+
+[fuzz]
+runs = 256
+
+[rpc_endpoints]
+robinhood = "https://rpc.mainnet.chain.robinhood.com"
+
+[etherscan]
+robinhood = { key = "blockscout", chain = 4663, url = "https://robinhoodchain.blockscout.com/api" }

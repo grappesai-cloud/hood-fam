@@ -1,0 +1,186 @@
+# Everything off-chain, in the shape it runs in production: own database, own indexer, own app.
+# Nothing here depends on a hosting platform's runtime, which is the point: it is one compose file
+# on one box, and it moves as a unit.
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: hood
+      POSTGRES_DB: hood
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hood"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://hood:${POSTGRES_PASSWORD}@db:5432/hood
+      HOOD_RPC: ${HOOD_RPC}
+      HOOD_FACTORY: ${HOOD_FACTORY}
+      HOOD_FEE_ROUTER: ${HOOD_FEE_ROUTER}
+      HOOD_STAKING: ${HOOD_STAKING}
+      HOOD_GRADUATOR: ${HOOD_GRADUATOR}
+      HOOD_PORTAL: ${HOOD_PORTAL}
+      HOOD_START_BLOCK: ${HOOD_START_BLOCK}
+      HOOD_ETH_USD: ${HOOD_ETH_USD}
+      HOOD_BUYBACK_MODULE: ${HOOD_BUYBACK_MODULE}
+      HOOD_DIRECT_DEPLOYER: ${HOOD_DIRECT_DEPLOYER}
+      HOOD_BRIDGE_FACTORY: ${HOOD_BRIDGE_FACTORY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      RELAY_API_KEY: ${RELAY_API_KEY}
+      HOOD_ADMIN_TOKEN: ${HOOD_ADMIN_TOKEN}
+      HOOD_SEASON_DROP: ${HOOD_SEASON_DROP}
+      SEASON_POOL_BPS: ${SEASON_POOL_BPS:-3000}
+      LAUNCH_POINTS_MIN_USD: ${LAUNCH_POINTS_MIN_USD:-1000}
+      STAKE_ACCRUAL_EVERY_MS: ${STAKE_ACCRUAL_EVERY_MS:-300000}
+      STAKE_ACCRUAL_MIN_MINUTES: ${STAKE_ACCRUAL_MIN_MINUTES:-60}
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      R2_BUCKET: ${R2_BUCKET}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_PUBLIC_BASE: ${R2_PUBLIC_BASE}
+      R2_REGION: ${R2_REGION:-auto}
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-4194304}
+      HOOD_CURVE_PROTOCOL_FEE_BPS: ${HOOD_CURVE_PROTOCOL_FEE_BPS:-30}
+      HOOD_CURVE_CREATOR_FEE_BPS: ${HOOD_CURVE_CREATOR_FEE_BPS:-70}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-300}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      NODE_ENV: production
+      # INDEXER=0 runs the read API on its own, for a box where the contracts are not deployed yet
+      # or where the indexer runs beside it as its own container.
+      INDEXER: ${INDEXER:-1}
+      SUPPORT_MODEL: ${SUPPORT_MODEL:-claude-opus-5}
+      SUPPORT_EFFORT: ${SUPPORT_EFFORT:-medium}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      PORT: 8080
+    ports:
+      # Bound to loopback on purpose. Docker writes its own iptables rules, so a port published on
+      # 0.0.0.0 is reachable from the internet whatever ufw says, and this API answers writes it
+      # would rather a proxy fronted. Put a proxy in front (docker-compose.proxy.yml) or publish it
+      # deliberately; do not do it by forgetting.
+      - "127.0.0.1:8080:8080"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_RPC: ${HOOD_RPC}
+        NEXT_PUBLIC_FACTORY: ${HOOD_FACTORY}
+        NEXT_PUBLIC_FEE_ROUTER: ${HOOD_FEE_ROUTER}
+        NEXT_PUBLIC_STAKING: ${HOOD_STAKING}
+        NEXT_PUBLIC_GRADUATOR: ${HOOD_GRADUATOR}
+        NEXT_PUBLIC_BRIDGE_FACTORY: ${HOOD_BRIDGE_FACTORY}
+        NEXT_PUBLIC_PORTAL: ${HOOD_PORTAL}
+        NEXT_PUBLIC_DIRECT_DEPLOYER: ${HOOD_DIRECT_DEPLOYER}
+        NEXT_PUBLIC_BUYBACK_MODULE: ${HOOD_BUYBACK_MODULE}
+        NEXT_PUBLIC_SEASON_DROP: ${HOOD_SEASON_DROP}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+        NEXT_PUBLIC_DEMO: ${NEXT_PUBLIC_DEMO:-}
+        NEXT_PUBLIC_DEMO_WALLET: ${NEXT_PUBLIC_DEMO_WALLET:-}
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+    ports:
+      - "127.0.0.1:4665:4665"
+
+  keeper:
+    build:
+      context: .
+      dockerfile: apps/keeper/Dockerfile
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      HOOD_RPC: ${HOOD_RPC}
+      HOOD_API: http://api:8080
+      HOOD_FACTORY: ${HOOD_FACTORY}
+      HOOD_FEE_ROUTER: ${HOOD_FEE_ROUTER}
+      HOOD_STAKING: ${HOOD_STAKING}
+      HOOD_GRADUATOR: ${HOOD_GRADUATOR}
+      HOOD_PORTAL: ${HOOD_PORTAL}
+      HOOD_DIRECT_DEPLOYER: ${HOOD_DIRECT_DEPLOYER}
+      HOOD_BUYBACK_MODULE: ${HOOD_BUYBACK_MODULE}
+      KEEPER_PRIVATE_KEY: ${KEEPER_PRIVATE_KEY}
+
+  # Says a launch happened, out loud. Reads the same public API as the app, holds no key, and is
+  # started only with `docker compose --profile announcer up -d announcer`. With no channel
+  # configured it logs what it would post, which is how to see what it would say before it says it.
+  announcer:
+    build:
+      context: .
+      dockerfile: apps/announcer/Dockerfile
+    restart: unless-stopped
+    profiles: ["announcer"]
+    depends_on: [api]
+    environment:
+      HOOD_API: http://api:8080
+      HOOD_SITE: ${NEXT_PUBLIC_SITE_URL}
+      ANNOUNCER_INTERVAL_MS: ${ANNOUNCER_INTERVAL_MS:-60000}
+      ANNOUNCE_MIN_USD: ${ANNOUNCE_MIN_USD:-0}
+      ANNOUNCE_MAX_AGE_MINUTES: ${ANNOUNCE_MAX_AGE_MINUTES:-180}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      ANNOUNCE_WEBHOOK: ${ANNOUNCE_WEBHOOK:-}
+      ANNOUNCER_STATE: /state/announcer.json
+    volumes:
+      - announcer:/state
+
+  # Dumps the database every six hours into its own volume and keeps two weeks. It is the plain
+  # postgres image running pg_dump, so it needs nothing the database does not already have.
+  backup:
+    image: postgres:17
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: hood
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: hood
+      BACKUP_EVERY_SECONDS: ${BACKUP_EVERY_SECONDS:-21600}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - backups:/backups
+      - ./scripts/backup:/scripts:ro
+    command: ["sh", "/scripts/backup.sh"]
+
+  # Optional: copies the dumps to S3-compatible storage (R2, S3, B2). Started only with
+  # `docker compose --profile offload up -d`; rclone reads the remote from these variables.
+  offload:
+    image: rclone/rclone:latest
+    restart: unless-stopped
+    profiles: ["offload"]
+    depends_on: [backup]
+    environment:
+      RCLONE_CONFIG_STORE_TYPE: s3
+      RCLONE_CONFIG_STORE_PROVIDER: ${BACKUP_S3_PROVIDER:-Cloudflare}
+      RCLONE_CONFIG_STORE_ENDPOINT: ${BACKUP_S3_ENDPOINT}
+      RCLONE_CONFIG_STORE_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY}
+      RCLONE_CONFIG_STORE_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_KEY}
+      RCLONE_CONFIG_STORE_ACL: private
+    volumes:
+      - backups:/backups:ro
+    entrypoint: ["sh", "-c"]
+    command: ["while true; do rclone sync /backups store:${BACKUP_S3_BUCKET}/hood-db --exclude '.*' && echo synced; sleep ${BACKUP_EVERY_SECONDS:-21600}; done"]
+
+volumes:
+  db:
+  backups:
+  announcer:

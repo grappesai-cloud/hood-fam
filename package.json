@@ -1,0 +1,35 @@
+{
+  "name": "hood-fam",
+  "version": "0.1.0",
+  "description": "hood.fam launchpad: contracts, sdk, mcp server, indexer api, web app",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "abis": "node scripts/abis.mjs",
+    "build": "npm run build -w @hood/sdk && npm run build -w @hood/mcp && npm run build -w @hood/api && npm run build -w @hood/announcer",
+    "test": "forge test --no-match-path 'test/Fork*.t.sol'",
+    "check:points": "node scripts/checks/points-accrual.mjs",
+    "abis:check": "node scripts/abis.mjs --check"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@layerzerolabs/lz-evm-messagelib-v2": "^3.0.168",
+    "@layerzerolabs/lz-evm-protocol-v2": "^3.0.168",
+    "@layerzerolabs/oapp-evm": "^0.3.3",
+    "@layerzerolabs/oft-evm": "^3.2.1",
+    "@uniswap/v4-core": "^1.0.2",
+    "@uniswap/v4-periphery": "^1.0.3",
+    "solidity-bytes-utils": "^0.8.4"
+  },
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
+}

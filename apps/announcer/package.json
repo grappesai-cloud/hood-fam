@@ -1,0 +1,9 @@
+{
+  "name": "@hood/announcer",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": { "build": "tsc -p tsconfig.json", "start": "node dist/index.js" },
+  "dependencies": {},
+  "devDependencies": { "typescript": "^5.6.0", "@types/node": "^22.7.0" }
+}
