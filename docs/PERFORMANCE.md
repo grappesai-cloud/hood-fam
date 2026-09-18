@@ -73,6 +73,19 @@ pentru JSON pe care l-am serializat noi (niciodata un stream SSE hijacked), cu `
 ca un cache sa tina cele doua codificari separate. Verificat: corpul decompresat e JSON valid, un
 client fara gzip primeste necompresat, `/health` sub prag ramane necompresat.
 
+**Raspunsurile publice sunt cacheabile la edge, ca sa intrecem TTFB-ul concurentei sub trafic.**
+Masurat head-to-head, Pons avea TTFB 228 ms vs 404 ms al nostru - diferenta e CDN/hosting, nu cod
+(bundle-ul nostru JS e deja de 5x mai usor: 205 KB vs 1046 KB). Partea de cod care activeaza
+recuperarea: endpointurile publice de citire (`/tokens`, token detail, candles, trades, holders,
+leaderboard, stats, seasons) trimit acum `Cache-Control: public, s-maxage=N, stale-while-revalidate=M`.
+`s-maxage` tinteste DOAR cache-urile partajate (un CDN, sau Traefik in fata), nu browserul; aplicatia
+ia oricum cu no-store. Sub trafic, boardul e servit din edge la latenta edge-ului (~20-50 ms) in loc
+sa loveasca Postgres pentru fiecare vizitator, iar `stale-while-revalidate` lasa edge-ul sa serveasca
+ultimul raspuns instant cat il reimprospateaza in fundal - nimeni nu asteapta originea si nimic nu e
+mai vechi de cateva secunde. Verificat: cacheat doar pe GET-urile publice de citire, niciodata pe
+health/admin/support/uploads sau pe un raspuns de eroare (un 404 nu se cacheaza). Pasul de infra
+ramas: un CDN in fata (Cloudflare) - codul e gata sa-l foloseasca.
+
 ## Ce urmeaza (candidati masurabili, nefacuti inca)
 
 - **Search pe board** (`lower(name) like '%q%'`): la 5.000 de tokenuri e 2 ms (Seq Scan pe o tabela

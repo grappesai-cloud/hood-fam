@@ -90,6 +90,34 @@ export async function buildServer() {
   }
   await app.register(cors, { origin });
 
+  // Make the public read endpoints cacheable at a shared cache -- a CDN, or Traefik in front -- so
+  // that under load the board is served from the edge at edge latency instead of hitting Postgres
+  // for every viewer. `s-maxage` targets shared caches only, not the browser (the app fetches with
+  // no-store anyway), and `stale-while-revalidate` lets the edge serve the last answer instantly
+  // while it refreshes behind the scenes, so nobody waits on the origin and nothing goes more than a
+  // few seconds stale. Only GETs, only the public read paths (matched on the route pattern, so admin,
+  // support, uploads and the airdrop build never match), and never an error response.
+  const CACHE_RULES: [RegExp, string][] = [
+    [/^\/tokens$/, "public, s-maxage=3, stale-while-revalidate=15"],
+    [/^\/tokens\/:token$/, "public, s-maxage=3, stale-while-revalidate=15"],
+    [/^\/tokens\/:token\/candles$/, "public, s-maxage=3, stale-while-revalidate=30"],
+    [/^\/tokens\/:token\/trades$/, "public, s-maxage=2, stale-while-revalidate=10"],
+    [/^\/tokens\/:token\/holders$/, "public, s-maxage=5, stale-while-revalidate=30"],
+    [/^\/stakes\/:owner$/, "public, s-maxage=5, stale-while-revalidate=30"],
+    [/^\/leaderboard$/, "public, s-maxage=5, stale-while-revalidate=30"],
+    [/^\/seasons$/, "public, s-maxage=10, stale-while-revalidate=60"],
+    [/^\/stats$/, "public, s-maxage=10, stale-while-revalidate=60"],
+  ];
+  app.addHook("onSend", async (req, reply, payload) => {
+    if (req.method !== "GET" || (reply.statusCode >= 300) || reply.getHeader("cache-control")) return payload;
+    const pattern = req.routeOptions?.url;
+    if (!pattern) return payload;
+    for (const [re, value] of CACHE_RULES) {
+      if (re.test(pattern)) { reply.header("cache-control", value); break; }
+    }
+    return payload;
+  });
+
   // Compress JSON responses over the wire. The app fetches every list, chart and holder count from
   // here, and those payloads are the biggest thing between a click and the screen updating. Only
   // when the client asked for gzip, only above the threshold, only for a string body we serialised
