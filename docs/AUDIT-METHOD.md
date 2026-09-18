@@ -17,8 +17,9 @@ Straturile, in ordinea increderii pe care o dau:
 ## Cum rulezi tot
 
 ```sh
-# 1. unitare + fork + INVARIANTE (invariantele se prind automat, sunt in test/invariant)
+# 1. unitare + INVARIANTE pe stare simulata (se prind automat, sunt in test/invariant)
 forge test --no-match-path 'test/Fork*.t.sol'
+# fork: unitare pe v4/LayerZero reale + INVARIANTA pe fork (test/ForkDirectInvariant.t.sol)
 forge test --match-path 'test/Fork*.t.sol' --fork-url robinhood
 
 # 2. invariantele mai adanc decat implicit, cand vrei sa le storci
@@ -61,6 +62,17 @@ exacta care a spart-o.
 - `eligibleSupplyTracksHolders`: baza de dividende urmareste exact detinatorii raportati de token.
 - `nothingLeaks`: fiecare wei intrat e ori inca tinut pentru un drum, ori platit. La wei.
 
+**`test/ForkDirectInvariant.t.sol`** - acelasi lucru, dar contra Uniswap v4 ADEVARAT pe fork, nu a
+unui mock. Aici traia C1. Fuzzeaza buy/sell/buyback/harvest/deepen prin router-ul si hook-ul reale
+(runs mici, ca fiecare apel loveste RPC-ul; ~150 de operatii v4 reale per proprietate):
+- `lockedLiquidityNeverShrinks`: lichiditatea pozitiei blocate nu scade niciodata sub cat s-a mintat.
+  Asta e promisiunea "lichiditatea e blocata", verificata pe pool-ul real.
+- `supplyNeverGrows`: supply-ul doar scade (buyback arde), niciodata nu creste.
+- `splitterStaysSolvent`: prin callback-urile reale ale hook-ului, splitterul ramane solvent.
+- `hookHoldsNoLooseEth`: hook-ul nu sta niciodata pe ETH nesocotit intre swap-uri.
+Plus `test_fork_the_harness_actually_trades`, care dovedeste ca handler-ul chiar muta bani, ca sa nu
+fie invariantele adevarate degeaba (pe o secventa de reverturi inghitite).
+
 ## Ce a dovedit executia simbolica
 
 `test/symbolic/CurveMathSymbolic.t.sol`, cu halmos. `check_` ruleaza doar sub halmos; `forge test`
@@ -79,10 +91,10 @@ le ignora.
 
 ## Ce NU acopera nimic din toate astea, si de ce mai trebuie un audit extern candva
 
-- **Interactiunile cu v4 si LayerZero reale.** Testele de fuzzing folosesc un graduator mock; pool-ul
-  Uniswap v4 adevarat, ordinea callback-urilor, cazurile de settle/take sunt doar pe fork, cu exemple,
-  nu fuzzlate. C1 (pretul la absolvire) a fost gasit prin citire, nu de invariante, tocmai pentru ca
-  e in interactiunea cu v4.
+- **Absolvirea curbei pe v4 real.** `ForkDirectInvariant` fuzzeaza acum masina DIRECTA contra v4
+  adevarat, deci stratul de callback-uri nu mai e complet neacoperit. Dar absolvirea CURBEI (unde a
+  fost C1) merge printr-un graduator mock in fuzzing si e doar pe fork cu exemple, nu fuzzlata. O
+  invarianta de fork peste `finalize()` + `graduate()` pe v4 real ar fi urmatorul pas.
 - **Bug-uri de logica de business** pe care nicio invarianta nu le exprima fiindca nu stim sa le
   cerem. Un auditor extern aduce proprietati la care noi nu ne-am gandit.
 - **Economia** (farmarea punctelor prin volum spalat, L12) - decizie de proiectare, nu proprietate.
