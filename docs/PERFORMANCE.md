@@ -63,13 +63,25 @@ minute nu se schimba in 3 secunde: 109 ms devine 1.6 ms pe lovirile repetate. Ca
 ultra-rar tranzactionat arata lumanarile recente in loc de toata istoria imprastiata) e comportament
 normal de chart.
 
+**Raspunsurile API se comprima pe retea: boardul 139 kB -> 4.7 kB (de 29.7 ori).** Aplicatia ia
+fiecare lista, chart si numar de detinatori de aici, iar payload-urile astea sunt cel mai mare lucru
+dintre un click si ecranul care se actualizeaza - pe o conexiune mobila, diferenta dintre 140 kB si
+5 kB la fiecare load de board. JSON-ul e foarte compresibil (nume de campuri repetate, adrese,
+structura similara). Facut cu `node:zlib` din standard library, nu cu un plugin, deci nu adauga nicio
+dependinta: un hook `onSend` gzip-uieste doar cand clientul a cerut gzip, doar peste 1 KB, doar
+pentru JSON pe care l-am serializat noi (niciodata un stream SSE hijacked), cu `Vary: accept-encoding`
+ca un cache sa tina cele doua codificari separate. Verificat: corpul decompresat e JSON valid, un
+client fara gzip primeste necompresat, `/health` sub prag ramane necompresat.
+
 ## Ce urmeaza (candidati masurabili, nefacuti inca)
 
 - **Search pe board** (`lower(name) like '%q%'`): la 5.000 de tokenuri e 2 ms (Seq Scan pe o tabela
   mica), nu merita inca. La zeci de mii, un index GIN pg_trgm il face instant.
 - **Candles** (FACUT): vezi mai sus. Un rollup materializat ar mai taia si cazul burst-ului dens.
-- **Bundle-ul frontend**: wagmi/viem sunt grele la primul load. Un audit de bundle + code-splitting pe
-  paginile grele (launch wizard, admin) ar scadea Time-to-Interactive.
+- **Bundle-ul partajat wagmi/viem** (104 kB pe fiecare pagina): cel mai mare JS ramas. Reducerea lui
+  cere restructurarea provider-ului de wallet (deferarea stack-ului pana la connect), ceea ce atinge
+  `layout.tsx`/`providers.tsx` si schimba UX-ul de connect - de facut cu masuratori atente si cand
+  fisierele alea nu sunt editate in paralel, ca sa nu rupa conectorii.
 - **Cache-Control pe API** pentru un CDN/Traefik in fata: ar servi repetari fara sa atinga procesul,
   dar cu grija la freshness-ul trade-urilor.
 

@@ -1,8 +1,17 @@
+import { gzip as gzipCb } from "node:zlib";
+import { promisify } from "node:util";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { isAddress } from "viem";
 import { z } from "zod";
+
+const gzip = promisify(gzipCb);
+/// Below this a compressed body plus its headers is not worth the CPU; above it the board (up to a
+/// hundred token rows) and the candle series (up to a thousand buckets) are JSON that gzips five to
+/// ten times smaller, which is the wire the browser waits on. Done with the standard library rather
+/// than a plugin so it adds no dependency.
+const GZIP_MIN_BYTES = 1024;
 
 import { pool, currentSeason } from "./db.js";
 import { leaderboard, pointsFor, RANKS, POINTS } from "./points.js";
@@ -80,6 +89,23 @@ export async function buildServer() {
     app.log.warn("CORS_ORIGIN is not set: this API answers any origin. Set it to the site's URL.");
   }
   await app.register(cors, { origin });
+
+  // Compress JSON responses over the wire. The app fetches every list, chart and holder count from
+  // here, and those payloads are the biggest thing between a click and the screen updating. Only
+  // when the client asked for gzip, only above the threshold, only for a string body we serialised
+  // (never a already-encoded or hijacked stream), and Vary so a cache keeps the two encodings apart.
+  app.addHook("onSend", async (req, reply, payload) => {
+    if (typeof payload !== "string" || payload.length < GZIP_MIN_BYTES) return payload;
+    if (reply.getHeader("content-encoding")) return payload;
+    if (!/\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""))) return payload;
+    const ct = String(reply.getHeader("content-type") ?? "");
+    if (!ct.includes("application/json") && !ct.includes("text/")) return payload;
+    const zipped = await gzip(payload);
+    reply.header("content-encoding", "gzip");
+    reply.header("vary", "accept-encoding");
+    reply.removeHeader("content-length");
+    return zipped;
+  });
 
   /// A read API in front of a database is cheap to call and cheap to abuse. Registered before the
   /// routes so it covers all of them; /health opts out, the admin routes tighten it.
