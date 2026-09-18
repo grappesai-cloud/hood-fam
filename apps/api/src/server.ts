@@ -99,6 +99,21 @@ export async function buildServer() {
     },
   };
 
+  /// A few endpoints aggregate a whole table on every hit -- the live leaderboard sums every point
+  /// in a season, /stats counts distinct traders across all trades -- and the app, which fetches
+  /// with no-store, calls them on every navigation. Their answer barely changes second to second, so
+  /// a tiny in-process cache turns a hot aggregate into a map lookup. Per-instance and best-effort:
+  /// a second replica just caches independently, and the staleness is the TTL, which is the point.
+  const _cache = new Map<string, { at: number; value: unknown }>();
+  async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+    const hit = _cache.get(key);
+    if (hit && Date.now() - hit.at < ttlMs) return hit.value as T;
+    const value = await fn();
+    _cache.set(key, { at: Date.now(), value });
+    if (_cache.size > 500) for (const [k, v] of _cache) if (Date.now() - v.at > 60_000) _cache.delete(k);
+    return value;
+  }
+
   /// Bad input from a caller, not a bug: the season layer says which, the route says it back.
   const seasonError = (e: unknown, reply: FastifyReply) => {
     if (e instanceof SeasonError) return reply.code(e.status).send({ error: e.message });
@@ -279,7 +294,10 @@ export async function buildServer() {
     if (frozen) {
       return { season: s, frozen: true, takenAt: frozen.takenAt, rules: { POINTS, RANKS }, rows: frozen.rows };
     }
-    return { season: s, frozen: false, rules: { POINTS, RANKS }, rows: await leaderboard(s, n) };
+    // The live board sums every point in the season on each hit. Cache it for a few seconds: it is
+    // read far more often than it meaningfully changes, and a frozen season never reaches here.
+    const rows = await cached(`lb:${s}:${n}`, 5_000, () => leaderboard(s, n));
+    return { season: s, frozen: false, rules: { POINTS, RANKS }, rows };
   });
 
   app.get("/seasons", async () => {
@@ -358,6 +376,9 @@ export async function buildServer() {
   ].filter(Boolean).map((a) => a!.toLowerCase());
 
   app.get("/stats", async () => {
+    // `count(distinct trader)` over the whole trades table is the expensive one, and the headline
+    // numbers move slowly. Ten seconds of cache makes a repeated hit a map lookup.
+    return cached("stats", 10_000, async () => {
     const { rows } = await pool.query(
       `select count(*) as launches,
               count(*) filter (where phase = 2 or bonded) as graduated,
@@ -372,6 +393,7 @@ export async function buildServer() {
       [system],
     );
     return rows[0];
+    });
   });
 
   // ---------------------------------------------------------------- admin
