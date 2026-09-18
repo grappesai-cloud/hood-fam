@@ -41,6 +41,17 @@ cifrele de titlu se misca lent; 10 secunde de cache fac o lovire repetata o caut
 Cache-ul e per-instanta si best-effort: o a doua replica isi tine propriul cache, iar staleness-ul e
 exact TTL-ul, ceea ce e in regula pentru un board. Nu cache-uim niciodata date per-user sau per-trade.
 
+**Bundle frontend: pagina de token 312 kB -> 263 kB First Load** (partea specifica paginii 61 kB ->
+11.7 kB). Pagina de token e cea mai vizitata (fiecare click pe un token) si cea mai grea. `Chart`
+importa `lightweight-charts` (~45 kB) eager, desi graficul e un widget sub caseta de trade, nu primul
+lucru de care are nevoie un trader. Trecut pe `next/dynamic` cu `ssr: false` si o schema de incarcare:
+libraria de charting se incarca dupa paint, intr-un chunk separat, deci pagina picteaza si caseta de
+trade e interactiva fara sa astepte graficul. La fel, `SupportChat` (butonul de help) statea in
+layout-ul root, deci in bundle-ul initial al FIECAREI pagini desi se deschide doar la click; mutat
+intr-un wrapper client cu `ssr: false`, se incarca dupa hidratare. Verificat in browser: board
+stilizat, butonul help apare, chunk-ul de chart NU e pe board; in containerul de productie CSS si JS
+servesc 200.
+
 ## Ce urmeaza (candidati masurabili, nefacuti inca)
 
 - **Search pe board** (`lower(name) like '%q%'`): la 5.000 de tokenuri e 2 ms (Seq Scan pe o tabela

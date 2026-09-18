@@ -3,7 +3,7 @@ import Link from "next/link";
 import "./globals.css";
 import { Providers } from "./providers";
 import { Nav } from "@/components/Nav";
-import { SupportChat } from "@/components/SupportChat";
+import { SupportChatMount } from "@/components/SupportChatMount";
 import { DemoBanner } from "@/components/DemoBanner";
 import { CANONICAL, SITE } from "@/lib/site";
 
@@ -50,7 +50,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <p>Transactions go through your wallet and cannot be reversed. Tokens can lose all their value. hood.fam holds no funds and gives no financial advice. Always check the token address.</p>
             </div>
           </footer>
-          <SupportChat />
+          <SupportChatMount />
         </Providers>
       </body>
     </html>

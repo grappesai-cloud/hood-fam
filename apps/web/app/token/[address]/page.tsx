@@ -11,7 +11,14 @@ import { addresses, directAddresses, EXPLORER } from "@/lib/config";
 import { TradeBox } from "@/components/TradeBox";
 import { DirectTradeBox } from "@/components/DirectTradeBox";
 import { DirectPanels } from "@/components/DirectPanels";
-import { Chart } from "@/components/Chart";
+import dynamic from "next/dynamic";
+// lightweight-charts is ~45 kB and the chart is a widget, not the first thing a trader needs. Split
+// it out of the token page's initial bundle and mount it after hydration, behind a matching box, so
+// the page paints and the trade box is interactive without waiting on the charting library.
+const Chart = dynamic(() => import("@/components/Chart").then((m) => m.Chart), {
+  ssr: false,
+  loading: () => <div className="h-[320px] w-full animate-pulse rounded-xl bg-[var(--color-ink)]" />,
+});
 import { StakePanel } from "@/components/StakePanel";
 import { ago, compact, feeModelLabel, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, safeUrl, screenerLinks, shortAddress, telegramUrl, twitterUrl } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
