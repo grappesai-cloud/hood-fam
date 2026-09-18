@@ -52,12 +52,22 @@ intr-un wrapper client cu `ssr: false`, se incarca dupa hidratare. Verificat in 
 stilizat, butonul help apare, chunk-ul de chart NU e pe board; in containerul de productie CSS si JS
 servesc 200.
 
+**Candles: 96 ms -> 2.7 ms la query pe un token cu istoric, si 109 ms -> 1.6 ms prin API pe polling
+repetat.** Chart-ul cere OHLC-ul, iar query-ul agrega TOT istoricul tokenului ca sa returneze ultimele
+288 de lumanari - cost care creste cu numarul total de trade-uri (un token viral cu 500k trade-uri =
+scanare completa la fiecare poll). Doua parghii: (1) marginim scanarea la fereastra pe care chart-ul
+o arata (ultimele `n` bucketuri, ancorate la ULTIMUL trade al tokenului, nu la now(), ca un token
+adormit sa-si charteze tot activitatea finala): 52 ms peste 60k randuri de o luna devine 2.7 ms; (2)
+cache de 3 secunde, fiindca chart-ul face poll pe acelasi token la cateva secunde iar o lumanare de 5
+minute nu se schimba in 3 secunde: 109 ms devine 1.6 ms pe lovirile repetate. Cazul marginal (un token
+ultra-rar tranzactionat arata lumanarile recente in loc de toata istoria imprastiata) e comportament
+normal de chart.
+
 ## Ce urmeaza (candidati masurabili, nefacuti inca)
 
 - **Search pe board** (`lower(name) like '%q%'`): la 5.000 de tokenuri e 2 ms (Seq Scan pe o tabela
   mica), nu merita inca. La zeci de mii, un index GIN pg_trgm il face instant.
-- **Candles**: agregarea OHLC per token scaneaza toate trade-urile tokenului. Pentru tokenuri foarte
-  active, un rollup materializat (bucket de 1 min) pre-calculat de indexer ar taia asta.
+- **Candles** (FACUT): vezi mai sus. Un rollup materializat ar mai taia si cazul burst-ului dens.
 - **Bundle-ul frontend**: wagmi/viem sunt grele la primul load. Un audit de bundle + code-splitting pe
   paginile grele (launch wizard, admin) ar scadea Time-to-Interactive.
 - **Cache-Control pe API** pentru un CDN/Traefik in fata: ar servi repetari fara sa atinga procesul,

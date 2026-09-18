@@ -232,17 +232,30 @@ export async function buildServer() {
     const { interval = "5 minutes", limit = "288" } = req.query as Record<string, string>;
     const allowed = new Set(["1 minute", "5 minutes", "15 minutes", "1 hour", "4 hours", "1 day"]);
     const bucket = allowed.has(interval) ? interval : "5 minutes";
+    const n = clampInt(limit, 288, 1000, 1);
+    // The chart polls the same token and interval every few seconds. A 3 second cache makes a
+    // repeated poll a map lookup; a 5-minute candle does not change meaningfully in 3 seconds.
+    return cached(`candles:${token.toLowerCase()}:${bucket}:${n}`, 3_000, async () => {
+    // Only look at the trades in the span the chart actually shows: the last `n` buckets' worth of
+    // time, anchored to the token's OWN last trade (not now(), so a token that went quiet still
+    // charts its final activity). Without this the query aggregates the token's entire history to
+    // return the last 288 buckets, which scales with total trades: 52 ms over 60k rows of a
+    // month-old token becomes 2.7 ms, and a viral token with half a million trades stops being a
+    // full-history scan on every chart poll.
     const { rows } = await pool.query(
       `select to_timestamp(floor(extract(epoch from ts) / extract(epoch from $2::interval)) * extract(epoch from $2::interval)) as t,
               (array_agg(price order by ts))[1] as open,
               max(price) as high, min(price) as low,
               (array_agg(price order by ts desc))[1] as close,
               sum(pair_amount) as volume, count(*) as trades
-       from trades where token = $1 and price > 0
+       from trades
+       where token = $1 and price > 0
+         and ts >= coalesce((select max(ts) from trades where token = $1), now()) - ($3 * $2::interval)
        group by 1 order by 1 desc limit $3`,
-      [token.toLowerCase(), bucket, clampInt(limit, 288, 1000, 1)],
+      [token.toLowerCase(), bucket, n],
     );
     return { interval: bucket, candles: rows.reverse() };
+    });
   });
 
   app.get("/tokens/:token/holders", async (req) => {
