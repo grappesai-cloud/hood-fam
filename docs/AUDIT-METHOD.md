@@ -65,6 +65,17 @@ exacta care a spart-o.
 - `eligibleSupplyTracksHolders`: baza de dividende urmareste exact detinatorii raportati de token.
 - `nothingLeaks`: fiecare wei intrat e ori inca tinut pentru un drum, ori platit. La wei.
 
+**`SeasonDropSolvency.t.sol`** - airdropul, care plateste bani reali. Construieste un arbore merkle
+fix de 8 frunze cu dovezi valide (sorted-pair, ca OZ MerkleProof), apoi fuzzeaza ordinea de
+claim/claimMany/sweep:
+- `claimedNeverExceedsTotal`: un sezon nu plateste niciodata mai mult decat a fost finantat (garda
+  PoolExhausted sub orice ordine).
+- `paidOutNeverExceedsFunded`: ce a iesit efectiv <= ce a intrat; un dublu-claim sau un sweep care
+  se suprapune cu un claim ar sparge asta.
+- `everyWeiAccountedFor`: sold + platit + maturat-la-trezorerie = total finantat, la wei.
+Plus `test_a_fixture_proof_actually_claims`, care dovedeste ca dovezile verifica on-chain (altfel
+invariantele ar fi triviale pe reverturi inghitite).
+
 **`test/ForkDirectInvariant.t.sol`** - acelasi lucru, dar contra Uniswap v4 ADEVARAT pe fork, nu a
 unui mock. Aici traia C1. Fuzzeaza buy/sell/buyback/harvest/deepen prin router-ul si hook-ul reale
 (runs mici, ca fiecare apel loveste RPC-ul; ~150 de operatii v4 reale per proprietate):
