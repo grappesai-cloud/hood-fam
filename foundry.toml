@@ -31,6 +31,15 @@ remappings = [
 [fuzz]
 runs = 256
 
+# The invariant runner: many short random sequences by default, raised in CI. `fail_on_revert` is
+# off because the handlers bound their own inputs and a reverting action (a buy past sold-out, a
+# sell of more than you hold) is a no-op the fuzzer should be free to try, not a failure.
+[invariant]
+runs = 256
+depth = 64
+fail_on_revert = false
+call_override = false
+
 [rpc_endpoints]
 robinhood = "https://rpc.mainnet.chain.robinhood.com"
 

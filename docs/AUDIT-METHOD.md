@@ -1,0 +1,92 @@
+# Auditul in casa: cum il facem si cum il repeti
+
+Nu ne permitem o firma externa, deci facem noi ce face o firma, cu unelte care gasesc clasa de bug
+pe care ochiul o rateaza. Documentul asta e ce ruleaza cineva ca sa refaca auditul de la zero, plus
+ce inseamna fiecare rezultat. Nu tine locul unui audit extern (vezi la final de ce), dar ridica
+serios pragul.
+
+Straturile, in ordinea increderii pe care o dau:
+
+1. **Teste unitare + pe fork** - ce am scris deja, exemple concrete cu raspuns cunoscut.
+2. **Teste de invariant (fuzzing)** - mii de secvente aleatoare de tranzactii, verificand proprietati
+   care nu trebuie sa se strice niciodata. Aici s-au gasit C1/H1/H2.
+3. **Executie simbolica** - demonstreaza o proprietate pentru TOATE intrarile, nu doar pentru cele
+   incercate.
+4. **Analiza statica** - Slither, ruleaza in CI.
+
+## Cum rulezi tot
+
+```sh
+# 1. unitare + fork + INVARIANTE (invariantele se prind automat, sunt in test/invariant)
+forge test --no-match-path 'test/Fork*.t.sol'
+forge test --match-path 'test/Fork*.t.sol' --fork-url robinhood
+
+# 2. invariantele mai adanc decat implicit, cand vrei sa le storci
+FOUNDRY_INVARIANT_RUNS=2000 FOUNDRY_INVARIANT_DEPTH=256 forge test --match-path 'test/invariant/*'
+
+# 3. dovezile simbolice (halmos: pip install halmos)
+halmos --match-contract CurveMathSymbolic --function check_buyCostsAtLeastWhatItSellsFor
+
+# 4. static
+slither . --filter-paths "lib/|node_modules/|test/|script/" --exclude-dependencies \
+  --exclude-informational --exclude-optimization --exclude-low
+```
+
+## Ce acopera invariantele, si ce inseamna daca pica
+
+Toate sunt in `test/invariant/`. Fiecare ruleaza 256 de secvente x 64 de apeluri = ~16.000 de
+tranzactii aleatoare, si dupa fiecare verifica proprietatile. Daca una pica, forge iti da secventa
+exacta care a spart-o.
+
+**`CurveSolvency.t.sol`** - inima curbei, banii cumparatorilor:
+- `reserveCoversEverySeller`: rezerva acopera mereu valoarea in forma inchisa a tot ce s-a vandut.
+  Daca pica, un vanzator de la coada ramane fara bani. **Asta e proprietatea de solvabilitate.**
+- `balanceIsReservePlusClaimablePlusBonus`: soldul nativ al curbei e la wei rezerva + zecimea
+  protocolului + donatii. Zero wei nesocotit.
+- `tokenConservation`: niciun token nu apare sau dispare din tranzactionare.
+- `soldNeverExceedsCurveSupply`.
+
+**`StakingSolvency.t.sol`** - vaultul de staking:
+- `paidOutNeverExceedsPaidIn`: platit-out <= platit-in, la wei. Vaultul nu poate fi drenat.
+- `balanceCoversAccounted`: soldul acopera mereu ce datoreaza stakerilor.
+- `stakedMatchesBalance`: principalul contabilizat = tokenul detinut; principalul nu se scurge.
+- `claimableCoveredWithinDust`: suma revendicabila <= notificat, in limita prafului de rotunjire al
+  acumulatorului (un wei per notify se poate pierde la floor, ultimul care revendica il inghite;
+  acelasi risc "dust" pe care SECURITY.md il numeste la splitter).
+
+**`SplitterSolvency.t.sol`** - contabilitatea masinii directe (patru drumuri + dividende + zecime):
+- `balanceCoversEveryRoad`: soldul acopera simultan toate cele cinci drumuri. Toti pot revendica in
+  orice ordine.
+- `accountedEqualsRoads`: `accounted` = suma exacta a drumurilor. Cartile se inchid.
+- `eligibleSupplyTracksHolders`: baza de dividende urmareste exact detinatorii raportati de token.
+- `nothingLeaks`: fiecare wei intrat e ori inca tinut pentru un drum, ori platit. La wei.
+
+## Ce a dovedit executia simbolica
+
+`test/symbolic/CurveMathSymbolic.t.sol`, cu halmos. `check_` ruleaza doar sub halmos; `forge test`
+le ignora.
+
+- **`check_buyCostsAtLeastWhatItSellsFor`: DOVEDIT** pentru toate intrarile din interval. O cumparare
+  costa mereu cel putin cat vinde aceeasi intindere; spread-ul asta (cumpararea rotunjeste in sus,
+  vanzarea in jos) e ce tine rezerva solventa la un dus-intors. Asta e proprietatea critica si e
+  demonstrata, nu esantionata.
+- `check_priceIsMonotone`, `check_splittingABuyNeverGetsCheaper`, `check_tokensForPairStaysWithinBudget`:
+  adevarate algebric si acoperite de invariantele de fuzzing, dar demonstratia simbolica **nu termina
+  in timp rezonabil** fiindca `Math.mulDiv` din OpenZeppelin face inmultire pe 512 biti, care e scumpa
+  pentru solver. Important: solver-ul nu a gasit contraexemplu, doar nu reuseste sa demonstreze
+  absenta lui; daca ar exista unul, z3 l-ar fi gasit repede. Le tinem ca "acoperite de fuzzing,
+  demonstratie simbolica blocata de mulDiv", nu ca "dovedite".
+
+## Ce NU acopera nimic din toate astea, si de ce mai trebuie un audit extern candva
+
+- **Interactiunile cu v4 si LayerZero reale.** Testele de fuzzing folosesc un graduator mock; pool-ul
+  Uniswap v4 adevarat, ordinea callback-urilor, cazurile de settle/take sunt doar pe fork, cu exemple,
+  nu fuzzlate. C1 (pretul la absolvire) a fost gasit prin citire, nu de invariante, tocmai pentru ca
+  e in interactiunea cu v4.
+- **Bug-uri de logica de business** pe care nicio invarianta nu le exprima fiindca nu stim sa le
+  cerem. Un auditor extern aduce proprietati la care noi nu ne-am gandit.
+- **Economia** (farmarea punctelor prin volum spalat, L12) - decizie de proiectare, nu proprietate.
+- **Cheia keeper fierbinte, ownership pe multisig, operational** - tin de deploy, nu de cod.
+
+Concluzia onesta ramane cea din raportul de audit: pentru testnet si demo, da; pentru mainnet cu bani
+care conteaza, munca asta face auditul extern mai ieftin si mai scurt, dar nu il inlocuieste.
