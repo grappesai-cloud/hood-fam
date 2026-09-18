@@ -13,7 +13,7 @@ import { DirectTradeBox } from "@/components/DirectTradeBox";
 import { DirectPanels } from "@/components/DirectPanels";
 import { Chart } from "@/components/Chart";
 import { StakePanel } from "@/components/StakePanel";
-import { ago, compact, feeModelLabel, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, safeUrl, screenerLinks, shortAddress } from "@/lib/format";
+import { ago, compact, feeModelLabel, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, safeUrl, screenerLinks, shortAddress, telegramUrl, twitterUrl } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
 
 interface Trade {
@@ -122,8 +122,8 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
               {hasPool && <a className="hover:text-[var(--color-lime)]" href={links.dexscreener} target="_blank" rel="noreferrer">dexscreener</a>}
               {hasPool && links.geckoterminal && <a className="hover:text-[var(--color-lime)]" href={links.geckoterminal} target="_blank" rel="noreferrer">geckoterminal</a>}
               {safeUrl(data.website) && <a className="hover:text-[var(--color-lime)]" href={safeUrl(data.website)!} target="_blank" rel="noreferrer noopener">website</a>}
-              {data.twitter && <a className="hover:text-[var(--color-lime)]" href={`https://x.com/${data.twitter.replace("@", "")}`} target="_blank" rel="noreferrer">x</a>}
-              {data.telegram && <a className="hover:text-[var(--color-lime)]" href={`https://${data.telegram.replace("https://", "")}`} target="_blank" rel="noreferrer">telegram</a>}
+              {twitterUrl(data.twitter) && <a className="hover:text-[var(--color-lime)]" href={twitterUrl(data.twitter)!} target="_blank" rel="noreferrer noopener">x</a>}
+              {telegramUrl(data.telegram) && <a className="hover:text-[var(--color-lime)]" href={telegramUrl(data.telegram)!} target="_blank" rel="noreferrer noopener">telegram</a>}
               <span>printed {ago(data.launched_at)} ago by <Link className="hover:text-[var(--color-lime)]" href={`/portfolio?address=${data.creator}`}>{shortAddress(data.creator)}</Link></span>
             </div>
           </div>

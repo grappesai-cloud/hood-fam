@@ -1,8 +1,46 @@
+/// A Content-Security-Policy that fits a wallet dApp rather than fighting it.
+/// - `frame-ancestors 'none'` and `X-Frame-Options: DENY` are the point: the app has a Connect
+///   button and one-click trade, and a page that can be framed can be clickjacked into either.
+/// - `img-src` has to be open: token artwork is a URL a stranger typed at launch, on any host, so
+///   locking it down would break the board. `javascript:` never matches an img-src of hosts, so
+///   an artwork field cannot smuggle script even here.
+/// - `script-src 'self' 'unsafe-inline'`: Next's hydration bootstrap is inline. The inline allowance
+///   is the weak link, but React already escapes every value the app renders, so CSP here is the
+///   second line, and its real job on this app is frame-ancestors and object-src, not script-src.
+/// - `connect-src` is wide because the wallet talks to whatever RPC and indexer a deployment sets,
+///   and WalletConnect reaches its own relays; a fixed list would break a self-hosted deploy.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https: http:",
+  "font-src 'self' data:",
+  "connect-src 'self' https: http: wss: ws:",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join("; ");
+
+const SECURITY_HEADERS = [
+  { key: "Content-Security-Policy", value: CSP },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
+  // HSTS is safe to always send: a browser only honours it over HTTPS, and every real deployment of
+  // this is behind TLS. A year, with subdomains, is the usual floor.
+  { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+];
+
 /** @type {import('next').NextConfig} */
 export default {
   reactStrictMode: true,
   // The app talks to its own indexer, which is deployed beside it. No third party in the data path.
   env: { NEXT_PUBLIC_BUILD: new Date().toISOString() },
+  async headers() {
+    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+  },
   webpack: (config) => {
     // wagmi's connector bundle reaches for Coinbase's optional x402 payment packages. The app only
     // offers injected wallets and WalletConnect, so stub them rather than pulling a payments SDK

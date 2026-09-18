@@ -97,3 +97,30 @@ export function safeUrl(raw: string | null | undefined): string | null {
     return /^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(text) ? `https://${text}` : null;
   }
 }
+
+/// An x.com link from a handle a creator typed. Only the handle characters survive, so a value like
+/// `"><script>` or `evil.com/path` cannot steer the href anywhere but a (possibly empty) x.com
+/// profile. Returns null for nothing usable, so the caller renders no link rather than a broken one.
+export function twitterUrl(raw: string | null | undefined): string | null {
+  const handle = (raw ?? "").trim().replace(/^@+/, "").replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//i, "");
+  const clean = handle.match(/^[A-Za-z0-9_]{1,30}/)?.[0];
+  return clean ? `https://x.com/${clean}` : null;
+}
+
+/// A t.me link from whatever a creator typed: a bare handle, `t.me/foo`, or a full URL. A full URL
+/// is only honoured when it already points at telegram; anything else, and any stray character
+/// outside a handle, is dropped. `javascript:` never survives, because the scheme is stripped before
+/// the host is checked.
+export function telegramUrl(raw: string | null | undefined): string | null {
+  const text = (raw ?? "").trim();
+  if (!text) return null;
+  // Strip a telegram prefix in any of its forms: a full URL, a scheme-less `t.me/foo`, or a bare
+  // `@handle`. What is left must be a plain handle/path; a leftover scheme, host or dot means the
+  // value pointed somewhere other than telegram, so it is dropped rather than linked.
+  const path = text
+    .replace(/^@+/, "")
+    .replace(/^(https?:\/\/)?(www\.)?(t\.me|telegram\.me|telegram\.dog)\//i, "");
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path) || /^\/\//.test(path) || path.includes(".")) return null;
+  const clean = path.match(/^[A-Za-z0-9_+/]{1,64}/)?.[0];
+  return clean ? `https://t.me/${clean}` : null;
+}
