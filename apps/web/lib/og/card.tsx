@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 import type { TokenRow } from "@/lib/api";
 import { compact, imageUrl, launchProgress, pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
 import { shareFontsOrNone } from "./fonts";
+import { fetchPublicBytes } from "./safe-fetch";
 
 /// The picture a pasted `/token/0x...` link unfurls into, drawn here rather than handed over as
 /// the token's own artwork. A launch's art is a square a stranger uploaded: on X it is cropped to
@@ -96,23 +97,17 @@ function imageType(bytes: Uint8Array): string | undefined {
   return undefined;
 }
 
+/// The artwork is a URL a creator wrote on chain, fetched by us, from inside our own network. That
+/// makes it request forgery unless the address is checked first: see `fetchPublicBytes`.
 async function loadArtwork(raw: string | undefined): Promise<string | undefined> {
-  const url = imageUrl(raw ?? "");
-  if (!/^https?:\/\//i.test(url)) return undefined;
-  try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(ART_TIMEOUT_MS),
-      next: { revalidate: REVALIDATE_SECONDS },
-    });
-    if (!res.ok) return undefined;
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.byteLength === 0 || bytes.byteLength > ART_MAX_BYTES) return undefined;
-    const type = imageType(bytes);
-    if (!type) return undefined;
-    return `data:${type};base64,${Buffer.from(bytes).toString("base64")}`;
-  } catch {
-    return undefined;
-  }
+  const bytes = await fetchPublicBytes(imageUrl(raw ?? ""), {
+    timeoutMs: ART_TIMEOUT_MS,
+    maxBytes: ART_MAX_BYTES,
+  });
+  if (!bytes) return undefined;
+  const type = imageType(bytes);
+  if (!type) return undefined;
+  return `data:${type};base64,${Buffer.from(bytes).toString("base64")}`;
 }
 
 function Frame({ children }: { children: React.ReactNode }) {

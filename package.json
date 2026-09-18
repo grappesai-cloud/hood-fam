@@ -12,7 +12,8 @@
     "build": "npm run build -w @hood/sdk && npm run build -w @hood/mcp && npm run build -w @hood/api && npm run build -w @hood/announcer",
     "test": "forge test --no-match-path 'test/Fork*.t.sol'",
     "check:points": "node scripts/checks/points-accrual.mjs",
-    "abis:check": "node scripts/abis.mjs --check"
+    "abis:check": "node scripts/abis.mjs --check",
+    "check:fetch": "node scripts/checks/safe-fetch.mjs"
   },
   "keywords": [],
   "author": "",
