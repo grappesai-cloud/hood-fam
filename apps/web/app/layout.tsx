@@ -5,6 +5,7 @@ import { Providers } from "./providers";
 import { Nav } from "@/components/Nav";
 import { SupportChatMount } from "@/components/SupportChatMount";
 import { DemoBanner } from "@/components/DemoBanner";
+import { Spotlight } from "@/components/Spotlight";
 import { CANONICAL, SITE } from "@/lib/site";
 
 const TITLE = "hood.fam";
@@ -30,6 +31,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-screen">
+        {/* The light the whole sheet is built on: painted once, fixed behind every page, and
+            invisible to a screen reader and to a pointer. */}
+        <div className="atmosphere" aria-hidden="true" />
+        <Spotlight />
         <Providers>
           <Nav />
           <DemoBanner />

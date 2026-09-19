@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { Empty } from "@/components/Empty";
 import { useAccount } from "wagmi";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -19,66 +20,93 @@ export default function Leaderboard() {
   const { address } = useAccount();
   const { data } = useQuery({ queryKey: ["leaderboard"], queryFn: () => api<Board>("/leaderboard?limit=100") });
 
+  const rows = data?.rows ?? [];
+  const top = rows[0]?.points ?? 0;
+  const total = rows.reduce((n, r) => n + r.points, 0);
+
   return (
-    <div className="leaderboard-shell space-y-4">
-      <header className="page-intro leaderboard-intro">
-        <div className="section-kicker">POINTS</div>
-        <h1>Leaderboard</h1>
-        <p>Season {data?.season ?? 1} · Every launch, trade and lock counts.</p>
-      </header>
-      <section className="panel leaderboard-rules p-4">
-        <div className="leaderboard-rules-head"><span>01 / THE RULES</span><strong>Make moves. Earn points.</strong></div>
-        <p className="text-sm dim">
-          Points for printing, for trading and for locking. Trading against yourself does not count:
-          a trade by the wallet a launch pays its fee to earns nothing. Locking pays for the time it stays locked,
-          credited as it is earned, so a lock that is opened and closed again is worth what it was kept
-          for. Your rank multiplies everything you earn, and rank is bought with volume over the last
-          thirty days, not with what sits in your wallet.
-        </p>
-        {data && (
-          <div className="rule-chips mt-3 flex flex-wrap gap-4 text-xs dim">
-            <span>print a token · {data.rules.POINTS.launch}</span>
-            <span>buy · {data.rules.POINTS.perDollarBuy} per $1</span>
-            <span>sell · {data.rules.POINTS.perDollarSell} per $1</span>
-            <span>lock · {data.rules.POINTS.perDollarStakedPerMonth} per $1 per 30 days locked × lock multiplier</span>
+    <div className="leaderboard-shell">
+      <div className="page-head">
+        <header className="page-intro">
+          <div className="section-kicker">Points</div>
+          <h1>Leaderboard</h1>
+          <p>Every launch, trade and lock scores. The board decides how the drop splits.</p>
+        </header>
+        <div className="head-figure">
+          <strong>{Math.round(total).toLocaleString()}</strong>
+          <span>points in the season</span>
+        </div>
+      </div>
+
+      <div className="market-summary" aria-label="The season so far">
+        <div className="stat"><strong>{data?.season ?? "·"}</strong><span>season</span></div>
+        <div className="stat"><strong>{rows.length}</strong><span>wallets scoring</span></div>
+        <div className="stat"><strong>{Math.round(total).toLocaleString()}</strong><span>points earned</span></div>
+        <div className="stat"><strong>{data?.rules.RANKS.length ?? "·"}</strong><span>ranks to climb</span></div>
+      </div>
+
+      {/* Three ways to score, one card each, with the number that matters given the room. A
+          paragraph nobody reads was doing this job before. */}
+      <section className="panel p-5">
+        <div className="panel-head"><span className="n">01 / THE RULES</span><h2>Three ways to score</h2><span className="hatch" aria-hidden="true" /></div>
+        <div className="score-ways">
+          <div className="way">
+            <strong>{data?.rules.POINTS.launch ?? 500}</strong>
+            <span>printing a token</span>
           </div>
-        )}
-        {data && (
-          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            {data.rules.RANKS.map((r) => (
-              <span key={r.name} className="rounded-full border border-[var(--color-line)] px-2 py-0.5 dim">
-                {r.name} {r.multiplier}x
+          <div className="way">
+            <strong>{data?.rules.POINTS.perDollarBuy ?? 2} / {data?.rules.POINTS.perDollarSell ?? 1}</strong>
+            <span>per dollar bought / sold</span>
+          </div>
+          <div className="way">
+            <strong>{data?.rules.POINTS.perDollarStakedPerMonth ?? 10}</strong>
+            <span>per dollar locked, per 30 days</span>
+          </div>
+        </div>
+        <div className="ladder">
+          <span className="ladder-label">Rank multiplies all of it, bought with thirty day volume</span>
+          <div className="ladder-steps">
+            {data?.rules.RANKS.map((r) => (
+              <span key={r.name} className="ladder-step">
+                <b>{r.multiplier}x</b>
+                <i>{r.name}</i>
               </span>
+            ))}
+          </div>
+        </div>
+        <details className="fineprint">
+          <summary>The catches</summary>
+          <ul>
+            <li>Printing pays once the launch actually trades.</li>
+            <li>Trading against yourself scores nothing.</li>
+            <li>Locking is credited as it is earned, so opening and closing a lock is worth the time it was kept.</li>
+          </ul>
+        </details>
+      </section>
+
+      <section className="panel p-5">
+        <div className="panel-head"><span className="n">02 / THE BOARD</span><h2>Top of the fam</h2><span className="hatch" aria-hidden="true" /><span className="aside">{rows.length} wallet{rows.length === 1 ? "" : "s"}</span></div>
+        {rows.length === 0 ? (
+          <Empty title="The season is open."
+            body="Nobody has scored yet. Print a token, trade one, or lock what you hold: the first wallet to score takes the top of the board." />
+        ) : (
+          <div className="rows">
+            {rows.map((r) => (
+              <Link key={r.address} href={`/portfolio?address=${r.address}`}
+                className={r.address === address?.toLowerCase() ? "row row-you" : "row"}>
+                <span className={`rank${r.position <= 3 ? ` r${r.position}` : ""}`}>{r.position}</span>
+                <span className="row-name">
+                  <strong className="mono">{shortAddress(r.address)}</strong>
+                  <span>{r.rank} · ${Math.round(r.volumeUsd).toLocaleString()} traded · {r.launches} launch{r.launches === 1 ? "" : "es"}</span>
+                </span>
+                <span className="row-num"><strong>{Math.round(r.points).toLocaleString()}</strong><span>points</span></span>
+                <span className="row-meter"><i style={{ width: `${top > 0 ? Math.max(2, (r.points / top) * 100) : 0}%` }} /></span>
+              </Link>
             ))}
           </div>
         )}
       </section>
 
-      <section className="panel leaderboard-table p-4">
-        <div className="leaderboard-table-title"><span>02 / THE BOARD</span><h2>Top of the fam.</h2></div>
-        <div className="table-scroll"><table className="w-full text-sm">
-          <thead className="text-xs dim">
-            <tr><th className="pb-2 text-left">#</th><th className="text-left">wallet</th><th className="text-left">rank</th>
-              <th className="text-right">volume</th><th className="text-right">launches</th><th className="text-right">points</th></tr>
-          </thead>
-          <tbody>
-            {data?.rows.map((r) => (
-              <tr key={r.address}
-                className={`border-t border-[var(--color-line)] ${r.address === address?.toLowerCase() ? "text-[var(--color-lime)]" : ""}`}>
-                <td className="py-1.5">{r.position}</td>
-                <td className="mono text-xs">
-                  <Link href={`/portfolio?address=${r.address}`}>{shortAddress(r.address)}</Link>
-                </td>
-                <td className="text-xs dim">{r.rank}</td>
-                <td className="mono text-right text-xs">${Math.round(r.volumeUsd).toLocaleString()}</td>
-                <td className="text-right text-xs">{r.launches}</td>
-                <td className="mono text-right">{Math.round(r.points).toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table></div>
-        {data?.rows.length === 0 && <p className="py-6 text-center text-sm dim">Nobody has scored yet.</p>}
-      </section>
     </div>
   );
 }

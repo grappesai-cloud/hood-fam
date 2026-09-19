@@ -9,6 +9,7 @@ import { addresses } from "@/lib/config";
 import { fmt } from "@/lib/format";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
+import { Choice, Field, LaunchBar, Rail, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 
 interface CurvePreset {
   totalSupply: bigint; curveSupplyBps: number; startCap: bigint; graduationCap: bigint;
@@ -23,39 +24,52 @@ const MODEL_COPY: Record<string, { title: string; body: string }> = {
   zero: { title: "No creator fee", body: "Traders pay the protocol fee and nothing else. Cheapest to trade." },
 };
 
+const MACHINES = {
+  curve: {
+    title: "Bonding curve",
+    body: "Buyers trade against a rising curve. When it sells out, the raise and the rest of the supply move into a Uniswap pool that is locked forever.",
+    meta: "the pump.fun shape",
+  },
+  direct: {
+    title: "Straight to the pool",
+    body: "The whole supply opens in a real Uniswap pool from the first block, above your opening price. No curve, no migration, and every trade pays a tax you set.",
+    meta: "liquidity from block one",
+  },
+} as const;
+
 export default function LaunchPage() {
-  const [machine, setMachine] = useState<"curve" | "direct">("curve");
+  const [machine, setMachine] = useState<keyof typeof MACHINES>("curve");
+
+  // Step one belongs to the page, not to either machine, but it has to appear inside the machine's
+  // own column so the rail counts it. So it is built here and handed down.
+  const chooser = (
+    <Step n={1} title="How it launches" purpose="This decides everything else on this page, and it cannot be changed after the launch." done>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {(Object.keys(MACHINES) as (keyof typeof MACHINES)[]).map((k) => (
+          <Choice key={k} selected={machine === k} onClick={() => setMachine(k)}
+            title={MACHINES[k].title} body={MACHINES[k].body} meta={MACHINES[k].meta} />
+        ))}
+      </div>
+    </Step>
+  );
+
   return (
-    <div className="launch-shell space-y-4">
+    <div className="launch-shell">
       <header className="page-intro">
-        <div className="section-kicker">ROBINHOOD CHAIN</div>
-        <h1>Create token</h1>
-        <p>Choose a launch model, set the details and confirm in your wallet.</p>
+        <div className="section-kicker">Robinhood Chain</div>
+        <h1>Create a token</h1>
+        <p>
+          Four steps, one transaction, about a minute. Nothing is sent until you confirm in your
+          wallet, and the cost is on the bar at the bottom the whole way down.
+        </p>
       </header>
 
-      <div className="machine-options grid gap-2 sm:grid-cols-2">
-        <button onClick={() => setMachine("curve")} aria-pressed={machine === "curve"}
-          className={`rounded-xl border p-3 text-left ${machine === "curve" ? "border-[var(--color-lime)]" : "border-[var(--color-line)]"}`}>
-          <div className="text-sm font-semibold">Bonding curve</div>
-          <div className="text-xs dim">
-            Trade on a rising curve, then graduate into a locked pool. Choose one permanent fee rule.
-          </div>
-        </button>
-        <button onClick={() => setMachine("direct")} aria-pressed={machine === "direct"}
-          className={`rounded-xl border p-3 text-left ${machine === "direct" ? "border-[var(--color-lime)]" : "border-[var(--color-line)]"}`}>
-          <div className="text-sm font-semibold">Straight to the pool</div>
-          <div className="text-xs dim">
-            Launch directly into a pool. The trade tax splits four ways from the first block.
-          </div>
-        </button>
-      </div>
-
-      {machine === "curve" ? <CurveLaunchForm /> : <div className="direct-launch-wrap"><DirectLaunchForm /></div>}
+      {machine === "curve" ? <CurveLaunchForm chooser={chooser} /> : <DirectLaunchForm chooser={chooser} />}
     </div>
   );
 }
 
-function CurveLaunchForm() {
+function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const { address } = useAccount();
   const router = useRouter();
   const { writeContractAsync, isPending } = useWriteContract();
@@ -98,9 +112,25 @@ function CurveLaunchForm() {
   }, [receipt.isSuccess, receipt.data, router]);
 
   const isNative = form.pairToken === zeroAddress;
+  const pair = isNative ? "ETH" : "USDG";
   const firstBuyWei = form.firstBuy ? (isNative ? parseEther(form.firstBuy) : parseUnits(form.firstBuy, 6)) : 0n;
   const value = (launchFee as bigint | undefined ?? 0n) + (isNative ? firstBuyWei : 0n);
-  const ready = Boolean(address) && form.name.length > 0 && form.symbol.length > 0 && symbolFree !== false;
+  const tokenDone = form.name.length > 0 && form.symbol.length > 0 && symbolFree !== false;
+
+  // One reason at a time, in the order somebody would hit them. A button that is off without saying
+  // why is the single thing this page used to do worst.
+  const blocked = !address ? "Connect a wallet first. It pays the fee and becomes the creator."
+    : !form.name ? "Step 2 needs a name."
+    : !form.symbol ? "Step 2 needs a ticker."
+    : symbolFree === false ? "That ticker is locked by a launch that is trading right now."
+    : undefined;
+
+  const steps: StepState[] = [
+    { n: 1, label: "How it launches", done: true },
+    { n: 2, label: "The token", done: tokenDone },
+    { n: 3, label: "Where the fee goes", done: true },
+    { n: 4, label: "The curve", done: true },
+  ];
 
   async function launch() {
     if (!address) return;
@@ -127,123 +157,105 @@ function CurveLaunchForm() {
 
   return (
     <div className="launch-content">
-    <div className="launch-form-stack space-y-4">
-      <p className="text-sm dim">Your token, curve, pool and fee rule are created in one transaction. An initial buy is optional.</p>
+      <div className="launch-guide">
+        <Rail steps={steps} />
+        <div className="launch-form-stack">
+          {chooser}
 
-      <section className="panel space-y-3 p-4">
-        <h2>Token details</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="name">
-            <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Hood Fam" />
-          </Field>
-          <Field label="ticker" hint={form.symbol && symbolFree === false ? "locked by a hot launch right now" : undefined}>
-            <input className="input mono uppercase" value={form.symbol}
-              onChange={(e) => set("symbol", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="FAM" />
-          </Field>
+          <Step n={2} title="The token" purpose="The name, the ticker and the picture people will see on the board. All of it is written on chain and none of it can be edited later." done={tokenDone}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Name" help="The full name, as it should read on the board.">
+                <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Hood Fam" />
+              </Field>
+              <Field label="Ticker"
+                error={form.symbol && symbolFree === false ? "Taken. A launch trading right now holds this ticker; it frees up when that one cools off." : undefined}
+                ok={form.symbol && symbolFree === true ? "Available." : undefined}
+                help="Letters and numbers, no dollar sign. We add that.">
+                <input className="input mono uppercase" value={form.symbol}
+                  onChange={(e) => set("symbol", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="FAM" />
+              </Field>
+            </div>
+            <Field label="Description" help="One or two lines. It shows on the token page and in the share card.">
+              <textarea className="input min-h-20" value={form.description} onChange={(e) => set("description", e.target.value)} />
+            </Field>
+            <div>
+              <span className="field-label">Picture</span>
+              <ArtworkPicker value={form.image} onChange={(v) => set("image", v)} symbol={form.symbol}
+                ai promptHint={`${form.name} ${form.symbol} token logo`.trim()} />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field label="Website" help="Optional."><input className="input" value={form.website} onChange={(e) => set("website", e.target.value)} placeholder="https://" /></Field>
+              <Field label="X" help="Optional."><input className="input" value={form.twitter} onChange={(e) => set("twitter", e.target.value)} placeholder="https://x.com/" /></Field>
+              <Field label="Telegram" help="Optional."><input className="input" value={form.telegram} onChange={(e) => set("telegram", e.target.value)} placeholder="https://t.me/" /></Field>
+            </div>
+          </Step>
+
+          <Step n={3} title="Where the trading fee goes" purpose="Every trade pays a fee. You choose once, here, who it pays. This is the promise a buyer can check on chain, and nobody can change it afterwards, including us." done>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {FEE_MODELS.map((m) => (
+                <Choice key={m} selected={form.feeModel === m} onClick={() => set("feeModel", m)}
+                  title={MODEL_COPY[m]!.title} body={MODEL_COPY[m]!.body} />
+              ))}
+            </div>
+          </Step>
+
+          <Step n={4} title="The curve, and your first buy" purpose="How much supply trades on the curve, what valuation it starts and graduates at, and whether you want the first buy in the same transaction." done>
+            <div className="grid gap-2">
+              {((configs ?? []) as { result?: CurvePreset }[]).map((c, i) => {
+                const cfg = c.result;
+                if (!cfg?.enabled) return null;
+                const dec = isNative ? 18 : 6;
+                return (
+                  <Choice key={i} selected={form.configId === i} onClick={() => set("configId", i)}
+                    title={`Starts at ${fmt(cfg.startCap, dec, 3)} ${pair}, graduates at ${fmt(cfg.graduationCap, dec, 3)} ${pair}`}
+                    body={`${cfg.curveSupplyBps / 100}% of the supply trades on the curve. The rest goes into the pool at graduation, locked.`}
+                    meta={`${(cfg.protocolFeeBps + cfg.creatorFeeBps) / 100}% per trade`} />
+                );
+              })}
+            </div>
+            <Field label={`Your first buy in ${pair}`}
+              help="Optional, and it lands inside the launch transaction, so nobody can get in ahead of you. Leave it empty to launch without buying.">
+              <input className="input mono" inputMode="decimal" value={form.firstBuy}
+                onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
+            </Field>
+          </Step>
+
+          <LaunchBar
+            cost={`${fmt(value, 18, 6)} ETH`}
+            costLabel={form.firstBuy ? `${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} fee plus your ${form.firstBuy} first buy` : "launch fee, plus gas"}
+            blocked={blocked}
+            busy={isPending || receipt.isLoading}
+            busyLabel={receipt.isLoading ? "waiting for the chain" : "confirm in your wallet"}
+            label="Create the token"
+            onClick={launch}
+          />
         </div>
-        <Field label="description">
-          <textarea className="input min-h-20" value={form.description} onChange={(e) => set("description", e.target.value)} />
-        </Field>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="website"><input className="input" value={form.website} onChange={(e) => set("website", e.target.value)} /></Field>
-          <Field label="x"><input className="input" value={form.twitter} onChange={(e) => set("twitter", e.target.value)} /></Field>
-          <Field label="telegram"><input className="input" value={form.telegram} onChange={(e) => set("telegram", e.target.value)} /></Field>
-        </div>
-      </section>
-
-      <section className="panel space-y-3 p-4">
-        <h2 className="font-semibold">Art</h2>
-        <ArtworkPicker value={form.image} onChange={(v) => set("image", v)} symbol={form.symbol}
-          ai promptHint={`${form.name} ${form.symbol} token logo`.trim()} />
-        <p className="text-xs dim">Stored as a link. The launch itself only carries the address of the picture.</p>
-      </section>
-
-      <section className="panel space-y-2 p-4">
-        <h2 className="font-semibold">Where the fee goes</h2>
-        <p className="text-xs dim">Locked at launch. This is the promise a buyer can check on chain.</p>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {FEE_MODELS.map((m) => (
-            <button key={m} onClick={() => set("feeModel", m)} aria-pressed={form.feeModel === m}
-              className={`rounded-xl border p-3 text-left ${
-                form.feeModel === m ? "border-[var(--color-lime)]" : "border-[var(--color-line)]"
-              }`}>
-              <div className="text-sm font-semibold">{MODEL_COPY[m]!.title}</div>
-              <div className="text-xs dim">{MODEL_COPY[m]!.body}</div>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel space-y-3 p-4">
-        <h2 className="font-semibold">Shape of the curve</h2>
-        <div className="grid gap-2">
-          {((configs ?? []) as { result?: CurvePreset }[]).map((c, i) => {
-            const cfg = c.result;
-            if (!cfg?.enabled) return null;
-            const dec = form.pairToken === zeroAddress ? 18 : 6;
-            return (
-              <button key={i} onClick={() => set("configId", i)} aria-pressed={form.configId === i}
-                className={`flex items-center justify-between rounded-xl border p-3 text-left text-sm ${
-                  form.configId === i ? "border-[var(--color-lime)]" : "border-[var(--color-line)]"
-                }`}>
-                <span>
-                  starts at {fmt(cfg.startCap, dec, 3)} · graduates at {fmt(cfg.graduationCap, dec, 3)}
-                  <span className="dim"> · {cfg.curveSupplyBps / 100}% on the curve</span>
-                </span>
-                <span className="mono text-xs dim">{(cfg.protocolFeeBps + cfg.creatorFeeBps) / 100}% fee</span>
-              </button>
-            );
-          })}
-        </div>
-        <Field label={`your first buy (${isNative ? "ETH" : "USDG"}, optional)`}>
-          <input className="input mono" inputMode="decimal" value={form.firstBuy}
-            onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
-        </Field>
-      </section>
-
-      <section className="panel space-y-2 p-4 text-xs">
-        <Row label="launch fee" value={`${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} ETH`} />
-        <Row label="your first buy" value={`${form.firstBuy || "0"} ${isNative ? "ETH" : "USDG"}`} />
-        <Row label="total" value={`${fmt(value, 18, 6)} ETH`} />
-        <Row label="economics pinned" value={econ ? `${(econ as string).slice(0, 10)}…` : "reading"} />
-        <p className="dim">
-          The economics hash is read now and sent with the launch. If anything about the preset moves before
-          your transaction lands, it reverts instead of launching on terms you did not agree to.
-        </p>
-      </section>
-
-      <button className="btn w-full" disabled={!ready || isPending || receipt.isLoading} onClick={launch}>
-        {!address ? "connect a wallet" : isPending || receipt.isLoading ? "printing" : "print it"}
-      </button>
-    </div>
-    <aside className="launch-preview">
-      <div className="launch-preview-label">LIVE PREVIEW</div>
-      <div className="launch-preview-art">
-        {form.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={form.image} alt="" />
-        ) : <span>{(form.symbol || form.name || "?").slice(0, 2).toUpperCase()}</span>}
       </div>
-      <h2>{form.name || "Your token"}</h2>
-      <p className="launch-preview-symbol">$<span>{form.symbol || "TICKER"}</span></p>
-      <div className="launch-preview-details">
-        <Row label="Launch model" value="Bonding curve" />
-        <Row label="Fee rule" value={MODEL_COPY[form.feeModel]!.title} />
-        <Row label="Launch fee" value={`${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} ETH`} />
-      </div>
-      <p className="launch-preview-note">Preview only. Your wallet confirms the final transaction.</p>
-    </aside>
-    </div>
-  );
-}
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs dim">{label}</span>
-      {children}
-      {hint && <span className="mt-1 block text-xs text-[var(--color-red)]">{hint}</span>}
-    </label>
+      <aside className="launch-preview">
+        <div className="launch-preview-label">Live preview</div>
+        <div className="launch-preview-art">
+          {form.image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={form.image} alt="" />
+          ) : <span>{(form.symbol || form.name || "?").slice(0, 2).toUpperCase()}</span>}
+        </div>
+        <h2>{form.name || "Your token"}</h2>
+        <p className="launch-preview-symbol">$<span>{form.symbol || "TICKER"}</span></p>
+        <div className="launch-preview-details">
+          <Row label="Launch model" value="Bonding curve" />
+          <Row label="Fee rule" value={MODEL_COPY[form.feeModel]!.title} />
+          <Row label="Launch fee" value={`${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} ETH`} />
+          <Row label="Terms pinned" value={econ ? `${(econ as string).slice(0, 10)}…` : "reading"} />
+        </div>
+        <WhatHappens items={[
+          "Your wallet sends one transaction and pays the launch fee.",
+          "The token, its curve and its fee rule are created together.",
+          "The terms above are sent with it, so if the preset moves first the transaction reverts instead of launching on terms you did not agree to.",
+          "You land on the token page and it is tradable immediately.",
+        ]} />
+      </aside>
+    </div>
   );
 }
 

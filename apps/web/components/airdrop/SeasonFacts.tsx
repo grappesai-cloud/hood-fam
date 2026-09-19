@@ -49,12 +49,9 @@ export function SeasonFacts({ season, current }: { season: number; current: numb
   return (
     <>
       <section className="panel space-y-3 p-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="font-semibold">the pool so far</h2>
-          <span className="text-xs dim">
-            season {season}
-            {season === current ? " · live" : " · closed"}
-          </span>
+        <div className="panel-head">
+          <span className="n">01 / THE POOL</span><h2>The pool so far</h2>
+          <span className="aside">season {season}{season === current ? " · live" : " · closed"}</span>
         </div>
 
         {pool.isLoading && <Quiet>reading</Quiet>}
@@ -67,7 +64,7 @@ export function SeasonFacts({ season, current }: { season: number; current: numb
               value={usd(d.pool.poolUsd)}
               note={`${pct(d.pool.poolBps)} of the ${usd(d.pool.take.usd)} the protocol took in between ${when(
                 d.pool.take.windowStart,
-              )} and ${when(d.pool.take.windowEnd)}. it grows while people trade.`}
+              )} and ${when(d.pool.take.windowEnd)}. `}
             />
             <div className="space-y-1">
               {d.pool.take.byAsset.length === 0 && <Quiet>nothing has landed in the pool yet.</Quiet>}
@@ -84,7 +81,7 @@ export function SeasonFacts({ season, current }: { season: number; current: numb
       </section>
 
       <section className="panel space-y-3 p-4">
-        <h2 className="font-semibold">the points it splits between</h2>
+        <div className="panel-head"><span className="n">02 / THE SPLIT</span><h2>The points it splits between</h2><span className="hatch" aria-hidden="true" /></div>
 
         {pool.isError && <Broken>the points for this season are not answering right now.</Broken>}
         {d === null && !pool.isError && <Quiet>no points have been counted for this season.</Quiet>}
@@ -100,7 +97,6 @@ export function SeasonFacts({ season, current }: { season: number; current: numb
               <Row label="p90 wallet" value={points(d.points.p90)} />
               <Row label="top ten wallets hold" value={ratioPercent(d.points.top10Share)} />
             </div>
-            <Quiet>Half the wallets sit under the median, a tenth of them sit over p90.</Quiet>
           </>
         )}
 

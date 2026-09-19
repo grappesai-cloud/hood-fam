@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Empty } from "@/components/Empty";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { erc20Abi, zeroAddress, type Address } from "viem";
@@ -54,17 +55,17 @@ export default function CreatorPage() {
     return (
       <div className="creator-shell">
         {intro}
-        <section className="portfolio-empty panel">
-          <h2>This is where a launch is run from.</h2>
-          <p>
-            Connect the wallet that printed them and this page gathers every one: push the trading fee
-            through to wherever it was pointed at launch, collect what the pool has earned, claim your
-            own share, and hand the fee stream to somebody else.
-          </p>
-          <button className="btn mt-4" disabled={isPending || !connectors[0]}
-            onClick={() => connect({ connector: connectors[0]! })}>
-            {isPending ? "Connecting…" : "Connect"}
-          </button>
+        <section>
+          <Empty
+            title="This is where a launch is run from."
+            body="Connect the wallet that printed them and this page gathers every one: push the trading fee through to wherever it was pointed at launch, collect what the pool has earned, claim your own share, and hand the fee stream to somebody else."
+            action={
+              <button className="btn" disabled={isPending || !connectors[0]}
+                onClick={() => connect({ connector: connectors[0]! })}>
+                {isPending ? "Connecting…" : "Connect"}
+              </button>
+            }
+          />
         </section>
       </div>
     );
@@ -72,25 +73,43 @@ export default function CreatorPage() {
 
   if (isError) return (
     <div className="creator-shell">{intro}
-      <div className="portfolio-empty panel"><span>↯</span><h2>Launches unavailable.</h2>
-        <p>Your launches will appear when the indexer reconnects. Nothing on chain has changed.</p></div>
+      <div><Empty title="Launches unavailable." body="The indexer is not answering. Your launches appear here when it reconnects, and nothing on chain has changed." /></div>
     </div>
   );
   if (!data) return <div className="creator-shell">{intro}<div className="panel portfolio-loading">Loading your launches…</div></div>;
   if (data.tokens.length === 0) return (
     <div className="creator-shell">{intro}
-      <section className="portfolio-empty panel">
-        <h2>This wallet has printed nothing yet.</h2>
-        <p>Print one and it shows up here the moment the indexer sees the block.</p>
-        <Link className="btn mt-4" href="/launch">Create a launch</Link>
+      <section>
+        <Empty title="This wallet has printed nothing yet."
+          body="Print one and it shows up here the moment the indexer sees the block."
+          action={<Link className="btn" href="/launch">Create a token</Link>} />
       </section>
     </div>
   );
 
+  // What this wallet's launches are worth, added up, and how many have made it into a pool. The
+  // page used to open on a count and nothing else.
+  const worth = data.tokens.reduce((sum, t) => sum + (BigInt(t.price || "0") * BigInt(t.total_supply || "0")) / 10n ** 18n, 0n);
+  const traded = data.tokens.reduce((sum, t) => sum + BigInt(t.volume_total || "0"), 0n);
+  const inPool = data.tokens.filter((t) => t.mode === "direct" || t.status === "graduated" || t.bonded).length;
+
   return (
     <div className="creator-shell">
-      {intro}
-      <div className="creator-count mono dim">{data.tokens.length} launch{data.tokens.length === 1 ? "" : "es"} · signing as {shortAddress(address)}</div>
+      <div className="page-head">
+        {intro}
+        <div className="head-figure">
+          <strong>{compact(worth)} ETH</strong>
+          <span>everything you printed, at the last trade</span>
+        </div>
+      </div>
+
+      <div className="market-summary" aria-label="This wallet's launches">
+        <div className="stat"><strong>{data.tokens.length}</strong><span>launches</span></div>
+        <div className="stat"><strong>{inPool}</strong><span>in a pool</span></div>
+        <div className="stat"><strong>{compact(traded)}</strong><span>ETH traded through them</span></div>
+        <div className="stat"><strong className="mono">{shortAddress(address)}</strong><span>signing as</span></div>
+      </div>
+
       <div className="creator-list">
         {data.tokens.map((t) => <Launch key={t.token} t={t} me={address} />)}
       </div>

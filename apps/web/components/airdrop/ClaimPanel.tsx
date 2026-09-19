@@ -88,9 +88,9 @@ export function ClaimPanel({ season }: { season: number }) {
 
   return (
     <section className="panel space-y-3 p-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="font-semibold">your claim</h2>
-        {drop && <span className="text-xs dim">dropped {when(drop.generatedAt)}</span>}
+      <div className="panel-head">
+        <span className="n">03 / YOUR CLAIM</span><h2>Your claim</h2>
+        {drop && <span className="aside">dropped {when(drop.generatedAt)}</span>}
       </div>
 
       {!SEASON_DROP && (

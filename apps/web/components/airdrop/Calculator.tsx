@@ -65,15 +65,11 @@ export function Calculator({ season }: { season: number }) {
 
   return (
     <section className="panel space-y-4 p-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="font-semibold">what more activity would be worth</h2>
-        <span className="text-xs dim">{waiting ? "working" : `season ${season}`}</span>
+      <div className="panel-head">
+        <span className="n">04 / THE MATH</span><h2>What more activity would be worth</h2>
+        <span className="aside">{waiting ? "working" : `season ${season}`}</span>
       </div>
-      <Quiet>
-        Set what you would trade, print and lock between now and the end of the season. Locking pays for the
-        days it stays locked, so the lock length changes what it is worth. The points, the rank and the share
-        are the API&apos;s arithmetic on today&apos;s pool, not a forecast of it.
-      </Quiet>
+      <Quiet>Set what you would trade, print and lock before the season ends.</Quiet>
 
       <div className="space-y-3">
         <Money
@@ -178,11 +174,10 @@ export function Calculator({ season }: { season: number }) {
             </div>
 
             {e.assumptions.length > 0 && (
-              <ul className="space-y-1 text-[11px] dim">
-                {e.assumptions.map((a) => (
-                  <li key={a}>{a}</li>
-                ))}
-              </ul>
+              <details className="fineprint">
+                <summary>How this was worked out</summary>
+                <ul>{e.assumptions.map((a) => <li key={a}>{a}</li>)}</ul>
+              </details>
             )}
           </>
         )}

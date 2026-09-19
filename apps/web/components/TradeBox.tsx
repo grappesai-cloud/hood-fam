@@ -125,12 +125,8 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
       <div className="mb-3 flex gap-2">
         {(["buy", "sell"] as const).map((s) => (
           <button key={s} onClick={() => { setSide(s); setAmount(""); }}
-            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold ${
-              side === s
-                ? s === "buy"
-                  ? "border-[var(--color-lime)] text-[var(--color-lime)]"
-                  : "border-[var(--color-red)] text-[var(--color-red)]"
-                : "border-[var(--color-line)] dim"
+            className={`side-tab flex-1 rounded-lg border px-3 py-2 text-sm font-semibold ${
+              side === s ? (s === "buy" ? "side-tab-buy" : "side-tab-sell") : "dim"
             }`}>
             {s}
           </button>

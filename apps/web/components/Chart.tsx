@@ -24,10 +24,14 @@ export function Chart({ token, decimals, totalSupply }: { token: string; decimal
   useEffect(() => {
     if (!box.current || chart.current) return;
     chart.current = createChart(box.current, {
-      layout: { background: { type: ColorType.Solid, color: "#1d1d1d" }, textColor: "#949494", fontSize: 11 },
-      grid: { vertLines: { color: "#292929" }, horzLines: { color: "#292929" } },
-      rightPriceScale: { borderColor: "#333333" },
-      timeScale: { borderColor: "#333333", timeVisible: true },
+      // Transparent, not a colour: the chart sits inside a glass panel, and a solid fill here would
+      // punch a grey rectangle through it. The grid and the axes drop to the sheet's hairline so
+      // the chart is drawn on the same surface as everything around it.
+      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#949a8d", fontSize: 11 },
+      grid: { vertLines: { color: "#ffffff0d" }, horzLines: { color: "#ffffff0d" } },
+      rightPriceScale: { borderColor: "#ffffff14" },
+      timeScale: { borderColor: "#ffffff14", timeVisible: true },
+      crosshair: { vertLine: { color: "#ccff0059", labelBackgroundColor: "#ccff00" }, horzLine: { color: "#ccff0059", labelBackgroundColor: "#ccff00" } },
       height: 320,
       autoSize: true,
     });

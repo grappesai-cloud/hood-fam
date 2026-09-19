@@ -9,13 +9,14 @@ import { directAddresses } from "@/lib/config";
 import { fdvToTick, tickToFdv } from "@/lib/direct";
 import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
+import { Field, LaunchBar, Rail, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 
 const SUPPLY = 1_000_000_000;
 const SPACING = 200;
 
 /// The other machine. A creator here is not choosing a curve, they are choosing a price to open at,
 /// a price to bond at, what the trade costs, and who that cost pays.
-export function DirectLaunchForm() {
+export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const { address } = useAccount();
   const publicClient = usePublicClient();
   const router = useRouter();
@@ -126,149 +127,163 @@ export function DirectLaunchForm() {
     return <p className="panel p-6 text-sm dim">Direct launches are not configured on this deployment.</p>;
   }
 
+  const tokenDone = form.name.length > 0 && form.symbol.length > 0;
+  const priceDone = Number(form.bondFdv) > Number(form.openFdv);
+  const splitDone = allocationSum === 100;
+  const fee = (launchFee as bigint | undefined) ?? 0n;
+  const total = fee + (form.firstBuy ? parseEther(form.firstBuy) : 0n);
+
+  // One reason at a time, in the order somebody would hit them.
+  const blocked = !address ? "Connect a wallet first. It pays the fee and becomes the creator."
+    : !form.name ? "Step 2 needs a name."
+    : !form.symbol ? "Step 2 needs a ticker."
+    : !priceDone ? "Step 3: the bonding valuation has to be above the opening one."
+    : !splitDone ? `Step 5: the four shares add up to ${allocationSum}%. They have to make 100.`
+    : !initCodeHash ? "Still reading the deployer. One moment."
+    : undefined;
+
+  const steps: StepState[] = [
+    { n: 1, label: "How it launches", done: true },
+    { n: 2, label: "The token", done: tokenDone },
+    { n: 3, label: "The price", done: priceDone },
+    { n: 4, label: "The tax", done: true },
+    { n: 5, label: "The split", done: splitDone },
+    { n: 6, label: "The opening", done: true },
+  ];
+
   return (
     <div className="launch-content">
-    <div className="launch-form-stack space-y-4">
-      <section className="panel space-y-3 p-4">
-        <h2 className="font-semibold">Token details</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="name">
-            <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} />
-          </Field>
-          <Field label="ticker">
-            <input className="input mono uppercase" value={form.symbol}
-              onChange={(e) => set("symbol", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} />
-          </Field>
-        </div>
-        <Field label="description">
-          <textarea className="input min-h-16" value={form.description} onChange={(e) => set("description", e.target.value)} />
-        </Field>
-        {/* not a Field: that is a <label>, and a label wrapping the picker's own buttons would fire
-            the file dialog on every click inside the box. */}
-        <div>
-          <span className="mb-1 block text-xs dim">artwork</span>
-          <ArtworkPicker value={form.logo} onChange={(v) => set("logo", v)} symbol={form.symbol} />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="x"><input className="input" value={form.twitter} onChange={(e) => set("twitter", e.target.value)} /></Field>
-          <Field label="telegram"><input className="input" value={form.telegram} onChange={(e) => set("telegram", e.target.value)} /></Field>
-          <Field label="discord"><input className="input" value={form.discord} onChange={(e) => set("discord", e.target.value)} /></Field>
-          <Field label="website"><input className="input" value={form.website} onChange={(e) => set("website", e.target.value)} /></Field>
-          <Field label="farcaster"><input className="input" value={form.farcaster} onChange={(e) => set("farcaster", e.target.value)} /></Field>
-        </div>
-      </section>
+      <div className="launch-guide">
+        <Rail steps={steps} />
+        <div className="launch-form-stack">
+          {chooser}
 
-      <section className="panel space-y-3 p-4">
-        <h2 className="font-semibold">Price</h2>
-        <p className="text-xs dim">
-          The whole supply goes into one position above the opening price. Buys walk the price up
-          through it, and when it reaches the bonding valuation the launch is bonded. There is no
-          migration afterwards: the liquidity has been real and locked the whole time.
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="opens at (ETH valuation)">
-            <input className="input mono" value={form.openFdv}
-              onChange={(e) => set("openFdv", e.target.value.replace(/[^0-9.]/g, ""))} />
-          </Field>
-          <Field label="bonds at (ETH valuation)">
-            <input className="input mono" value={form.bondFdv}
-              onChange={(e) => set("bondFdv", e.target.value.replace(/[^0-9.]/g, ""))} />
-          </Field>
+          <Step n={2} title="The token" purpose="The name, the ticker and the picture people will see on the board. All of it is written on chain and none of it can be edited later." done={tokenDone}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Name" help="The full name, as it should read on the board.">
+                <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Hood Fam" />
+              </Field>
+              <Field label="Ticker" help="Letters and numbers, no dollar sign. We add that.">
+                <input className="input mono uppercase" value={form.symbol}
+                  onChange={(e) => set("symbol", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="FAM" />
+              </Field>
+            </div>
+            <Field label="Description" help="One or two lines. It shows on the token page and in the share card.">
+              <textarea className="input min-h-16" value={form.description} onChange={(e) => set("description", e.target.value)} />
+            </Field>
+            {/* not a Field: that is a <label>, and a label wrapping the picker's own buttons would
+                fire the file dialog on every click inside the box. */}
+            <div>
+              <span className="field-label">Picture</span>
+              <ArtworkPicker value={form.logo} onChange={(v) => set("logo", v)} symbol={form.symbol} />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field label="X" help="Optional."><input className="input" value={form.twitter} onChange={(e) => set("twitter", e.target.value)} placeholder="https://x.com/" /></Field>
+              <Field label="Telegram" help="Optional."><input className="input" value={form.telegram} onChange={(e) => set("telegram", e.target.value)} placeholder="https://t.me/" /></Field>
+              <Field label="Discord" help="Optional."><input className="input" value={form.discord} onChange={(e) => set("discord", e.target.value)} placeholder="https://discord.gg/" /></Field>
+              <Field label="Website" help="Optional."><input className="input" value={form.website} onChange={(e) => set("website", e.target.value)} placeholder="https://" /></Field>
+              <Field label="Farcaster" help="Optional."><input className="input" value={form.farcaster} onChange={(e) => set("farcaster", e.target.value)} placeholder="https://warpcast.com/" /></Field>
+            </div>
+          </Step>
+
+          <Step n={3} title="The price it opens and bonds at" purpose="The whole supply goes into one position above the opening price. Buys walk the price up through it, and when it reaches the bonding valuation the launch is bonded. There is no migration afterwards: the liquidity has been real and locked the whole time." done={priceDone}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Opens at" help="Valuation of the whole supply, in ETH, at the first trade.">
+                <input className="input mono" value={form.openFdv}
+                  onChange={(e) => set("openFdv", e.target.value.replace(/[^0-9.]/g, ""))} />
+              </Field>
+              <Field label="Bonds at"
+                error={priceDone ? undefined : "This has to be above the opening valuation."}
+                help="Valuation at which the launch is considered bonded.">
+                <input className="input mono" value={form.bondFdv}
+                  onChange={(e) => set("bondFdv", e.target.value.replace(/[^0-9.]/g, ""))} />
+              </Field>
+            </div>
+            <p className="field-note mono">
+              Uniswap prices in ticks, so the numbers land on the nearest one: open {tickToFdv(ticks.tickStart, SUPPLY).toFixed(2)} ETH,
+              bond {tickToFdv(ticks.tickBond, SUPPLY).toFixed(2)} ETH (ticks {ticks.tickStart} to {ticks.tickBond}).
+            </p>
+          </Step>
+
+          <Step n={4} title="The tax on every trade" purpose="What a buy and a sell cost, in ETH, on top of the pool fee. Fixed at launch: nobody, including us, can change them afterwards." done>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Slider label={`Buy tax ${form.buyTax}%`} hint="Between 1 and 10." min={1} max={10} step={0.5} value={form.buyTax} onChange={(v) => set("buyTax", v)} />
+              <Slider label={`Sell tax ${form.sellTax}%`} hint="Between 1 and 10." min={1} max={10} step={0.5} value={form.sellTax} onChange={(v) => set("sellTax", v)} />
+              <Slider label={`Opening surcharge ${form.snipeTax}%`} hint="An extra tax at the very open, on top of the buy tax." min={0} max={89} step={1} value={form.snipeTax} onChange={(v) => set("snipeTax", v)} />
+              <Slider label={`Gone after ${form.snipeSeconds}s`} hint="The surcharge falls to nothing over this many seconds." min={0} max={30} step={1} value={form.snipeSeconds} onChange={(v) => set("snipeSeconds", v)} />
+            </div>
+          </Step>
+
+          <Step n={5} title="Where your nine tenths go" purpose="The protocol keeps a tenth of the tax, always. You decide what happens to the rest, once, here. The four shares have to add up to 100." done={splitDone}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Slider label={`You ${form.creatorBps}%`} hint="Claimable by you whenever you want it." min={0} max={100} step={5} value={form.creatorBps} onChange={(v) => set("creatorBps", v)} />
+              <Slider label={`Buy back and burn ${form.buybackBps}%`} hint="Buys the token on the open market and destroys it." min={0} max={100} step={5} value={form.buybackBps} onChange={(v) => set("buybackBps", v)} />
+              <Slider label={`Holders ${form.dividendsBps}%`} hint="Paid out to everyone holding, in ETH." min={0} max={100} step={5} value={form.dividendsBps} onChange={(v) => set("dividendsBps", v)} />
+              <Slider label={`Liquidity ${form.liquidityBps}%`} hint="Goes back into the locked position, deepening the pool." min={0} max={100} step={5} value={form.liquidityBps} onChange={(v) => set("liquidityBps", v)} />
+            </div>
+            <p className={splitDone ? "field-note good" : "field-note bad"}>
+              {splitDone ? "Adds up to 100." : `Adds up to ${allocationSum}%. It has to be 100.`}
+            </p>
+          </Step>
+
+          <Step n={6} title="The opening, and your first buy" purpose="How hard it is for one wallet to take the whole open. Selling is never restricted, and every limit here expires by itself." done>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Slider label={`Limits last ${form.restrictionBlocks} blocks`} hint="About a tenth of a second each on this chain." min={0} max={200} step={10} value={form.restrictionBlocks} onChange={(v) => set("restrictionBlocks", v)} />
+              <Slider label={`Hold at most ${form.maxHold}%`} hint="Of the supply, per wallet, while the limits last." min={0.5} max={20} step={0.5} value={form.maxHold} onChange={(v) => set("maxHold", v)} />
+              <Slider label={`Buy at most ${form.maxBuy}%`} hint="Per transaction, while the limits last." min={0.5} max={20} step={0.5} value={form.maxBuy} onChange={(v) => set("maxBuy", v)} />
+            </div>
+            <Field label="Your first buy in ETH"
+              help="Optional, and it lands inside the launch transaction, before anyone else can trade. The buy cap above applies to it too: first dibs, not the whole open.">
+              <input className="input mono" inputMode="decimal" value={form.firstBuy}
+                onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
+            </Field>
+          </Step>
+
+          {error && <p className="panel p-3 text-xs text-[var(--color-red)]">{error}</p>}
+
+          <LaunchBar
+            cost={`${formatEther(total)} ETH`}
+            costLabel={form.firstBuy ? `${formatEther(fee)} fee plus your ${form.firstBuy} first buy` : "launch fee, plus gas"}
+            blocked={blocked}
+            busy={mining || isPending || receipt.isLoading}
+            busyLabel={mining ? "mining the hook address" : receipt.isLoading ? "waiting for the chain" : "confirm in your wallet"}
+            label="Create the token"
+            onClick={launch}
+          />
         </div>
-        <p className="text-xs dim mono">
-          ticks {ticks.tickStart} to {ticks.tickBond} · actual open {tickToFdv(ticks.tickStart, SUPPLY).toFixed(2)} ETH
-          · actual bond {tickToFdv(ticks.tickBond, SUPPLY).toFixed(2)} ETH
-        </p>
-      </section>
-
-      <section className="panel space-y-3 p-4">
-        <h2 className="font-semibold">The tax</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Slider label={`buy ${form.buyTax}%`} min={1} max={10} step={0.5} value={form.buyTax} onChange={(v) => set("buyTax", v)} />
-          <Slider label={`sell ${form.sellTax}%`} min={1} max={10} step={0.5} value={form.sellTax} onChange={(v) => set("sellTax", v)} />
-          <Slider label={`opening surcharge ${form.snipeTax}%`} min={0} max={89} step={1} value={form.snipeTax} onChange={(v) => set("snipeTax", v)} />
-          <Slider label={`decaying over ${form.snipeSeconds}s`} min={0} max={30} step={1} value={form.snipeSeconds} onChange={(v) => set("snipeSeconds", v)} />
-        </div>
-        <p className="text-xs dim">Fixed at launch. Nobody, including us, can change them afterwards.</p>
-      </section>
-
-      <section className="panel space-y-3 p-4">
-        <h2 className="font-semibold">Where your nine tenths go</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Slider label={`you ${form.creatorBps}%`} min={0} max={100} step={5} value={form.creatorBps} onChange={(v) => set("creatorBps", v)} />
-          <Slider label={`buy back and burn ${form.buybackBps}%`} min={0} max={100} step={5} value={form.buybackBps} onChange={(v) => set("buybackBps", v)} />
-          <Slider label={`holders ${form.dividendsBps}%`} min={0} max={100} step={5} value={form.dividendsBps} onChange={(v) => set("dividendsBps", v)} />
-          <Slider label={`liquidity ${form.liquidityBps}%`} min={0} max={100} step={5} value={form.liquidityBps} onChange={(v) => set("liquidityBps", v)} />
-        </div>
-        <p className={`text-xs ${allocationSum === 100 ? "dim" : "text-[var(--color-red)]"}`}>
-          {allocationSum === 100 ? "adds up" : `adds up to ${allocationSum}%, it has to be 100`}
-          . The protocol takes a tenth before this split, always.
-        </p>
-      </section>
-
-      <section className="panel space-y-3 p-4">
-        <h2 className="font-semibold">The opening window</h2>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Slider label={`${form.restrictionBlocks} blocks`} min={0} max={200} step={10} value={form.restrictionBlocks} onChange={(v) => set("restrictionBlocks", v)} />
-          <Slider label={`hold at most ${form.maxHold}%`} min={0.5} max={20} step={0.5} value={form.maxHold} onChange={(v) => set("maxHold", v)} />
-          <Slider label={`buy at most ${form.maxBuy}%`} min={0.5} max={20} step={0.5} value={form.maxBuy} onChange={(v) => set("maxBuy", v)} />
-        </div>
-        <p className="text-xs dim">
-          The launch block is yours alone, and for the blocks after it no wallet may take more than
-          its share. Selling is never restricted, and every limit expires by itself.
-        </p>
-        <Field label="your first buy (ETH, optional, inside the launch transaction)">
-          <input className="input mono" inputMode="decimal" value={form.firstBuy}
-            onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
-        </Field>
-        <p className="text-xs dim">
-          It lands before anyone else can trade, and the buy cap applies to it: first dibs, not the whole open.
-        </p>
-      </section>
-
-      {error && <p className="panel p-3 text-xs text-[var(--color-red)]">{error}</p>}
-
-      <button className="btn w-full" disabled={!ready || mining || isPending || receipt.isLoading} onClick={launch}>
-        {!address ? "connect a wallet"
-          : mining ? "mining the hook address"
-          : isPending || receipt.isLoading ? "printing"
-          : "print it"}
-      </button>
-    </div>
-    <aside className="launch-preview">
-      <div className="launch-preview-label">LIVE PREVIEW</div>
-      <div className="launch-preview-art"><Artwork src={form.logo} symbol={form.symbol || "?"} size={88} rounded="rounded-xl" /></div>
-      <h2>{form.name || "Your token"}</h2>
-      <p className="launch-preview-symbol">$<span>{form.symbol || "TICKER"}</span></p>
-      <div className="launch-preview-details">
-        <div className="flex justify-between"><span>Launch model</span><span className="mono">Direct pool</span></div>
-        <div className="flex justify-between"><span>Opens at</span><span className="mono">{form.openFdv || "—"} ETH</span></div>
-        <div className="flex justify-between"><span>Buy / sell tax</span><span className="mono">{form.buyTax}% / {form.sellTax}%</span></div>
-        <div className="flex justify-between"><span>Launch fee</span><span className="mono">{formatEther((launchFee as bigint | undefined) ?? 0n)} ETH</span></div>
       </div>
-      <p className="launch-preview-note">Preview only. Your wallet confirms the final transaction.</p>
-    </aside>
+
+      <aside className="launch-preview">
+        <div className="launch-preview-label">Live preview</div>
+        <div className="launch-preview-art"><Artwork src={form.logo} symbol={form.symbol || "?"} size={88} rounded="rounded-xl" /></div>
+        <h2>{form.name || "Your token"}</h2>
+        <p className="launch-preview-symbol">$<span>{form.symbol || "TICKER"}</span></p>
+        <div className="launch-preview-details">
+          <div className="flex justify-between"><span className="dim">Launch model</span><span className="mono">Direct pool</span></div>
+          <div className="flex justify-between"><span className="dim">Opens at</span><span className="mono">{form.openFdv || "0"} ETH</span></div>
+          <div className="flex justify-between"><span className="dim">Buy / sell tax</span><span className="mono">{form.buyTax}% / {form.sellTax}%</span></div>
+          <div className="flex justify-between"><span className="dim">Launch fee</span><span className="mono">{formatEther(fee)} ETH</span></div>
+        </div>
+        <WhatHappens items={[
+          "We mine an address for your hook, which takes a few seconds and costs nothing.",
+          "Your wallet sends one transaction and pays the launch fee.",
+          "The token, its pool, its hook and its splitter are created together, and the supply goes straight into a locked position.",
+          "You land on the token page and it is tradable in the same block.",
+        ]} />
+      </aside>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs dim">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function Slider({ label, min, max, step, value, onChange }: {
-  label: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void;
+function Slider({ label, min, max, step, value, onChange, hint }: {
+  label: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void; hint?: string;
 }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-xs dim">{label}</span>
+    <label className="field">
+      <span className="field-label">{label}</span>
       <input type="range" className="w-full accent-[var(--color-lime)]"
         min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      {hint && <span className="field-note">{hint}</span>}
     </label>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { API } from "@/lib/config";
 import { imageUrl } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
@@ -66,6 +68,18 @@ export function ArtworkPicker({ value, onChange, symbol, ai, promptHint }: {
   ai?: boolean;
   promptHint?: string;
 }) {
+  // What this deployment can actually do. Asked up front, because a button that cannot work is
+  // worse than no button: the old version offered an upload, took the click, and then printed the
+  // reason in red underneath as though something had gone wrong.
+  const { data: health } = useQuery({
+    queryKey: ["health"],
+    queryFn: () => api<{ integrations: { storage: boolean; art: boolean } }>("/health"),
+    staleTime: 60_000,
+  });
+  const canUpload = health?.integrations.storage ?? false;
+  const canDraw = Boolean(ai) && (health?.integrations.art ?? false);
+  const known = health !== undefined;
+
   const fileInput = useRef<HTMLInputElement>(null);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState<"" | "uploading" | "drawing">("");
@@ -141,42 +155,56 @@ export function ArtworkPicker({ value, onChange, symbol, ai, promptHint }: {
 
   return (
     <div
-      onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+      onDragOver={(e) => { if (!canUpload) return; e.preventDefault(); setOver(true); }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => {
+        if (!canUpload) return;
         e.preventDefault();
         setOver(false);
         const file = e.dataTransfer.files[0];
         if (file) void take(file);
       }}
-      className={`flex gap-3 rounded-xl border border-dashed p-3 ${over ? "border-[var(--color-lime)]" : "border-[var(--color-line)]"}`}
+      className={`art-picker${canUpload ? " droppable" : ""}${over ? " over" : ""}`}
     >
-      <Artwork src={imageUrl(value)} symbol={symbol || "?"} size={88} rounded="rounded-xl" />
-      <div className="flex-1 space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="btn btn-ghost text-xs" disabled={Boolean(busy)} onClick={() => fileInput.current?.click()}>
-            choose a file
-          </button>
-          <span className="text-xs dim">or drop one here</span>
-          <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void take(f); }} />
-        </div>
+      <div className="art-preview">
+        <Artwork src={imageUrl(value)} symbol={symbol || "?"} size={104} rounded="rounded-none" />
+      </div>
 
-        {ai && (
-          <div className="flex gap-2">
-            <input className="input flex-1" placeholder={promptHint ? `describe it, or: ${promptHint}` : "describe it"}
+      <div className="art-controls">
+        {canUpload && (
+          <div className="art-drop">
+            <button type="button" className="btn btn-ghost" disabled={Boolean(busy)} onClick={() => fileInput.current?.click()}>
+              Choose a file
+            </button>
+            <span>or drop one here. PNG, JPEG, WebP or GIF, up to 4 MB.</span>
+            <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void take(f); }} />
+          </div>
+        )}
+
+        {canDraw && (
+          <div className="art-generate">
+            <input className="input" placeholder={promptHint ? `Describe it, or leave it: ${promptHint}` : "Describe it"}
               value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-            <button type="button" className="btn btn-ghost text-xs" disabled={Boolean(busy)} onClick={generate}>
-              {busy === "drawing" ? "drawing" : "generate"}
+            <button type="button" className="btn btn-ghost" disabled={Boolean(busy)} onClick={generate}>
+              {busy === "drawing" ? "Drawing" : "Draw one"}
             </button>
           </div>
         )}
 
-        <input className="input text-xs" placeholder="or paste an artwork url" value={value} onChange={(e) => typed(e.target.value)} />
+        <label className="field">
+          <span className="field-label">{canUpload ? "Or paste a link" : "Link to the picture"}</span>
+          <input className="input" placeholder="https://" value={value} onChange={(e) => typed(e.target.value)} />
+          <span className="field-note">
+            {!known ? "Checking what this deployment can store."
+              : canUpload ? "Only the link is written on chain, so keep the picture somewhere that stays up."
+              : "This deployment stores no files, so the picture lives wherever you host it. Only the link is written on chain."}
+          </span>
+        </label>
 
-        {status && <p className="text-xs dim mono">{status}</p>}
+        {status && <p className="art-note mono">{status}</p>}
         {!status && note && (
-          <p className={`text-xs ${note.kind === "done" ? "dim" : "text-[var(--color-red)]"}`}>
+          <p className={note.kind === "error" ? "art-note bad" : note.kind === "warn" ? "art-note warn" : "art-note good"}>
             {note.text}
           </p>
         )}

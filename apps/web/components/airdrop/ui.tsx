@@ -6,27 +6,27 @@ import type { ReactNode } from "react";
 
 export function Fact({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="rounded-lg border border-[var(--color-line)] p-2">
-      <div className="mono text-sm break-words">{value}</div>
-      <div className="text-xs dim">{label}</div>
+    <div className="fact">
+      <strong>{value}</strong>
+      <span>{label}</span>
     </div>
   );
 }
 
 export function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 text-xs">
-      <span className="dim">{label}</span>
-      <span className="mono break-all text-right">{value}</span>
+    <div className="fact-row">
+      <span>{label}</span>
+      <span className="mono">{value}</span>
     </div>
   );
 }
 
 export function Headline({ value, note }: { value: string; note: string }) {
   return (
-    <div>
-      <div className="mono text-3xl font-bold leading-none">{value}</div>
-      <p className="mt-1.5 text-xs dim">{note}</p>
+    <div className="headline">
+      <strong>{value}</strong>
+      <p>{note}</p>
     </div>
   );
 }

@@ -5,9 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Calculator } from "@/components/airdrop/Calculator";
 import { ClaimPanel } from "@/components/airdrop/ClaimPanel";
-import { SeasonFacts } from "@/components/airdrop/SeasonFacts";
+import { SeasonFacts, useSeasonAirdrop } from "@/components/airdrop/SeasonFacts";
 import { WhatThisIsNot } from "@/components/airdrop/WhatThisIsNot";
-import type { SeasonList } from "@/components/airdrop/data";
+import { usd, type SeasonList } from "@/components/airdrop/data";
 
 /// The season pool, end to end: what it is worth so far, what your points are worth of it, what
 /// more activity would add, and the button that takes it once the season is split. Nothing on this
@@ -19,40 +19,42 @@ export default function AirdropPage() {
   const current = seasons.data?.current ?? 1;
   const season = picked ?? current;
   const list = seasons.data?.seasons ?? [];
+  // The page head shows the figure the page is about, rather than making somebody find it in the
+  // first panel below the fold.
+  const pool = useSeasonAirdrop(season).data ?? null;
 
   return (
     <div className="space-y-4">
-      <header className="page-intro flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="section-kicker">THE DROP</div>
-          <h1>the drop</h1>
-          <p>
-            The pool is a cut of what the protocol earned this season, its tenth of the direct machine&apos;s tax
-            and its thirty basis points of every curve trade, and it grows while people trade.
-            <br />
-            Points decide how it splits between the wallets that hold them. Nothing is promised and nothing is minted.
-          </p>
-        </div>
-        {list.length > 0 && (
-          <label className="flex items-center gap-2 text-xs dim">
-            <span>season</span>
-            <span className="block w-44">
-              <select
-                className="input mono"
-                value={season}
-                onChange={(e) => setPicked(Number(e.target.value))}
-              >
+      <div className="page-head">
+        <header className="page-intro">
+          <div className="section-kicker">The drop</div>
+          <h1>The drop</h1>
+          <p>A cut of what the protocol earned. Points decide how it splits.</p>
+        </header>
+        <div className="head-side">
+          <div className="head-figure">
+            <strong>{pool ? usd(pool.pool.poolUsd) : "·"}</strong>
+            <span>in the pool, season {season}</span>
+          </div>
+          {list.length > 0 && (
+            <label className="season-pick">
+              <span>Season</span>
+              <select className="input mono" value={season} onChange={(e) => setPicked(Number(e.target.value))}>
                 {list.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.id} · {s.name}
-                    {s.id === current ? " · live" : ""}
-                  </option>
+                  <option key={s.id} value={s.id}>{s.id} · {s.name}{s.id === current ? " · live" : ""}</option>
                 ))}
               </select>
-            </span>
-          </label>
-        )}
-      </header>
+            </label>
+          )}
+        </div>
+      </div>
+
+      <div className="market-summary" aria-label="This season">
+        <div className="stat"><strong>{pool ? `${Number(pool.pool.poolBps / 100)}%` : "·"}</strong><span>of the take, this season</span></div>
+        <div className="stat"><strong>{pool ? Math.round(pool.points.total).toLocaleString() : "·"}</strong><span>points in the season</span></div>
+        <div className="stat"><strong>{pool ? pool.points.participants.toLocaleString() : "·"}</strong><span>wallets holding them</span></div>
+        <div className="stat"><strong>{season === current ? "live" : "closed"}</strong><span>season {season}</span></div>
+      </div>
 
       {seasons.isError && <p className="panel p-4 text-xs dim">The season list is not answering, so this is season {season}.</p>}
 
