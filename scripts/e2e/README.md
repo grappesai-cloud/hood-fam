@@ -84,6 +84,22 @@ hash no longer pins what the presets say.
   back to back runs can die on a 429 before a single assertion. The start is retried three times,
   and anvil is asked for one account rather than ten so there is less to fetch.
 
+## The wizard, in a browser
+
+`wizard-ui.mjs` is the other half of the proof: not the system from the outside, but the part a
+person touches. It leaves the rehearsal's fork and API standing, builds the app against the
+addresses that rehearsal deployed, opens it in Chrome with `provider-shim.js` standing in for a
+wallet, fills the launch form in and presses the button.
+
+```bash
+node scripts/e2e/wizard-ui.mjs        # about three minutes, 18 assertions, screenshots at each step
+```
+
+A token is printed on the fork by the form, the app follows it to its page, a buy goes through the
+curve, the indexer reads the trade back off the chain and the board shows the launch. The wallet it
+signs with is a fresh address anvil impersonates, never one of anvil's own keys, for the 7702 reason
+below.
+
 ## The rest
 
 | script | what it drives |
@@ -98,4 +114,5 @@ hash no longer pins what the presets say.
 | `support.mjs` | the support desk and its ticket queue |
 | `uploads.mjs` | token art upload, dedup and the 501 with no bucket |
 | `mcp-chain.mjs` | the MCP server's chain tools |
-| `provider-shim.js` | an EIP-1193 provider for driving the web app from a browser with no wallet |
+| `provider-shim.js` | an EIP-1193 provider for driving the web app from a browser with no wallet; `window.__HOOD_SHIM = { rpc, account }` moves it to another fork or another wallet |
+| `wizard-ui.mjs` | the launch wizard and the trade box, in Chrome, against the rehearsal's fork |

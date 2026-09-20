@@ -3,8 +3,14 @@
 // needs no signing: the "wallet" is a JSON-RPC proxy plus an account list, announced over
 // EIP-6963 so wagmi's injected connector finds it exactly as it would find MetaMask.
 (() => {
-  const RPC = "http://127.0.0.1:8545";
-  const ACCOUNT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"; // anvil #1 ("alice")
+  // A harness that runs its own fork on another port, or with a wallet of its own, sets
+  // window.__HOOD_SHIM = { rpc, account } before this file is injected. The defaults are the
+  // original ones. On 4663 anvil's own keys carry a 7702 delegation that forwards every wei paid to
+  // them, so a harness that moves real value derives a fresh address instead and lets anvil
+  // impersonate it, which is why the account is a knob at all.
+  const CONFIG = (typeof window !== "undefined" && window.__HOOD_SHIM) || {};
+  const RPC = CONFIG.rpc || "http://127.0.0.1:8545";
+  const ACCOUNT = CONFIG.account || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"; // anvil #1 ("alice")
   const CHAIN_ID = "0x1237"; // 4663
   const listeners = {};
   let id = 1;
@@ -33,6 +39,8 @@
         case "eth_sendTransaction": {
           const tx = { ...params[0], from: ACCOUNT };
           delete tx.gas; // let anvil estimate
+          // Unlocked for anvil's own accounts, needed for any other; asking twice is free.
+          await rpc("anvil_impersonateAccount", [ACCOUNT]).catch(() => {});
           return rpc("eth_sendTransaction", [tx]);
         }
         case "personal_sign":
