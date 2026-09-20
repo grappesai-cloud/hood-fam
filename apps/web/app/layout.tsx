@@ -1,16 +1,14 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import "./globals.css";
+import "./brand.css";
 import { Providers } from "./providers";
-import { SafeStrip } from "@/components/SafeStrip";
-import { Nav } from "@/components/Nav";
-import { SupportChatMount } from "@/components/SupportChatMount";
-import { DemoBanner } from "@/components/DemoBanner";
-import { Spotlight } from "@/components/Spotlight";
+import { brand } from "@/brands";
 import { CANONICAL, SITE } from "@/lib/site";
 
-const TITLE = "hood.fam";
-const DESCRIPTION = "A launchpad on Robinhood Chain. What the house takes, the fam gets back.";
+/// The shell, the words and the mark come from the brand this build was made as (`brands/`), so the
+/// same launchpad can be several products without a second copy of anything underneath it.
+const TITLE = brand.name;
+const DESCRIPTION = brand.description;
 
 /// `metadataBase` is what turns a relative image into an absolute one in a share card, and without
 /// it every unfurl on X and Telegram is text only. Each token page overrides this with its own
@@ -30,34 +28,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" data-brand={brand.id}>
       <body className="min-h-screen">
-        {/* The light the whole sheet is built on: painted once, fixed behind every page, and
-            invisible to a screen reader and to a pointer. */}
-        <div className="atmosphere" aria-hidden="true" />
-        <Spotlight />
         <Providers>
-          <Nav />
-          <SafeStrip />
-          <DemoBanner />
-          <main className="site-main">{children}</main>
-          <footer className="site-footer">
-            <div className="footer-top">
-              <span className="footer-brand">hood<span>.fam</span></span>
-              <nav className="footer-links">
-                <Link href="/analytics">Analytics</Link>
-                <Link href="/airdrop">The drop</Link>
-                <Link href="/terms">Terms</Link>
-                <Link href="/privacy">Privacy</Link>
-                <span>Robinhood Chain · 4663</span>
-              </nav>
-            </div>
-            <div className="footer-legal">
-              <p>Trading tokens is risky and most launches go to zero. Nothing here is financial advice.</p>
-              <p>Transactions go through your wallet and cannot be reversed. Tokens can lose all their value. hood.fam holds no funds and gives no financial advice. Always check the token address.</p>
-            </div>
-          </footer>
-          <SupportChatMount />
+          <brand.Shell>{children}</brand.Shell>
         </Providers>
       </body>
     </html>

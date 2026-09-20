@@ -5,16 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect, useBalance } from "wagmi";
 import { shortAddress, fmt } from "@/lib/format";
 import { usePreferredConnector, useSafeAccount } from "@/lib/safe";
-
-const LINKS = [
-  { href: "/", label: "Explore" },
-  { href: "/launch", label: "Create" },
-  { href: "/portfolio", label: "Portfolio" },
-  { href: "/creator", label: "Creator" },
-  { href: "/leaderboard", label: "Leaderboard" },
-  { href: "/airdrop", label: "The drop" },
-  { href: "/bridge", label: "Bridge" },
-];
+import { brand } from "@/brands";
 
 export function Nav() {
   const path = usePathname();
@@ -28,9 +19,9 @@ export function Nav() {
   return (
     <header className="site-header">
       <div className="nav-inner">
-        <Link href="/" className="brand" aria-label="hood.fam home">hood<span>.fam</span></Link>
+        <Link href="/" className="brand" aria-label={`${brand.name} home`}><brand.Wordmark /></Link>
         <nav className="nav-links" aria-label="Main navigation">
-          {LINKS.map((l) => (
+          {brand.nav.map((l) => (
             <Link key={l.href} href={l.href}
               className={path === l.href ? "nav-link active" : "nav-link"}>
               {l.label}

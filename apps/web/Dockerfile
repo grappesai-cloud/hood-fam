@@ -3,6 +3,9 @@ FROM node:22-slim AS build
 WORKDIR /app
 # wagmi's WebSocket transport pulls native modules (bufferutil) that compile at install time
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
+# Which face this image is (apps/web/brands). One image build per subdomain; everything under the
+# brand, from the indexer to the Safe handling, is the same code.
+ARG BRAND=hood
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_RPC
 ARG NEXT_PUBLIC_FACTORY
@@ -36,7 +39,7 @@ COPY apps/web/package.json apps/web/
 RUN npm ci --no-audit --no-fund
 COPY packages/sdk packages/sdk
 COPY apps/web apps/web
-RUN npx tsc -p packages/sdk/tsconfig.json && cd apps/web && npx next build
+RUN npx tsc -p packages/sdk/tsconfig.json && node scripts/brand.mjs "$BRAND" && cd apps/web && npx next build
 # and once the build is done, what built it does not travel with it
 RUN npm prune --omit=dev
 

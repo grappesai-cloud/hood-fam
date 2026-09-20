@@ -15,7 +15,8 @@
     "abis:check": "node scripts/abis.mjs --check",
     "check:fetch": "node scripts/checks/safe-fetch.mjs",
     "safe": "node scripts/safe.mjs",
-    "check:safe": "node scripts/checks/safe-batch.mjs"
+    "check:safe": "node scripts/checks/safe-batch.mjs",
+    "brand": "node scripts/brand.mjs"
   },
   "keywords": [],
   "author": "",
