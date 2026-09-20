@@ -1,0 +1,626 @@
+/* ==========================================================================================
+   Bodega: the corner shop.
+
+   Everything here is scoped to [data-brand="bodega"], so a build that is not this brand cannot
+   pick up a line of it. The palette is the shared one, unchanged: near black, one lime accent.
+   What makes this place feel unlike the terminal next door is type, measure and air. Headings in
+   the system serif, text in the system sans at a size meant for reading, one column about 900px
+   wide, hairlines instead of borders, flat surfaces instead of glass, and the accent spent only on
+   a short underline or a single solid button. No blur, no glow, no gradient text.
+
+   The second half of the file puts the shared primitives (.panel, .btn, .input, .token-card and
+   the rest) into that same language, so the launch wizard, the portfolio, the token page and the
+   leaderboard are the same shop rather than this front page bolted onto the old one.
+   ========================================================================================== */
+
+[data-brand="bodega"] {
+  /* System faces only. A shop does not wait on a web font to open. */
+  --bd-serif: Georgia, "Times New Roman", serif;
+  --bd-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --bd-col: 900px;
+  --bd-gutter: 20px;
+  --bd-radius: 10px;
+  /* One rule weight for the whole site. A hairline is the only divider this brand owns. */
+  --bd-rule: var(--color-line);
+}
+
+[data-brand="bodega"] body {
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--bd-sans);
+  /* The shared sheet tightens tracking for display type; reading type wants it left alone. */
+  letter-spacing: normal;
+  line-height: 1.55;
+}
+
+[data-brand="bodega"] h1,
+[data-brand="bodega"] h2,
+[data-brand="bodega"] h3,
+[data-brand="bodega"] h4 {
+  font-family: var(--bd-serif);
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+/* ------------------------------------------------------------------ the mark */
+[data-brand="bodega"] .bd-mark {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  /* The mark is sized once, here, and everything in it is measured in `em` off this, so the footer
+     can ask for a smaller one by changing this single number. */
+  font-size: 26px;
+  line-height: 1;
+}
+/* The awning is the only lit thing in the chrome, and it is a few millimetres of it. */
+[data-brand="bodega"] .bd-mark-awning {
+  width: 1.05em;
+  height: auto;
+  color: var(--color-lime);
+}
+[data-brand="bodega"] .bd-mark-word {
+  font-family: var(--bd-serif);
+  font-size: 1em;
+  font-weight: 400;
+  letter-spacing: .01em;
+}
+
+/* ------------------------------------------------------------------ the masthead
+   Two lines, both inside the same column the page is set in: the mark and the wallet on the first,
+   the routes on the second. It wraps to the same shape at 360px as at 1400px, which is why there
+   is no breakpoint for it. */
+[data-brand="bodega"] .bd-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  border-bottom: 1px solid var(--bd-rule);
+  /* Opaque on purpose: a sticky bar with nothing behind it is the honest version of a blurred one. */
+  background: var(--color-ink);
+}
+[data-brand="bodega"] .bd-header-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  width: 100%;
+  max-width: var(--bd-col);
+  margin: 0 auto;
+  padding: 12px var(--bd-gutter);
+}
+[data-brand="bodega"] .bd-brand {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin-right: auto;
+  color: var(--color-text);
+}
+[data-brand="bodega"] .bd-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 18px;
+  flex-basis: 100%;
+  margin-top: 2px;
+}
+[data-brand="bodega"] .bd-nav-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--color-dim);
+  font-size: 14px;
+  transition: color .15s;
+}
+[data-brand="bodega"] .bd-nav-link:hover { color: var(--color-text); }
+/* The current page is named by a short rule under it. This is the whole of the accent's job in the
+   chrome: it marks where you are, it does not light anything. */
+[data-brand="bodega"] .bd-nav-link.on {
+  color: var(--color-text);
+  box-shadow: inset 0 -2px 0 var(--color-lime);
+}
+
+[data-brand="bodega"] .bd-wallet {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--bd-rule);
+  border-radius: var(--bd-radius);
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--bd-sans);
+  font-size: 14px;
+  white-space: nowrap;
+}
+[data-brand="bodega"] .bd-wallet:hover:not(:disabled) { border-color: #ffffff33; background: #ffffff08; }
+/* The one solid accent in the header, and only while there is nothing connected: once there is, the
+   button is a quiet label of what you are signed in as. */
+[data-brand="bodega"] .bd-wallet-open {
+  border-color: var(--color-lime);
+  background: var(--color-lime);
+  color: #0d1100;
+  font-weight: 600;
+}
+[data-brand="bodega"] .bd-wallet-open:hover:not(:disabled) { background: #d9ff4d; border-color: #d9ff4d; }
+[data-brand="bodega"] .bd-wallet:disabled { opacity: .45; cursor: default; }
+
+/* ------------------------------------------------------------------ the column */
+[data-brand="bodega"] .bd-main {
+  width: 100%;
+  max-width: var(--bd-col);
+  min-height: 60vh;
+  margin: 0 auto;
+  padding: 32px var(--bd-gutter) 56px;
+}
+
+[data-brand="bodega"] .bd-footer {
+  width: 100%;
+  max-width: var(--bd-col);
+  margin: 0 auto;
+  /* The help button floats over the bottom right corner, so the page has to end above it. */
+  padding: 24px var(--bd-gutter) 104px;
+  border-top: 1px solid var(--bd-rule);
+  color: var(--color-dim);
+  font-size: 13px;
+  line-height: 1.7;
+}
+[data-brand="bodega"] .bd-footer p { margin: 0 0 10px; max-width: 68ch; }
+[data-brand="bodega"] .bd-footer-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 18px;
+}
+[data-brand="bodega"] .bd-footer-mark { font-size: 20px; }
+[data-brand="bodega"] .bd-footer-links { display: flex; flex-wrap: wrap; gap: 0 18px; }
+[data-brand="bodega"] .bd-footer-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--color-text);
+  font-size: 13px;
+}
+[data-brand="bodega"] .bd-footer-links a:hover { box-shadow: inset 0 -1px 0 var(--color-lime); }
+
+/* ------------------------------------------------------------------ the front page */
+[data-brand="bodega"] .bd-lede { margin-bottom: 26px; }
+[data-brand="bodega"] .bd-lede h1 {
+  margin: 0 0 12px;
+  font-size: clamp(30px, 6vw, 42px);
+  line-height: 1.12;
+}
+[data-brand="bodega"] .bd-lede p {
+  max-width: 60ch;
+  margin: 0 0 8px;
+  font-size: 16px;
+  line-height: 1.65;
+}
+[data-brand="bodega"] .bd-lede-count { color: var(--color-dim); font-size: 14px; }
+
+[data-brand="bodega"] .bd-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  padding-bottom: 14px;
+}
+[data-brand="bodega"] .bd-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 240px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--bd-rule);
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+}
+[data-brand="bodega"] .bd-search-label {
+  flex: none;
+  color: var(--color-dim);
+  font-size: 13px;
+}
+[data-brand="bodega"] .bd-search input {
+  flex: 1;
+  /* Without this a flex item refuses to shrink under its own content and the page scrolls sideways
+     on a narrow phone. */
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font-family: var(--bd-sans);
+  font-size: 15px;
+  outline: 0;
+}
+[data-brand="bodega"] .bd-search input::placeholder { color: #7c8175; }
+
+[data-brand="bodega"] .bd-filters { display: flex; flex-wrap: wrap; gap: 0 18px; }
+[data-brand="bodega"] .bd-filter {
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-dim);
+  font-family: var(--bd-sans);
+  font-size: 14px;
+}
+[data-brand="bodega"] .bd-filter:hover { color: var(--color-text); }
+[data-brand="bodega"] .bd-filter[aria-pressed="true"] {
+  color: var(--color-text);
+  box-shadow: inset 0 -2px 0 var(--color-lime);
+}
+
+[data-brand="bodega"] .bd-shelf-count {
+  margin: 0 0 4px;
+  color: var(--color-dim);
+  font-size: 13px;
+}
+
+[data-brand="bodega"] .bd-shelf {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--bd-rule);
+}
+[data-brand="bodega"] .bd-shelf > li { border-bottom: 1px solid var(--bd-rule); }
+
+[data-brand="bodega"] .bd-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 4px;
+  color: var(--color-text);
+}
+[data-brand="bodega"] .bd-row:hover { background: #ffffff06; }
+[data-brand="bodega"] .bd-row-art { flex: none; }
+[data-brand="bodega"] .bd-row-art img,
+[data-brand="bodega"] .bd-row-art > div {
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+}
+/* The artwork is whatever a stranger uploaded, so the initials fallback has to sit properly in a
+   72px square rather than at the size the wide card used. */
+[data-brand="bodega"] .bd-row-art > div { color: var(--color-lime); font-size: 24px; }
+
+[data-brand="bodega"] .bd-row-text { min-width: 0; flex: 1; }
+[data-brand="bodega"] .bd-row-text > span { display: block; }
+[data-brand="bodega"] .bd-row-name {
+  font-family: var(--bd-serif);
+  font-size: 19px;
+  line-height: 1.25;
+  /* Coin names are typed by strangers and some of them have no spaces in at all. */
+  overflow-wrap: anywhere;
+}
+[data-brand="bodega"] .bd-row-ticker {
+  color: var(--color-dim);
+  font-family: var(--bd-sans);
+  font-size: 13px;
+  letter-spacing: .04em;
+}
+[data-brand="bodega"] .bd-row-say {
+  margin-top: 3px;
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+[data-brand="bodega"] .bd-row-worth { color: var(--color-dim); font-size: 14px; }
+[data-brand="bodega"] .bd-row-go {
+  margin-top: 6px;
+  color: var(--color-text);
+  font-size: 14px;
+  text-decoration: underline;
+  text-decoration-color: var(--color-lime);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+
+/* Waiting for the shelf: the shape of a row, without pretending to be one. */
+[data-brand="bodega"] .bd-row-wait { display: flex; align-items: center; gap: 14px; padding: 16px 4px; }
+[data-brand="bodega"] .bd-wait-art {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+}
+[data-brand="bodega"] .bd-wait-text { flex: 1; display: block; }
+[data-brand="bodega"] .bd-wait-text > span { display: block; height: 12px; border-radius: 6px; background: var(--color-panel); }
+[data-brand="bodega"] .bd-wait-text > span:first-child { width: 42%; margin-bottom: 10px; }
+[data-brand="bodega"] .bd-wait-text > span:last-child { width: 76%; }
+
+[data-brand="bodega"] .bd-note {
+  padding: 26px 22px;
+  border: 1px solid var(--bd-rule);
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+}
+[data-brand="bodega"] .bd-note h2 { margin: 0 0 8px; font-size: 22px; }
+[data-brand="bodega"] .bd-note p { max-width: 58ch; margin: 0; color: var(--color-dim); font-size: 15px; }
+[data-brand="bodega"] .bd-note-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin-top: 10px;
+  color: var(--color-text);
+  font-size: 15px;
+  text-decoration: underline;
+  text-decoration-color: var(--color-lime);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+
+/* ==========================================================================================
+   The shared primitives, in this brand's language.
+
+   These classes are written once in app/globals.css and used by every page the brands have in
+   common. Restyling them here is what stops the launch wizard, the portfolio and the token page
+   from arriving in the previous brand's glass while the front page is a shop.
+   ========================================================================================== */
+
+[data-brand="bodega"] .panel {
+  border: 1px solid var(--bd-rule);
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+/* The specular sweep that makes glass read as glass. There is no glass here. */
+[data-brand="bodega"] .panel > .lg-sheen,
+[data-brand="bodega"] .lg-sheen { display: none; }
+
+[data-brand="bodega"] .btn {
+  min-height: 40px;
+  padding: 10px 18px;
+  border: 1px solid var(--color-lime);
+  border-radius: var(--bd-radius);
+  background: var(--color-lime);
+  color: #0d1100;
+  font-family: var(--bd-sans);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: none;
+}
+[data-brand="bodega"] .btn:hover:not(:disabled) {
+  background: #d9ff4d;
+  border-color: #d9ff4d;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+[data-brand="bodega"] .btn:disabled { opacity: .45; box-shadow: none; }
+[data-brand="bodega"] .btn-ghost {
+  border-color: var(--bd-rule);
+  background: transparent;
+  color: var(--color-text);
+  font-weight: 400;
+  box-shadow: none;
+}
+[data-brand="bodega"] .btn-ghost:hover:not(:disabled) {
+  border-color: #ffffff33;
+  background: #ffffff08;
+  box-shadow: none;
+}
+
+[data-brand="bodega"] .input {
+  min-height: 40px;
+  border: 1px solid var(--bd-rule);
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+  font-family: var(--bd-sans);
+  font-size: 15px;
+  box-shadow: none;
+}
+[data-brand="bodega"] .input:focus { border-color: var(--color-lime); box-shadow: none; }
+
+/* The kicker stops being a capsule with a lit dot in it and becomes what a section heading in a
+   piece of writing is: a short label with a rule under it. */
+[data-brand="bodega"] .section-kicker,
+[data-brand="bodega"] .eyebrow {
+  border: 0;
+  border-radius: 0;
+  padding: 0 0 4px;
+  background: none;
+  color: var(--color-dim);
+  font-family: var(--bd-sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  box-shadow: inset 0 -2px 0 var(--color-lime);
+}
+[data-brand="bodega"] .section-kicker::before,
+[data-brand="bodega"] .eyebrow::before { display: none; }
+
+[data-brand="bodega"] .page-intro h1 {
+  margin: 12px 0 10px;
+  font-family: var(--bd-serif);
+  font-size: clamp(30px, 5vw, 42px);
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.12;
+  /* Undoing the gradient text of the shared sheet: no background to clip, and a colour again. */
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  color: var(--color-text);
+}
+[data-brand="bodega"] .page-intro h1 em,
+[data-brand="bodega"] .page-panel-title em {
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  color: var(--color-text);
+  box-shadow: inset 0 -2px 0 var(--color-lime);
+}
+[data-brand="bodega"] .page-intro p { max-width: 62ch; font-size: 15px; line-height: 1.65; }
+
+/* ------------------------------------------------------------------ the launch, everywhere else
+   The grid of cards becomes the same shelf the front page is: one launch to a row, the picture
+   small and square on the left, the reading beside it. */
+[data-brand="bodega"] .token-grid {
+  display: block;
+  border-top: 1px solid var(--bd-rule);
+}
+[data-brand="bodega"] .token-card,
+[data-brand="bodega"] .token-card.spotlight {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  /* A single column: the wide cell the spotlight used to take does not exist here. */
+  grid-column: auto;
+  grid-row: auto;
+  overflow: visible;
+  padding: 14px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--bd-rule);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  transform: none;
+}
+[data-brand="bodega"] .token-card:hover {
+  background: #ffffff06;
+  border-color: var(--bd-rule);
+  box-shadow: none;
+  transform: none;
+}
+[data-brand="bodega"] .token-card .token-art,
+[data-brand="bodega"] .token-card.spotlight .token-art {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  min-height: 0;
+  aspect-ratio: 1;
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+}
+/* The weave and the darkening wash the wide strip needed are noise on a 72px square. */
+[data-brand="bodega"] .token-art::before,
+[data-brand="bodega"] .token-art::after { display: none; }
+[data-brand="bodega"] .token-art > img,
+[data-brand="bodega"] .token-art > div { border-radius: var(--bd-radius) !important; }
+[data-brand="bodega"] .token-card .token-art > div,
+[data-brand="bodega"] .token-card.spotlight .token-art > div { font-size: 24px !important; color: var(--color-lime); }
+[data-brand="bodega"] .token-card:hover .token-art > img,
+[data-brand="bodega"] .token-card:hover .token-art > div { transform: none; }
+/* Both of these are absolutely positioned over the artwork, which is now a thumbnail with no room
+   in it. The state they carried is said in words on the line below instead. */
+[data-brand="bodega"] .token-art-badge,
+[data-brand="bodega"] .token-age { display: none; }
+/* The gauge is the thing this brand exists to not show. */
+[data-brand="bodega"] .card-progress { display: none; }
+
+[data-brand="bodega"] .token-body { flex: 1; min-width: 0; padding: 0; }
+[data-brand="bodega"] .token-id { display: block; }
+[data-brand="bodega"] .token-id strong {
+  display: block;
+  overflow: visible;
+  font-family: var(--bd-serif);
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: normal;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+[data-brand="bodega"] .token-id > span { color: var(--color-dim); font-family: var(--bd-sans); font-size: 13px; }
+[data-brand="bodega"] .token-figure { margin-top: 4px; }
+[data-brand="bodega"] .token-figure strong {
+  font-family: var(--bd-sans);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: normal;
+}
+[data-brand="bodega"] .token-figure small { color: var(--color-dim); font-family: var(--bd-sans); font-size: 12px; letter-spacing: normal; }
+[data-brand="bodega"] .token-card-bottom {
+  gap: 12px;
+  margin-top: 6px;
+  color: var(--color-dim);
+  font-family: var(--bd-sans);
+  font-size: 12px;
+}
+[data-brand="bodega"] .token-state.on { color: var(--color-text); }
+[data-brand="bodega"] .token-go { color: var(--color-text); }
+[data-brand="bodega"] .token-card:hover .token-go { color: var(--color-text); transform: none; }
+
+[data-brand="bodega"] .token-skeleton {
+  height: 100px;
+  border: 1px solid var(--bd-rule);
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+}
+[data-brand="bodega"] .token-skeleton + .token-skeleton { margin-top: 8px; }
+[data-brand="bodega"] .board-message {
+  border: 1px solid var(--bd-rule);
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+}
+[data-brand="bodega"] .board-message h3 { font-family: var(--bd-serif); font-weight: 400; }
+[data-brand="bodega"] .board-message p { font-size: 14px; }
+
+/* The shared empty state unfolds a lit frame and turns a coin inside it. An empty shelf is not an
+   event, so what is left is the sentence. */
+[data-brand="bodega"] .empty {
+  min-height: 0;
+  padding: 28px 22px;
+  border: 1px solid var(--bd-rule);
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+}
+[data-brand="bodega"] .empty-frame,
+[data-brand="bodega"] .empty-glow,
+[data-brand="bodega"] .empty-stage { display: none; }
+[data-brand="bodega"] .empty-body { animation: none; text-align: left; align-items: flex-start; gap: 8px; }
+[data-brand="bodega"] .empty-body h2 { font-family: var(--bd-serif); font-weight: 400; }
+[data-brand="bodega"] .empty-body p { max-width: 58ch; color: var(--color-dim); font-size: 15px; }
+
+/* The two strips the shell renders above the page belong to the column, not to the window. */
+[data-brand="bodega"] .demo-strip,
+[data-brand="bodega"] .safe-strip {
+  /* The column with its gutters taken off both sides, so the strip lines up with the page under it
+     at 1400px and still has air either side of it at 360px. */
+  width: calc(100% - 2 * var(--bd-gutter));
+  max-width: calc(var(--bd-col) - 2 * var(--bd-gutter));
+  margin: 14px auto 0;
+  padding: 12px 16px;
+  border: 1px solid var(--bd-rule);
+  border-radius: var(--bd-radius);
+  background: var(--color-panel);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+[data-brand="bodega"] .demo-strip strong { color: var(--color-text); }
+[data-brand="bodega"] .demo-strip a,
+[data-brand="bodega"] .safe-strip-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--color-text);
+  text-decoration-color: var(--color-lime);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+
+/* ------------------------------------------------------------------ narrow
+   Nothing reflows: the page is one column at every width. What changes is the air around it and
+   the size of the display type, so a phone reads the same page rather than a cut down one. */
+@media (max-width: 560px) {
+  [data-brand="bodega"] { --bd-gutter: 16px; }
+  [data-brand="bodega"] .bd-mark { font-size: 23px; }
+  [data-brand="bodega"] .bd-nav { gap: 0 14px; }
+  [data-brand="bodega"] .bd-row-art img,
+  [data-brand="bodega"] .bd-row-art > div,
+  [data-brand="bodega"] .bd-wait-art,
+  [data-brand="bodega"] .token-card .token-art,
+  [data-brand="bodega"] .token-card.spotlight .token-art { width: 56px !important; height: 56px !important; }
+  [data-brand="bodega"] .bd-row-art > div,
+  [data-brand="bodega"] .token-card .token-art > div { font-size: 19px !important; }
+  /* The shared sheet drops a pile of labels to 9 and 10px for the terminal look. This brand is for
+     reading, so nothing on it goes under 12px. */
+  [data-brand="bodega"] .board-count,
+  [data-brand="bodega"] .section-kicker,
+  [data-brand="bodega"] .token-card-bottom,
+  [data-brand="bodega"] .token-figure small,
+  [data-brand="bodega"] .token-id > span { font-size: 12px; }
+}

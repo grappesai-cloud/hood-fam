@@ -1,3 +1,4 @@
+import { brand } from "@/brands";
 import { SITE } from "@/lib/site";
 
 /// The Safe App manifest. Safe{Wallet} reads this from its own origin before it will list or open
@@ -7,11 +8,11 @@ export const dynamic = "force-static";
 
 export function GET() {
   return Response.json({
-    name: "hood.fam",
-    description: "Launch a token on Robinhood Chain, trade it, and take a share of what the protocol earns.",
+    name: brand.name,
+    description: brand.description,
     iconPath: "icon.svg",
     // Web app manifest fields, for a browser that reads the same file.
-    short_name: "hood.fam",
+    short_name: brand.name,
     start_url: SITE,
     display: "standalone",
     background_color: "#090909",

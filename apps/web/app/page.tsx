@@ -8,6 +8,7 @@ import { TokenCard } from "@/components/TokenCard";
 import { Empty } from "@/components/Empty";
 import { Ticker } from "@/components/Ticker";
 import { compact, imageUrl, launchProgress, pairDecimals, pairSymbol } from "@/lib/format";
+import { brand } from "@/brands";
 
 const SORTS = [
   { key: "new", label: "Newest", query: "sort=new" },
@@ -16,7 +17,13 @@ const SORTS = [
   { key: "graduated", label: "Graduated", query: "sort=graduated&status=graduated" },
 ] as const;
 
-export default function Board() {
+/// The front page is the one page a brand is most likely to want to lay out itself: it is the shop
+/// window. A brand that brings its own gets it; the rest get this board, which is hood.fam's.
+export default function Page() {
+  return brand.Explore ? <brand.Explore /> : <Board />;
+}
+
+function Board() {
   const [sort, setSort] = useState<(typeof SORTS)[number]["key"]>("new");
   const [q, setQ] = useState("");
   const query = SORTS.find((s) => s.key === sort)?.query ?? "sort=new";

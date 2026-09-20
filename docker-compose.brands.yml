@@ -1,0 +1,81 @@
+# The other faces.
+#
+# One launchpad, one indexer, one API, several front ends (apps/web/brands). Each service here is the
+# same image built with a different BRAND, serving a different name. They all read the same
+# api.hood.grappes.dev and write to the same contracts; nothing below the browser is duplicated.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.brands.yml \
+#     build web-ox web-klimb web-pit web-bodega
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.brands.yml \
+#     up -d web-ox web-klimb web-pit web-bodega
+#
+# The proxy reaches them by container name on the shared network; deploy/traefik-hood-brands.yaml is
+# the router file that gives each one its host. Every brand needs its own DNS record first: there is
+# no wildcard on grappes.dev.
+x-web-build-args: &web-build-args
+  NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+  NEXT_PUBLIC_RPC: ${HOOD_RPC}
+  NEXT_PUBLIC_FACTORY: ${HOOD_FACTORY}
+  NEXT_PUBLIC_FEE_ROUTER: ${HOOD_FEE_ROUTER}
+  NEXT_PUBLIC_STAKING: ${HOOD_STAKING}
+  NEXT_PUBLIC_GRADUATOR: ${HOOD_GRADUATOR}
+  NEXT_PUBLIC_BRIDGE_FACTORY: ${HOOD_BRIDGE_FACTORY}
+  NEXT_PUBLIC_PORTAL: ${HOOD_PORTAL}
+  NEXT_PUBLIC_DIRECT_DEPLOYER: ${HOOD_DIRECT_DEPLOYER}
+  NEXT_PUBLIC_BUYBACK_MODULE: ${HOOD_BUYBACK_MODULE}
+  NEXT_PUBLIC_SEASON_DROP: ${HOOD_SEASON_DROP}
+  NEXT_PUBLIC_DEMO: ${NEXT_PUBLIC_DEMO:-}
+  NEXT_PUBLIC_DEMO_WALLET: ${NEXT_PUBLIC_DEMO_WALLET:-}
+  NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}
+
+x-brand-web: &brand-web
+  restart: unless-stopped
+  depends_on: [api]
+  environment:
+    OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+  networks: [default, proxy]
+
+services:
+  web-ox:
+    <<: *brand-web
+    container_name: hood-web-ox
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        <<: *web-build-args
+        BRAND: ox
+        NEXT_PUBLIC_SITE_URL: ${SITE_OX:-https://0x.grappes.dev}
+
+  web-klimb:
+    <<: *brand-web
+    container_name: hood-web-klimb
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        <<: *web-build-args
+        BRAND: klimb
+        NEXT_PUBLIC_SITE_URL: ${SITE_KLIMB:-https://klimb.grappes.dev}
+
+  web-pit:
+    <<: *brand-web
+    container_name: hood-web-pit
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        <<: *web-build-args
+        BRAND: pit
+        NEXT_PUBLIC_SITE_URL: ${SITE_PIT:-https://pit.grappes.dev}
+
+  web-bodega:
+    <<: *brand-web
+    container_name: hood-web-bodega
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        <<: *web-build-args
+        BRAND: bodega
+        NEXT_PUBLIC_SITE_URL: ${SITE_BODEGA:-https://bodega.grappes.dev}

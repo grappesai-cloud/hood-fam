@@ -585,6 +585,36 @@ past, because a fresh state file means it has no idea what was already announced
 than `ANNOUNCE_MAX_AGE_MINUTES` (default three hours) is ever posted, so an announcer that was down
 for a week wakes up quiet instead of posting a week of launches in one burst.
 
+## 3j. The other faces
+
+One launchpad, one indexer, one API, five front ends. A brand lives in `apps/web/brands/<id>`: its
+own mark, chrome, front page, stylesheet and wording, over the same contracts and the same data.
+Nothing underneath is duplicated, so a fix to a trade box or to the Safe handling reaches all five.
+
+```bash
+npm run brand -- ox        # writes brands/current.ts and app/brand.css, then build as usual
+```
+
+A deployment serves one brand per container, all reading `api.hood.grappes.dev`:
+
+```bash
+cd /root/hood-fam
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.brands.yml \
+  build web-ox web-klimb web-pit web-bodega
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.brands.yml \
+  up -d web-ox web-klimb web-pit web-bodega
+```
+
+Then the routes: copy `deploy/traefik-hood-brands.yaml` to
+`/data/coolify/proxy/dynamic/hood-brands.yaml`. Traefik reads it without a restart.
+
+**Each name needs its own DNS record first.** There is no wildcard on grappes.dev, and a host
+without a record gets no certificate, so Traefik answers it with the default one and the browser
+refuses. One A record per brand, at the box's address, before the first request.
+
+`NEXT_PUBLIC_SITE_URL` differs per brand (it is what share cards and the Safe App manifest are built
+against), which is why each service passes its own; everything else is the same build arg.
+
 ## 4. Opening omnichain routes
 
 Per token, per destination, and only for tokens worth the trouble. A route is two deployments and

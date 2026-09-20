@@ -1,0 +1,63 @@
+# The other faces of hood.fam, on the same box and the same API.
+# Copy to /data/coolify/proxy/dynamic/hood-brands.yaml on the host; Traefik picks it up without a
+# restart. Each host needs an A record pointing at the box first: grappes.dev has no wildcard, so a
+# name without a record gets no certificate and no route.
+# The ACME path stays out of the http redirect, or Let's Encrypt cannot answer its own challenge.
+http:
+  routers:
+    hood-web-ox:
+      entryPoints: [https]
+      rule: "Host(`0x.grappes.dev`)"
+      priority: 1000
+      service: hood-web-ox
+      tls:
+        certResolver: letsencrypt
+    hood-web-klimb:
+      entryPoints: [https]
+      rule: "Host(`klimb.grappes.dev`)"
+      priority: 1000
+      service: hood-web-klimb
+      tls:
+        certResolver: letsencrypt
+    hood-web-pit:
+      entryPoints: [https]
+      rule: "Host(`pit.grappes.dev`)"
+      priority: 1000
+      service: hood-web-pit
+      tls:
+        certResolver: letsencrypt
+    hood-web-bodega:
+      entryPoints: [https]
+      rule: "Host(`bodega.grappes.dev`)"
+      priority: 1000
+      service: hood-web-bodega
+      tls:
+        certResolver: letsencrypt
+    hood-brands-http:
+      entryPoints: [http]
+      rule: "(Host(`0x.grappes.dev`) || Host(`klimb.grappes.dev`) || Host(`pit.grappes.dev`) || Host(`bodega.grappes.dev`)) && !PathPrefix(`/.well-known/acme-challenge/`)"
+      priority: 100
+      service: noop@internal
+      middlewares: [hood-brands-https]
+  middlewares:
+    hood-brands-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+  services:
+    hood-web-ox:
+      loadBalancer:
+        servers:
+          - url: "http://hood-web-ox:4665"
+    hood-web-klimb:
+      loadBalancer:
+        servers:
+          - url: "http://hood-web-klimb:4665"
+    hood-web-pit:
+      loadBalancer:
+        servers:
+          - url: "http://hood-web-pit:4665"
+    hood-web-bodega:
+      loadBalancer:
+        servers:
+          - url: "http://hood-web-bodega:4665"

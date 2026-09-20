@@ -3,6 +3,7 @@ import type { TokenRow } from "@/lib/api";
 import { compact, imageUrl, launchProgress, pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
 import { shareFontsOrNone } from "./fonts";
 import { fetchPublicBytes } from "./safe-fetch";
+import { brand } from "@/brands";
 
 /// The picture a pasted `/token/0x...` link unfurls into, drawn here rather than handed over as
 /// the token's own artwork. A launch's art is a square a stranger uploaded: on X it is cropped to
@@ -16,7 +17,7 @@ import { fetchPublicBytes } from "./safe-fetch";
 
 export const CARD_SIZE = { width: 1200, height: 630 } as const;
 export const CARD_CONTENT_TYPE = "image/png";
-export const CARD_ALT = "hood.fam launch card";
+export const CARD_ALT = `${brand.name} launch card`;
 
 /// Read straight out of the env rather than through `lib/config`: that module builds the wagmi
 /// config at import time, and an image route has no business pulling a wallet stack into the
@@ -135,8 +136,10 @@ function Header() {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
       <div style={{ display: "flex", fontSize: 40, fontWeight: 800, letterSpacing: "-0.07em" }}>
-        <span style={{ color: "#ffffff" }}>hood</span>
-        <span style={{ color: LIME }}>.fam</span>
+        {/* The mark, split on its last dot so the suffix takes the accent: the same shape as the
+            wordmark in the chrome, drawn here without a DOM. */}
+        <span style={{ color: "#ffffff" }}>{brand.name.includes(".") ? brand.name.slice(0, brand.name.lastIndexOf(".")) : brand.name}</span>
+        <span style={{ color: LIME }}>{brand.name.includes(".") ? brand.name.slice(brand.name.lastIndexOf(".")) : ""}</span>
       </div>
       <div style={{ display: "flex", fontSize: 22, letterSpacing: "0.06em", color: DIM }}>
         ROBINHOOD CHAIN · 4663
@@ -261,7 +264,7 @@ function Unknown({ address }: { address: string }) {
       <Header />
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ display: "flex", color: "#ffffff", fontSize: 72, fontWeight: 800, letterSpacing: "-0.05em" }}>
-          A launch on hood.fam
+          {`A launch on ${brand.name}`}
         </div>
         <div style={{ display: "flex", color: DIM, fontSize: 30 }}>
           The board is catching up with this one. Open it to see where it stands.
@@ -278,8 +281,8 @@ function Unknown({ address }: { address: string }) {
           color: DIM,
         }}
       >
-        <span>{known ? shortAddress(address) : "hood.fam"}</span>
-        <span>What the house takes, the fam gets back.</span>
+        <span>{known ? shortAddress(address) : brand.name}</span>
+        <span>{brand.tagline}</span>
       </div>
     </Frame>
   );
