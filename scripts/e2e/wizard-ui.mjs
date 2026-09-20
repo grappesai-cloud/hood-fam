@@ -17,7 +17,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPublicClient, formatEther, getAddress, http, parseEther } from "viem";
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { privateKeyToAccount } from "viem/accounts";
+
+/// anvil's FIRST account, because the rehearsal starts anvil with one account to keep the fork
+/// light: any other address has no key there, and `personal_sign` for it comes back as invalid
+/// parameters, which is what the chat's signature login needs.
+const KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 import { hoodFactoryAbi } from "../../packages/sdk/dist/index.js";
 import puppeteer from "/Users/alexandrucojanu/dating-app/node_modules/puppeteer/lib/esm/puppeteer/puppeteer.js";
 
@@ -78,11 +83,13 @@ try {
 
   const client = createPublicClient({ transport: http(rpc), pollingInterval: 200 });
 
-  // A wallet of this harness's own: anvil's well known keys carry a 7702 delegation on 4663 that
-  // would swallow anything paid to them, so the browser signs as a fresh address that anvil
-  // impersonates, funded here.
-  const wallet = privateKeyToAccount(generatePrivateKey()).address;
-  check("the browser's wallet is a fresh address with no code", !(await client.getCode({ address: wallet })), wallet);
+  // The browser needs a wallet that can both send and SIGN: the chat logs in with a signature, and
+  // an impersonated address has no key anywhere to sign with. So it uses one of anvil's own
+  // accounts, whose key anvil holds, after clearing the 7702 delegation 4663 carries on those
+  // addresses (a sweeper that forwards every wei paid to them). Clearing it is local to the fork.
+  const wallet = privateKeyToAccount(KEY).address;
+  await client.request({ method: "anvil_setCode", params: [wallet, "0x"] });
+  check("the browser's wallet is a clean key, delegation cleared", !(await client.getCode({ address: wallet })), wallet);
   await client.request({ method: "anvil_setBalance", params: [wallet, "0x56BC75E2D63100000"] }); // 100 ETH
   check("it is funded on the fork", (await client.getBalance({ address: wallet })) === parseEther("100"));
 
@@ -113,6 +120,10 @@ try {
   step("3. the wizard, in the browser");
   browser = await puppeteer.launch({ headless: "new", executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" });
   const page = await browser.newPage();
+  // What the wallet was asked for, and anything the app shouted: a harness has no console to watch.
+  const console_ = [];
+  page.on("console", (m) => console_.push(`${m.type()}: ${m.text()}`.slice(0, 300)));
+  page.on("pageerror", (e) => console_.push(`pageerror: ${e.message}`.slice(0, 300)));
   await page.setViewport({ width: 1440, height: 1600 });
   const shim = readFileSync(join(ROOT, "scripts/e2e/provider-shim.js"), "utf8");
   await page.evaluateOnNewDocument(`window.__HOOD_SHIM = ${JSON.stringify({ rpc, account: wallet })};`);
@@ -222,9 +233,58 @@ try {
 
   await page.reload({ waitUntil: "networkidle2" });
   await sleep(3000);
-  const tradedText = await page.evaluate(() => document.body.innerText);
-  check("the page shows the trade rather than an empty tape", !/no trades yet/i.test(tradedText));
+  const tape = await page.evaluate(() => {
+    const section = [...document.querySelectorAll("section, div")].find((el) => /^tape\b/i.test(el.textContent.trim()));
+    return section?.textContent ?? "";
+  });
+  check("the tape shows the trade", /buy/i.test(tape) && !/no trades yet/i.test(tape), tape.replace(/\s+/g, " ").slice(0, 90));
   await page.screenshot({ path: join(SHOTS, "wizard-3-after-buy.png") });
+
+  step("5. the room: a signature login, a message, and the live stream");
+  const stream = await fetch(`${api}/stream?tokens=${token}`, { headers: { accept: "text/event-stream" } });
+  check("the api serves the live stream", stream.ok && (stream.headers.get("content-type") ?? "").includes("text/event-stream"));
+  const reader = stream.body.getReader();
+  let streamed = "";
+  void (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        streamed += new TextDecoder().decode(value);
+      }
+    } catch { /* closed at the end of the run */ }
+  })();
+
+  const said = `first words on ${ticker}`;
+  const posted = await page.evaluate(async (text) => {
+    const box = document.querySelector(".chat-composer textarea, .chat-composer input");
+    if (!box) return "no composer";
+    const setter = Object.getOwnPropertyDescriptor(box.constructor.prototype, "value").set;
+    setter.call(box, text);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    const button = [...document.querySelectorAll(".chat-composer button")].find((b) => !b.disabled);
+    if (!button) return "no button";
+    button.click();
+    return "clicked";
+  }, said);
+  check("the chat composer takes a message and its button is live", posted === "clicked", posted);
+
+  let room = [];
+  for (let i = 0; i < 40 && room.length === 0; i++) {
+    await sleep(1000);
+    room = await fetch(`${api}/chat/${token}`).then((r) => (r.ok ? r.json() : { messages: [] })).then((b) => b.messages ?? []).catch(() => []);
+  }
+  check("the message is in the room, signed in with a wallet signature", room.some((m) => m.body === said), room[0]?.body ?? "nothing posted");
+  if (!room.some((m) => m.body === said)) {
+    console.log("        wallet calls:", console_.filter((l) => l.includes("[shim]")).slice(-6).join(" | "));
+    console.log("        page errors:", console_.filter((l) => /error|Error/.test(l) && !l.includes("404")).slice(-4).join(" | "));
+    console.log("        on screen:", (await page.evaluate(() => document.querySelector(".chat-error, .chat-composer")?.textContent ?? "")).slice(0, 200));
+  }
+  const mine = room.find((m) => m.body === said);
+  check("it carries who said it, from the chain", Boolean(mine) && mine.author.toLowerCase() === wallet.toLowerCase() && mine.holdingBps > 0, mine ? `${mine.rank}, ${mine.holdingBps} bps, creator ${mine.isCreator}` : "");
+  check("it went out on the live stream", streamed.includes(said), streamed.split("\n").filter((l) => l.startsWith("event:")).join(" ").slice(0, 80));
+  await page.screenshot({ path: join(SHOTS, "wizard-5-chat.png") });
+  await reader.cancel().catch(() => {});
 
   await page.goto(`http://127.0.0.1:${WEB_PORT}/`, { waitUntil: "networkidle2" });
   await sleep(3000);

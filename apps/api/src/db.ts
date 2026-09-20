@@ -239,6 +239,25 @@ create table if not exists support_tickets (
   note       text
 );
 create index if not exists support_tickets_status on support_tickets (status, created_at desc);
+
+-- One chat per launch. A message is hidden, never deleted and never edited: a creator who could
+-- erase what a holder said could rewrite the room afterwards and nobody would be able to show it,
+-- so the row stays and hidden_by with hidden_at say who took it off the wall and when. It is also
+-- what lets the author keep seeing their own words (the API returns a hidden body to its author and
+-- to nobody else), and what a wallet accused of spamming a token can be read back from.
+create table if not exists messages (
+  id         bigserial primary key,
+  token      text not null references launches(token) on delete cascade,
+  author     text not null,
+  body       text not null,
+  created_at timestamptz not null default now(),
+  hidden_by  text,
+  hidden_at  timestamptz
+);
+-- The room, newest first and paged backwards by id; then one wallet's own history, for a creator
+-- or an operator deciding whether it is a person or a machine.
+create index if not exists messages_token_id on messages (token, id desc);
+create index if not exists messages_author on messages (author, created_at desc);
 `;
 
 export async function migrate() {

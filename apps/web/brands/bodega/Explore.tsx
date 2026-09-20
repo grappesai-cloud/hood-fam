@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type TokenRow } from "@/lib/api";
+import { useLive } from "@/lib/live";
 import { Artwork } from "@/components/Artwork";
 import { ago, compact, imageUrl, launchProgress, pairDecimals, pairSymbol } from "@/lib/format";
 
@@ -28,6 +29,11 @@ export function Explore() {
   const [shelf, setShelf] = useState<ShelfKey>("new");
   const [q, setQ] = useState("");
   const query = SHELVES.find((s) => s.key === shelf)?.query ?? "sort=new";
+
+  // A launch or a trade anywhere on the chain changes what this board is showing, so the board
+  // is told rather than asked: the stream refreshes these same queries, and the timers stay as the
+  // fallback for a reader whose stream never connected.
+  useLive();
 
   const stats = useQuery({
     queryKey: ["stats"],

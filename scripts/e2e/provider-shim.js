@@ -27,6 +27,8 @@
     isShim: true,
     isMetaMask: true,
     async request({ method, params }) {
+      // A harness has no wallet UI to read an error off, so every call is on the console.
+      console.log(`[shim] ${method} ${JSON.stringify(params ?? []).slice(0, 160)}`);
       switch (method) {
         case "eth_requestAccounts":
         case "eth_accounts": return [ACCOUNT];
@@ -43,8 +45,13 @@
           await rpc("anvil_impersonateAccount", [ACCOUNT]).catch(() => {});
           return rpc("eth_sendTransaction", [tx]);
         }
-        case "personal_sign":
-        case "eth_signTypedData_v4": throw Object.assign(new Error("shim does not sign messages"), { code: 4200 });
+        // anvil signs for its own unlocked accounts, which is what makes a signature login (the
+        // chat's) testable from a browser that has no wallet. An impersonated address has no key
+        // anywhere, so the harness clears any 7702 delegation off one of anvil's own accounts and
+        // uses that instead.
+        case "personal_sign": return rpc("personal_sign", [params[0], ACCOUNT]);
+        case "eth_sign": return rpc("eth_sign", [ACCOUNT, params[1]]);
+        case "eth_signTypedData_v4": throw Object.assign(new Error("shim does not sign typed data"), { code: 4200 });
         default: return rpc(method, params);
       }
     },

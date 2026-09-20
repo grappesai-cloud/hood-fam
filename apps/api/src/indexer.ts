@@ -5,6 +5,7 @@ import {
 import { robinhood } from "@hood/sdk";
 
 import { pool, getCursor, getCursorHash, setCursor } from "./db.js";
+import { notify } from "./events.js";
 import { award } from "./points.js";
 import { usdValue } from "./price.js";
 import { SYSTEM } from "./system.js";
@@ -142,22 +143,42 @@ async function blockTime(blockNumber: bigint): Promise<Date> {
 
 // ---------------------------------------------------------------- handlers
 
+/// A launch is announced to the live feed when it has a name, which is one event later than when
+/// it exists: the factory emits Launched and the portal DirectLaunched, and the prose follows in
+/// the same transaction. A feed told about the row first would carry a launch with no ticker on it.
+/// Only launches this pass actually inserted are queued, so healing a gap, which reads a range that
+/// was already indexed, does not announce a token the whole world saw yesterday.
+const unannounced = new Set<string>();
+
+async function announce(row: { token: string; symbol: string; name: string; creator: string; mode: string; launched_at: Date } | undefined) {
+  if (!row || !unannounced.delete(row.token)) return;
+  await notify(
+    "launch",
+    { token: row.token, symbol: row.symbol, name: row.name, creator: row.creator, mode: row.mode, at: row.launched_at },
+    // A name and a ticker are whatever the launcher typed, so this is the one event that can
+    // outgrow a NOTIFY payload and has to be refetchable.
+    { token: row.token },
+  );
+}
+
 async function onLaunched(log: Log & { args: Record<string, unknown> }) {
   const a = log.args;
   const token = (a.token as string).toLowerCase();
   const curve = (a.curve as string).toLowerCase();
   // The prose (name, symbol, artwork, links) arrives in LaunchMetadata, emitted in the same
   // transaction right after this one. The row is created here and filled in there.
-  await pool.query(
+  const { rows: created } = await pool.query<{ token: string }>(
     `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id, fee_model,
        name, symbol, launched_at, block, tx, mode)
      values ($1,$2,$3,$3,$4,$5,$6,'','',$7,$8,$9,'curve')
-     on conflict (token) do nothing`,
+     on conflict (token) do nothing
+     returning token`,
     [
       token, curve, (a.creator as string).toLowerCase(), (a.pairToken as string).toLowerCase(),
       Number(a.configId), Number(a.feeModel), await blockTime(log.blockNumber!), log.blockNumber!.toString(), log.transactionHash,
     ],
   );
+  if (created[0]) unannounced.add(token);
   // The curve's shape never changes, so it is read once, here, and the moving parts (sold,
   // reserve, price) are kept up to date from the trade events themselves rather than by asking
   // the node again after every buy.
@@ -193,9 +214,10 @@ async function onTrade(log: Log & { args: Record<string, unknown> }, side: "buy"
   const price = tokenAmount === 0n ? 0n : (pairAmount * 10n ** 18n) / tokenAmount;
   const when = await blockTime(log.blockNumber!);
 
-  await pool.query(
+  const { rows: written } = await pool.query<{ id: string }>(
     `insert into trades (token, side, trader, recipient, pair_amount, token_amount, fee, price, block, tx, log_index, ts)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) on conflict (tx, log_index) do nothing`,
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) on conflict (tx, log_index) do nothing
+     returning id`,
     [curve.token, side, trader, recipient, pairAmount.toString(), tokenAmount.toString(),
      (a.fee as bigint).toString(), price.toString(), log.blockNumber!.toString(), log.transactionHash, log.logIndex, when],
   );
@@ -211,6 +233,16 @@ async function onTrade(log: Log & { args: Record<string, unknown> }, side: "buy"
      where token = $1`,
     [curve.token, pairAmount.toString(), price.toString(), soldDelta.toString(), reserveDelta.toString()],
   );
+
+  // The feed is fed once the trade and the row it moved are both in, and only when this pass is
+  // the one that wrote it: rereading a range the node refused earlier must not print the same
+  // trade on every screen a second time.
+  if (written[0]) {
+    await notify("trade", {
+      token: curve.token, side, trader, pairAmount: pairAmount.toString(), tokenAmount: tokenAmount.toString(),
+      price: price.toString(), tx: log.transactionHash, at: when,
+    });
+  }
 
   // A buy is credited to whoever ends up holding the tokens, not to whoever sent the transaction:
   // the launch's own first buy is sent BY the factory and lands in the creator's wallet. A sell is
@@ -323,18 +355,20 @@ async function onDirectLaunched(log: Log & { args: Record<string, unknown> }) {
     }
   }
 
-  await pool.query(
+  const { rows: created } = await pool.query<{ token: string }>(
     `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id, fee_model,
        name, symbol, launched_at, block, tx, mode, hook, splitter, locker, restrictions_end_block,
        total_supply, burned)
      values ($1,$2,$3,$3,$4,0,null,'','',$5,$6,$7,'direct',$8,$9,$10,$11,$12,$13)
-     on conflict (token) do nothing`,
+     on conflict (token) do nothing
+     returning token`,
     [
       token, zeroAddress, (a.creator as string).toLowerCase(), quote, when,
       log.blockNumber!.toString(), log.transactionHash, hook, splitter, locker,
       (a.restrictionsEndBlock as bigint).toString(), (minted - burned).toString(), burned.toString(),
     ],
   );
+  if (created[0]) unannounced.add(token);
 
   hooks.set(hook, token);
   splitters.set(splitter, token);
@@ -438,19 +472,23 @@ async function shapeFromHook(token: string, quote: string, hook: string) {
 
 async function onLaunchMetadata(log: Log & { args: Record<string, unknown> }) {
   const a = log.args;
-  await pool.query(
+  const { rows } = await pool.query(
     `update launches set name = $2, symbol = $3, image = $4, description = $5, website = $6, twitter = $7, telegram = $8
-     where token = $1`,
+     where token = $1
+     returning token, symbol, name, creator, mode, launched_at`,
     [(a.token as string).toLowerCase(), a.name, a.symbol, a.image, a.description, a.website, a.twitter, a.telegram],
   );
+  await announce(rows[0]);
 }
 
 async function onDirectMetadata(log: Log & { args: Record<string, unknown> }) {
   const a = log.args;
-  await pool.query(
-    `update launches set name = $2, symbol = $3, image = $4, description = $5 where token = $1`,
+  const { rows } = await pool.query(
+    `update launches set name = $2, symbol = $3, image = $4, description = $5 where token = $1
+     returning token, symbol, name, creator, mode, launched_at`,
     [(a.token as string).toLowerCase(), a.name, a.symbol, a.logo, a.description],
   );
+  await announce(rows[0]);
 }
 
 /// Pair wei per 1e18 token wei at a tick. price = 1.0001^tick is currency1 per currency0 in raw
@@ -537,9 +575,10 @@ async function onV4Swap(log: Log & { args: Record<string, unknown> }) {
   // transaction says; fall back to the transaction's origin.
   const trader = await traderOf(log, launch.token, side);
 
-  await pool.query(
+  const { rows: written } = await pool.query<{ id: string }>(
     `insert into trades (token, side, trader, recipient, pair_amount, token_amount, fee, price, block, tx, log_index, ts)
-     values ($1,$2,$3,$3,$4,$5,0,$6,$7,$8,$9,$10) on conflict (tx, log_index) do nothing`,
+     values ($1,$2,$3,$3,$4,$5,0,$6,$7,$8,$9,$10) on conflict (tx, log_index) do nothing
+     returning id`,
     [launch.token, side, trader, quoteAmount.toString(), tokenAmount.toString(), price.toString(),
      log.blockNumber!.toString(), log.transactionHash, log.logIndex, when],
   );
@@ -548,6 +587,12 @@ async function onV4Swap(log: Log & { args: Record<string, unknown> }) {
      where token = $1`,
     [launch.token, quoteAmount.toString(), price.toString(), Number(log.args.tick)],
   );
+  if (written[0]) {
+    await notify("trade", {
+      token: launch.token, side, trader, pairAmount: quoteAmount.toString(), tokenAmount: tokenAmount.toString(),
+      price: price.toString(), tx: log.transactionHash, at: when,
+    });
+  }
 
   const usd = await usdValue(launch.quote, quoteAmount);
   const selfDealt = await paysItself(launch.token, trader);
@@ -636,10 +681,14 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
     case "Bonded":
       // Graduation is the same milestone on both machines, so the same column dates it.
       if (hooks.has(address)) {
-        await pool.query(
-          `update launches set bonded = true, graduated_at = coalesce(graduated_at, $2) where hook = $1`,
+        // `and not bonded` is what makes the announcement below fire once. The latch never unsets,
+        // so a second pass over the same block has nothing left to change anyway.
+        const { rows } = await pool.query<{ token: string; graduated_at: Date }>(
+          `update launches set bonded = true, graduated_at = coalesce(graduated_at, $2) where hook = $1 and not bonded
+           returning token, graduated_at`,
           [address, await blockTime(log.blockNumber!)],
         );
+        if (rows[0]) await notify("graduated", { token: rows[0].token, at: rows[0].graduated_at });
       }
       break;
     case "Taxed": break; // the swap itself carries the volume; the tax is visible in the splitter
@@ -679,10 +728,14 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
       break;
     case "Graduated":
       if (curves.has(address)) {
-        // The reserve left the curve for the pool; it is not sitting there any more.
-        await pool.query(
-          `update launches set phase = 2, graduated_at = now(), reserve = 0 where curve = $1`, [address],
+        // The reserve left the curve for the pool; it is not sitting there any more. `phase < 2`
+        // keeps a reread of the same block from moving graduated_at to today and announcing it
+        // again: a curve graduates once.
+        const { rows } = await pool.query<{ token: string; graduated_at: Date }>(
+          `update launches set phase = 2, graduated_at = now(), reserve = 0 where curve = $1 and phase < 2
+           returning token, graduated_at`, [address],
         );
+        if (rows[0]) await notify("graduated", { token: rows[0].token, at: rows[0].graduated_at });
       }
       break;
     default: break;

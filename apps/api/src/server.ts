@@ -15,6 +15,8 @@ const GZIP_MIN_BYTES = 1024;
 
 import { pool, currentSeason } from "./db.js";
 import { leaderboard, pointsFor, RANKS, POINTS } from "./points.js";
+import { chatMessage, registerChat } from "./chat.js";
+import { registerStream } from "./events.js";
 import { registerSupport } from "./support.js";
 import { registerUploads } from "./uploads.js";
 import { chainHead, contracts, integrations, isAdmin } from "./admin.js";
@@ -562,6 +564,10 @@ export async function buildServer() {
   });
 
   registerSupport(app);
+  /// The rooms, and the feed they arrive on. The stream is registered with the one thing it cannot
+  /// assemble for itself: a chat message, which is three tables wide.
+  registerChat(app);
+  registerStream(app, { message: chatMessage });
   /// Token art, so a launch carries a link instead of a data URI. Awaited because the route needs
   /// the multipart parser registered under it; with no bucket configured it answers 501 and
   /// nothing else in here notices.

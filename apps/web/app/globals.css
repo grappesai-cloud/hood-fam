@@ -772,6 +772,79 @@ main.site-main > :not(.home-shell) { padding-top: 44px; }
 details.fineprint { border: 1px solid var(--glass-line); background: #ffffff05; box-shadow: none; backdrop-filter: none; }
 .panel > .fineprint, .panel .fineprint { margin-top: 14px; }
 
+
+/* ---------------------------------------------------------------- the tape and the room
+   Two things a token page did not have: the trades arriving as they land, and the people who hold
+   the thing talking underneath them. Both are built out of the shared primitives above (.panel,
+   .btn, .input) and the palette at the top of this file, and neither introduces a colour, so a
+   brand that has already restyled those primitives carries both into its own look without a line
+   of its own. */
+
+.trade-tape .tape-head, .chat-panel .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.trade-tape .tape-head h3, .chat-panel .chat-head h3 { font-size: 16px; font-weight: 700; }
+.tape-live { display: inline-flex; align-items: center; gap: 7px; color: #98a08d; font-family: var(--font-mono); font-size: 11px; }
+.tape-lines { display: flex; flex-direction: column; }
+/* A grid rather than a row of spaced spans: a tape is read down one column at a time, and the
+   addresses and the amounts only line up if they are in columns. */
+.tape-line {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) auto auto 38px;
+  grid-template-areas: "side who amount pair age";
+  align-items: center; gap: 10px; min-height: 40px; padding: 2px 6px;
+  border-top: 1px solid var(--glass-line); border-radius: 10px;
+  font-family: var(--font-mono); font-size: 11px;
+}
+.tape-line:first-child { border-top: 0; }
+.tape-line:hover { background: #ffffff08; color: var(--color-text); }
+.tape-side { grid-area: side; font-weight: 700; }
+.tape-side.is-buy { color: var(--color-lime); }
+.tape-side.is-sell { color: var(--color-red); }
+.tape-who { grid-area: who; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tape-amount { grid-area: amount; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tape-pair { grid-area: pair; white-space: nowrap; }
+.tape-age { grid-area: age; text-align: right; }
+/* A trade that landed while somebody was looking. The flash is the only motion on the tape, and
+   the reduced-motion rule at the foot of this sheet stops every animation dead, so the same arrival
+   is marked a second way, by an edge that never moves and does not need to. */
+@keyframes tape-arrive { from { background: #ccff001f; } to { background: transparent; } }
+.tape-line.is-new { animation: tape-arrive 1.8s ease-out 1; }
+@media (prefers-reduced-motion: reduce) { .tape-line.is-new { box-shadow: inset 2px 0 0 var(--color-lime); } }
+
+.chat-panel { display: flex; flex-direction: column; gap: 12px; }
+.chat-head span { font-family: var(--font-mono); font-size: 11px; }
+.chat-log { display: flex; flex-direction: column; gap: 12px; max-height: 360px; overflow-y: auto; padding-right: 4px; }
+.chat-quiet { font-size: 12px; }
+.chat-line { display: flex; flex-direction: column; gap: 4px; }
+.chat-line.is-hidden { opacity: .72; }
+.chat-line-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 11px; }
+.chat-who { color: #c3c9bb; font-size: 11px; }
+.chat-tag, .chat-rank, .chat-hold { border: 1px solid var(--glass-line); border-radius: 100px; padding: 3px 8px; background: #ffffff08; color: #98a08d; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+.chat-tag { border-color: #ccff0059; background: #ccff0014; color: var(--color-lime); }
+.chat-age { margin-left: auto; font-family: var(--font-mono); font-size: 11px; }
+/* The creator's one control over the room, and a thumb has to be able to hit it. */
+.chat-hide { display: inline-flex; align-items: center; min-height: 40px; padding: 0 10px; color: #98a08d; font-size: 11px; }
+.chat-hide:hover { color: var(--color-red); }
+.chat-body { overflow-wrap: anywhere; color: #e4e8dc; font-size: 13px; line-height: 1.5; }
+.chat-body.chat-quiet { color: #7f8579; }
+.chat-note { color: #868d7b; font-size: 11px; line-height: 1.5; }
+.chat-gate, .chat-composer { padding-top: 12px; border-top: 1px solid var(--glass-line); }
+.chat-gate { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.chat-gate p { flex: 1; min-width: 190px; color: #949a8d; font-size: 12px; line-height: 1.5; }
+.chat-composer { display: flex; flex-direction: column; gap: 8px; }
+.chat-input { min-height: 72px; resize: vertical; font-size: 13px; }
+.chat-composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chat-count { color: #7f8579; font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chat-count.is-over { color: var(--color-red); }
+.chat-error { overflow-wrap: anywhere; color: var(--color-red); font-size: 12px; }
+
+@media (max-width: 580px) {
+  /* Five columns do not fit a phone, and none of them is worth dropping, so the line folds: who
+     and when on top, what it cost underneath, the side spanning both. */
+  .tape-line { grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: "side who age" "side amount pair"; row-gap: 2px; padding: 8px 6px; }
+  .tape-pair { text-align: right; }
+  .chat-log { max-height: 300px; }
+  .chat-gate p { min-width: 0; }
+}
+
 @media (max-width: 1100px) {
   .token-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
   .chain-pill { display: none; }.nav-inner { gap: 18px; }.nav-link { padding: 9px 11px; }

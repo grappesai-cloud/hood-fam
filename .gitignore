@@ -17,3 +17,6 @@ apps/web/.env.local
 
 # batch files written by `npm run safe`
 safe-batch-*.json
+
+# the deploy keys: generated locally, never committed
+.deploy/

@@ -111,6 +111,7 @@ below.
 | `quote-check.mjs` | the quoter against what a swap actually returns |
 | `airdrop.mjs` | the season drop against a running API, proofs verified locally |
 | `admin.mjs` | the admin surface, seasons end to end, rate limit headers |
+| `chat.mjs` | token chat: the login handshake, who may post, hiding, and a post arriving on `/stream` |
 | `support.mjs` | the support desk and its ticket queue |
 | `uploads.mjs` | token art upload, dedup and the 501 with no bucket |
 | `mcp-chain.mjs` | the MCP server's chain tools |

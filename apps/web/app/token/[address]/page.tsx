@@ -8,7 +8,10 @@ import { encodeAbiParameters, keccak256, zeroAddress, type Address } from "viem"
 import { hoodCurveAbi, hoodFeeRouterAbi, uniswapV4GraduatorAbi } from "@hood/sdk";
 import { api, type TokenDetail } from "@/lib/api";
 import { addresses, directAddresses, EXPLORER } from "@/lib/config";
+import { useLive } from "@/lib/live";
 import { TradeBox } from "@/components/TradeBox";
+import { Tape } from "@/components/Tape";
+import { TokenChat } from "@/components/TokenChat";
 import { DirectTradeBox } from "@/components/DirectTradeBox";
 import { DirectPanels } from "@/components/DirectPanels";
 import dynamic from "next/dynamic";
@@ -22,10 +25,6 @@ const Chart = dynamic(() => import("@/components/Chart").then((m) => m.Chart), {
 import { StakePanel } from "@/components/StakePanel";
 import { ago, compact, feeModelLabel, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, safeUrl, screenerLinks, shortAddress, telegramUrl, twitterUrl } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
-
-interface Trade {
-  side: string; trader: string; pair_amount: string; token_amount: string; price: string; ts: string; tx: string;
-}
 
 interface PoolKey { currency0: Address; currency1: Address; fee: number; tickSpacing: number; hooks: Address }
 
@@ -42,6 +41,10 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
   const { address: token } = use(params);
   const { address: me } = useAccount();
 
+  // Every number below is read on a timer, and the stream is what makes those timers the fallback
+  // rather than the pace of the page: a trade on this launch refreshes the same queries at once.
+  useLive({ tokens: [token] });
+
   // A creator lands here the second their launch transaction is mined, a few seconds before the
   // indexer has seen that block. A 404 in that window is "not yet", not "not a token".
   const { data, isError, failureCount } = useQuery({
@@ -50,12 +53,6 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
     refetchInterval: 6000,
     retry: 15,
     retryDelay: 2000,
-  });
-
-  const trades = useQuery({
-    queryKey: ["trades", token],
-    queryFn: () => api<{ trades: Trade[] }>(`/tokens/${token}/trades?limit=40`),
-    refetchInterval: 6000,
   });
 
   const holders = useQuery({
@@ -217,22 +214,9 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
           </div>
         </section>
 
-        <section className="panel p-4">
-          <h3 className="mb-2 font-semibold">Tape</h3>
-          <div className="space-y-1 text-xs">
-            {trades.data?.trades.map((t) => (
-              <a key={t.tx + t.ts} href={`${EXPLORER}/tx/${t.tx}`} target="_blank" rel="noreferrer"
-                className="flex justify-between hover:text-[var(--color-lime)]">
-                <span className={t.side === "buy" ? "text-[var(--color-lime)]" : "text-[var(--color-red)]"}>{t.side}</span>
-                <span className="mono dim">{shortAddress(t.trader)}</span>
-                <span className="mono">{fmt(BigInt(t.token_amount))} {data.symbol}</span>
-                <span className="mono dim">{fmt(BigInt(t.pair_amount), dec, 4)} {sym}</span>
-                <span className="dim">{ago(t.ts)}</span>
-              </a>
-            ))}
-            {trades.data?.trades.length === 0 && <p className="dim">no trades yet</p>}
-          </div>
-        </section>
+        <Tape token={data.token} symbol={data.symbol} pairToken={data.pair_token} />
+
+        <TokenChat token={data.token} symbol={data.symbol} creator={data.creator} />
       </div>
 
       <aside className="space-y-4">

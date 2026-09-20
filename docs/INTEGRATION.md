@@ -439,6 +439,92 @@ The row above plus:
 Also: `GET /portfolio/:address`, `GET /stakes/:owner`, `GET /points/:address`,
 `GET /leaderboard?season=1&limit=100`, `GET /seasons`.
 
+## The live stream
+
+`GET /stream?tokens=0xabc,0xdef`
+
+Server-sent events. Public, read only, no key, and outside the rate limit: it is one connection
+held open for as long as the reader wants it. The `tokens` filter is optional and takes at most 100
+addresses; without it every launch on the site comes down it. Each event carries one JSON object.
+
+| event | data |
+|---|---|
+| `trade` | `{ token, side, trader, pairAmount, tokenAmount, price, tx, at }` |
+| `launch` | `{ token, symbol, name, creator, mode, at }` |
+| `graduated` | `{ token, at }` |
+| `message` | a chat message, exactly as the routes below return it |
+| `ping` | `{}`, every 25 seconds, so a proxy does not close an idle connection |
+
+```
+event: trade
+data: {"token":"0x…","side":"buy","trader":"0x…","pairAmount":"1000000000000000000",
+"tokenAmount":"97650000000000000000000","price":"10240000000","tx":"0x…","at":"2026-09-17T10:12:09.000Z"}
+```
+
+Amounts are decimal strings in base units, as everywhere else here. A launch is announced once its
+name and ticker are in, which is the event after the one that created it.
+
+Two caps, per instance: ten connections per address and two thousand in total. Over the address cap
+the oldest of that address's connections is closed rather than the newest refused, so a reloaded
+tab never locks a reader out of their own site; over the total the answer is 503. `EventSource`
+reconnects on its own and the stream asks it to wait three seconds.
+
+It is a feed, not a log: nothing is replayed, and a reader that was away refetches the list it
+cares about. Inside, every event travels on a Postgres `LISTEN`/`NOTIFY` channel, so it reaches
+every API instance whether or not that instance is the one following the chain.
+
+## Token chat
+
+One room per launch. Reading is public; posting takes a wallet that holds the token or has traded
+it at least once, which is the whole of the spam rule. The message, wherever it appears:
+
+```json
+{ "id": 412, "token": "0x…", "author": "0x…", "body": "…", "at": "2026-09-20T10:31:02.184Z",
+  "rank": "Bronze", "holdingBps": 250, "isCreator": false, "hidden": false }
+```
+
+`rank` is the author's rank on the leaderboard, `holdingBps` their share of the token's supply in
+basis points at the moment of the read, `isCreator` whether they launched it. A hidden message
+carries `"hidden": true` and `"body": null` for everyone except its own author, who still reads
+their own words. There is no delete and no edit.
+
+**Signing in**, two calls, once a week:
+
+`POST /chat/nonce` `{ "address": "0x…" }` → `{ "nonce", "message", "expiresAt" }`
+
+Sign `message` exactly as given (`personal_sign`, or viem's `signMessage`). A nonce is good for
+five minutes and for one signature.
+
+`POST /chat/session` `{ "address", "signature", "nonce" }` → `{ "token", "address", "expiresAt" }`
+
+The session lasts seven days and goes on every other call as `Authorization: Bearer <token>`. It is
+the only thing the other routes look at; a signature is never sent twice. A key is checked here with
+no network at all; a Safe or any other contract wallet is checked through ERC-1271, which is one call
+against the chain's current state, so those wallets can hold a room's floor like anybody else.
+
+`GET /chat/:token?limit=50&before=<id>` → `{ "messages": [ … ] }`
+
+Newest first, `limit` capped at 100, `before` pages backwards by id. Public, never cached; with a
+session, the caller's own hidden messages come back with their body.
+
+`POST /chat/:token` `{ "body": "…" }`, with the session, returns the message and puts it on
+`/stream` in the same moment. Every refusal carries a code and a sentence saying why:
+
+| status | error | when |
+|---|---|---|
+| 401 | `no_session` | no session, or one that has run out |
+| 404 | `unknown_token` | nothing has launched at that address |
+| 403 | `no_position` | the wallet neither holds the token nor has ever traded it |
+| 403 | `system_wallet` | one of our own contracts |
+| 400 | `body_missing`, `body_empty`, `body_too_long`, `body_control_characters` | 1 to 280 characters after trimming, one line, plain text |
+| 429 | `too_fast`, `too_many` | one message every 5 seconds and 30 an hour, counted per wallet rather than per address |
+
+`POST /chat/:token/hide/:id` → `{ "ok": true }`
+
+The launch's creator with their session, or an operator with `HOOD_ADMIN_TOKEN`. `{ "hidden": false }`
+in the body puts a message back, by the same two. A creator reaches only their own launches (403
+`not_the_creator`), and hiding never takes a message away from the person who wrote it.
+
 ## Where the pools show up
 
 DexScreener addresses a v4 pair by its pool id: `https://dexscreener.com/robinhood/<poolId>`, or
