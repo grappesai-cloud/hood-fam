@@ -84,10 +84,14 @@ export function usePreferredConnector() {
   const { connectors } = useConnect();
   const framed = typeof window !== "undefined" && window.parent !== window;
   const injected = typeof window !== "undefined" && Boolean((window as { ethereum?: unknown }).ethereum);
+  // Nothing at the end of this list. The injected connector exists in the config whether or not a
+  // wallet was ever installed, so returning it as a fallback gave a phone a Connect button that
+  // looked alive and did nothing on tap. An honest undefined disables the button and lets
+  // `WalletDoor` offer the way in that does work there.
   return (
     (framed && connectors.find((c) => c.id === "safe")) ||
     (injected && connectors.find((c) => c.type === "injected")) ||
     connectors.find((c) => c.id === "walletConnect") ||
-    connectors.find((c) => c.type === "injected")
+    undefined
   );
 }
