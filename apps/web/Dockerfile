@@ -39,6 +39,9 @@ COPY apps/web/package.json apps/web/
 RUN npm ci --no-audit --no-fund
 COPY packages/sdk packages/sdk
 COPY apps/web apps/web
+# The brand switch, and only it: the rest of scripts/ is harnesses and deploy tooling that has no
+# business in a build context. Without this the BRAND argument below has nothing to run.
+COPY scripts/brand.mjs scripts/brand.mjs
 RUN npx tsc -p packages/sdk/tsconfig.json && node scripts/brand.mjs "$BRAND" && cd apps/web && npx next build
 # and once the build is done, what built it does not travel with it
 RUN npm prune --omit=dev
