@@ -486,7 +486,10 @@ http:
 ```
 
 The challenge path is carved out of the redirect, or the certificate can never be issued. Set
-`CORS_ORIGIN` to the site's origin, since the app now calls the API cross-origin.
+`CORS_ORIGIN` to the site's origin, since the app now calls the API cross-origin. With more than one
+face (section 3j) it is EVERY face's origin, comma separated: each one is served from its own name
+and reads the same API from it, so a name missing here has a board that says the feed is down while
+the API is perfectly healthy.
 
 **A preview is not a second site.** Point `NEXT_PUBLIC_SITE_URL` at the host it actually answers on
 and the app stops inviting crawlers: `robots.txt` disallows everything and every page carries
@@ -614,6 +617,13 @@ refuses. One A record per brand, at the box's address, before the first request.
 
 `NEXT_PUBLIC_SITE_URL` differs per brand (it is what share cards and the Safe App manifest are built
 against), which is why each service passes its own; everything else is the same build arg.
+
+Two things that bite in this order, both measured the first time this was done for real:
+
+- **`CORS_ORIGIN` must list every brand's origin.** Otherwise the new names load, render, and then
+  say the feed is down, because the API refuses an origin it was never told about.
+- **DNS only (grey cloud) for a new name**, so Traefik answers the ACME challenge itself and gets a
+  certificate the way the existing names did. Proxying can be turned on afterwards.
 
 ## 4. Opening omnichain routes
 
