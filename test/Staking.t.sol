@@ -6,7 +6,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BaseTest} from "./Base.t.sol";
 import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
-import {FeeModel} from "../src/HoodTypes.sol";
 
 /// @notice Proof of belief: longer locks take a larger share of the same fee stream.
 contract StakingTest is BaseTest {
@@ -15,7 +14,7 @@ contract StakingTest is BaseTest {
 
     function setUp() public override {
         super.setUp();
-        (token, curve) = _launch(FeeModel.StakingRewards);
+        (token, curve) = _launch(_toStakers());
         _buy(curve, alice, 1 ether);
         _buy(curve, bob, 1 ether);
     }

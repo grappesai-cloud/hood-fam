@@ -9,7 +9,7 @@ import { directAddresses } from "@/lib/config";
 import { fdvToTick, tickToFdv } from "@/lib/direct";
 import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
-import { Field, LaunchBar, Rail, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
+import { Choice, Field, LaunchBar, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 
 const SUPPLY = 1_000_000_000;
 const SPACING = 200;
@@ -275,15 +275,3 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   );
 }
 
-function Slider({ label, min, max, step, value, onChange, hint }: {
-  label: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void; hint?: string;
-}) {
-  return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <input type="range" className="w-full accent-[var(--color-lime)]"
-        min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
-      {hint && <span className="field-note">{hint}</span>}
-    </label>
-  );
-}

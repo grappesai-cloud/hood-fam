@@ -19,7 +19,7 @@ on a server and can be replaced at any time without anybody's money noticing.
                                                 │
    HoodFactory ─ deploys ─► HoodToken + HoodCurve ─ graduates ─► UniswapV4Graduator ─► v4 pool
         │                          │                                     │
-        │                          └── fees ──► HoodFeeRouter ──► one of five models
+        │                          └── fees ──► HoodFeeRouter ──► split across four roads
         │                                                │
         └── registry, presets, copycat lock              ├─► HoodStaking (lock, 1x to 2.5x)
                                                          ├─► buy back and burn
@@ -34,6 +34,15 @@ on a server and can be replaced at any time without anybody's money noticing.
 (append only, never edited), the registry, and the copycat lock. It can also spend the creator's
 own money on the first buy inside the same transaction, so a launch cannot be sniped in the gap
 between the token appearing and the creator buying.
+
+**A creator can lock their own first buy.** `LaunchParams.firstBuyLock` is a duration in seconds
+and must be one of the staking vault's tiers (7, 30, 90 or 180 days) or the launch reverts, so an
+app and the vault can never disagree about what a lock is. When it is set, the tokens the first buy
+bought never pass through the creator's wallet: the factory stakes them in the creator's name. The
+position is theirs, it earns whatever the token's staking leg pays, and the vault will not let it
+out before the lock is over, so the one parcel nobody else could have bought yet cannot be sold
+into the people who buy next. It is the same tier and the same rule every other staker lives under,
+not a second lock mechanism. A lock with no first buy behind it reverts rather than doing nothing.
 
 **HoodDeployer** holds the bytecode of the token and of the curve and nothing else. It exists
 because a factory that inlines `new Token()` and `new Curve()` carries both creation codes in its
@@ -51,7 +60,7 @@ supply and the raise to the graduation handler. Graduation is deliberately a sep
 deployment that reverts must never be able to hold the last buy of a curve hostage.
 
 **UniswapV4Graduator** opens the pool, keeps the position forever and hands its fees back to the
-fee model. It has no owner, no transfer and no way to decrease liquidity. The lock is the absence
+fee split. It has no owner, no transfer and no way to decrease liquidity. The lock is the absence
 of code, not a promise. It also opens the pool inside the LAUNCH transaction, at the price the raise
 is heading for, because anybody can open a v4 pool for any pair at any price and one stranger with
 one transaction could otherwise brick or drain every launch on the platform. Opening it is not the
@@ -59,8 +68,9 @@ whole defence, because an open pool with no liquidity in it still has a price an
 anywhere for the cost of gas: at graduation the handler pins the price back to the ratio the raise
 actually came out at, so the position is minted where the money says it belongs.
 
-**HoodFeeRouter** books the creator leg of every trading fee and spends it along the model the
-creator chose. It has no owner and no withdrawal. Flushing is permissionless.
+**HoodFeeRouter** books the creator leg of every trading fee and spends it across the four
+destinations the creator chose at launch. It has no owner and no withdrawal. Flushing is
+permissionless.
 
 **HoodStaking** is one vault for every launch. Lock length sets the weight, from 1x flexible to
 2.5x for half a year. `stakeFor` locks tokens in somebody else's name: they earn from minute one
@@ -73,20 +83,28 @@ one contract with one owner instead of a loose key per token.
 ## Where the money goes
 
 On every trade the curve splits the fee in two: the protocol leg goes to the treasury, the creator
-leg goes to the fee router. The router holds it until somebody flushes, and the flush does whatever
-the creator picked at launch:
+leg goes to the fee router. The router holds it until somebody flushes, and the flush spends it
+across four legs the creator fixed at launch. They are bps and they add up to 10,000, so one launch
+can pay its stakers, buy itself back, deepen its pool and keep a slice, all at once:
 
-| model | before graduation | after graduation |
+| leg | before graduation | after graduation |
 |---|---|---|
-| staking | credited to lockers, by weight | same |
+| stakers | credited to lockers, by weight | same |
 | buyback | buys off the curve, burns | swaps out of the pool with a floor, burns |
 | liquidity | added to the raise, so the pool opens deeper | donated to the pool through the PoolManager |
 | creator | paid to the fee recipient | same |
-| zero | nothing is ever booked | same |
+
+Every leg is floored and the last leg with a share takes the remainder, so the four always add up to
+exactly what was booked and nothing is left behind in the router. A split with a buyback leg is
+flushed through `flushBuyback(token, minTokensOut)` rather than `flush`, because a permissionless
+buy with no floor is a gift to whoever is watching; the floor applies to the buyback leg only and
+the other three do what they always do. There is no leg for charging nothing: how big the creator
+fee is belongs to the preset, so a launch that wants traders to pay the protocol and nobody else
+picks a preset whose `creatorFeeBps` is zero, and then nothing is ever booked to split.
 
 At graduation the pool gets `liquidityBps` of the raise (at least 80%, enforced when a preset is
 created) plus every donation; the remainder is the protocol's graduation fee. The position is locked
-forever, and its trading fees are collected by anyone and routed straight back into the model above.
+forever, and its trading fees are collected by anyone and routed straight back into the split above.
 
 ## The direct machine
 
@@ -245,7 +263,8 @@ the user a hosted Relay link, which is the honest fallback rather than a broken 
 
 | thing | who can change it |
 |---|---|
-| a live token's curve, fees, supply, fee model | nobody, ever |
+| a live token's curve, fees, supply, fee split | nobody, ever |
+| a locked first buy | nobody; the staking vault releases it to the creator when the tier is over |
 | a direct launch's taxes, allocations, ticks, window | nobody, ever |
 | graduated liquidity | nobody; there is no withdrawal function |
 | a launch's fee recipient | only the current recipient, in one step |

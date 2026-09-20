@@ -62,7 +62,7 @@ Names are the variables in `.env.example`; addresses are filled at deploy and pr
 | variable | contract | what it is |
 |---|---|---|
 | `HOOD_FACTORY` | `HoodFactory` | Prints curve tokens. The registry for both machines (`getLaunch`), the copycat lock, the presets |
-| `HOOD_FEE_ROUTER` | `HoodFeeRouter` | Books a curve token's creator fee leg and spends it along the model |
+| `HOOD_FEE_ROUTER` | `HoodFeeRouter` | Books a curve token's creator fee leg and spends it across its split |
 | `HOOD_STAKING` | `HoodStaking` | One staking vault for every token |
 | `HOOD_GRADUATOR` | `UniswapV4Graduator` | Opens and holds a graduated curve token's pool; `positionOf(token)` returns the pool key |
 | `HOOD_BRIDGE_FACTORY` | `HoodBridgeFactory` | LayerZero lock boxes |
@@ -92,11 +92,20 @@ rest is in `data`.
 
 | event | topic0 |
 |---|---|
-| `Launched(address indexed token, address indexed curve, address indexed creator, uint256 configId, address pairToken, uint8 feeModel)` | `0x3a8eb305420b5f06513c163db583ec751bf836bc98dde3d8031e1920d90421a0` |
+| `Launched(address indexed token, address indexed curve, address indexed creator, uint256 configId, address pairToken, (uint16,uint16,uint16,uint16) feeSplit)` | `0x4c7632ec99854291dae1ca6df777cec083a6d2a197fc2b63135ec74127127e8c` |
 | `LaunchMetadata(address indexed token, string name, string symbol, string image, string description, string website, string twitter, string telegram)` | `0xb223410ec1e948b7f27777ac33d1dcfdce9982e5c988994594be06df0ad1b12a` |
+| `FirstBuyLocked(address indexed token, address indexed creator, uint256 positionId, uint256 amount, uint64 unlockAt)` | `0xfcb4d5fb598c462d5c9f2d4671260d3eae55d06300b388541a2cd4d3c6540eed` |
 
-Both fire in the launch transaction, `Launched` first. `feeModel`: 0 staking, 1 buyback and burn,
-2 liquidity, 3 creator keeps, 4 zero fee.
+The first two fire in the launch transaction, `Launched` first. `feeSplit` is
+`(stakersBps, buybackBps, liquidityBps, creatorBps)`, summing to 10,000 and fixed forever: the
+share of the creator fee leg that goes to stakers of the token, to buying it back and burning it,
+to deepening its liquidity, and to the fee recipient. A launch whose preset charges no creator fee
+never books anything to split, whatever the shares say.
+
+`FirstBuyLocked` fires only when the creator locked their own first buy, in the same transaction,
+after `Launched`. `positionId` is the `HoodStaking` position, which belongs to the creator from that
+second; `amount` and `unlockAt` are also on the registry row (`getLaunch(token).firstBuyLocked`,
+`.firstBuyUnlockAt`, both zero when there was no lock), so an app needs no logs to show the lock.
 
 ### HoodCurve (one per curve launch)
 
@@ -110,6 +119,18 @@ Both fire in the launch transaction, `Launched` first. `feeModel`: 0 staking, 1 
 `pairIn` is gross and `fee` is inside it on a buy; `pairOut` is net and `fee` is on top of it on a
 sell. `Graduated` fires from `finalize()`, a separate permissionless call after `SoldOut`; the same
 transaction carries the graduator's pool opening and the first v4 liquidity.
+
+### HoodFeeRouter (one address)
+
+| event | topic0 |
+|---|---|
+| `Accrued(address indexed token, uint256 amount)` | `0x603f16706d8facbdadddadc2f84737909caebc5d1f3adf53d69014f2d908611c` |
+| `Flushed(address indexed token, uint256 amount, uint256 toStakers, uint256 toBuyback, uint256 toLiquidity, uint256 toCreator, uint256 tokensBurned)` | `0xaaf0a3567edf8558e26592324e582cbce9787413bfc05ba1ed3960a7477e3bd5` |
+
+`Accrued` is a curve token's creator fee leg arriving, from a trade or from the graduated
+position's fees. `Flushed` is that pot leaving along the token's split: the four legs add up to
+`amount` exactly, and `tokensBurned` is what the buyback leg took off the supply. A token with a
+buyback leg can only be flushed through `flushBuyback(token, minTokensOut)`.
 
 ### HoodPortal (one address)
 
@@ -301,6 +322,9 @@ The four-byte selector is what a revert carries. One sentence each.
 | `0x1752d335` | `BadTicks()` | portal | Spacing not positive, a tick not a multiple of it, `tickStart == tickBond`, or the position would be empty. |
 | `0xd500448a` | `QuoteNotAllowed()` | portal | The quote asset is not on the allow list (ETH and USDG). |
 | `0x917f1a53` | `BadFee()` | portal, factory | `msg.value` is below the launch fee, plus the first buy when it is in ETH. |
+| `0xbc4f33a3` | `BadSplit()` | factory | The four legs of `feeSplit` do not add up to 10,000, all four are zero included. |
+| `0x38f21151` | `BadLock()` | factory | `firstBuyLock` is not one of the staking tiers: 7, 30, 90 or 180 days, or zero for no lock. |
+| `0x3beb2222` | `NoFirstBuy()` | factory | `firstBuyLock` was asked for with nothing to lock: no ETH above the launch fee, or `firstBuy` at zero. |
 | `0xec4ebdaf` | `BadSupply()` | portal | Supply is zero. |
 | `0x3a25fc0d` | `BadPoolFee()` | portal | The pool fee carries the dynamic-fee flag or exceeds 100%. |
 | `0x5419376a` | `BadWindow()` | portal | A window with a zero hold or buy cap, a hold cap above 100%, or a buy cap above 1.1x the hold cap. |
@@ -329,7 +353,7 @@ The four-byte selector is what a revert carries. One sentence each.
 | `0x2fadff00` | `ImageLockedError()` | factory | Same, for the artwork. |
 | `0x1124f78b` | `SymbolTooLong()` | factory | The ticker is over 32 bytes. |
 | `0xeb694a3c` | `NothingToFlush()` | fee router | No creator fee booked for this token. |
-| `0x7cfccd30` | `NeedsSwapFloor()` | fee router | A post-graduation buyback needs `flushBuyback(token, minTokensOut)`, not `flush`. |
+| `0x7cfccd30` | `NeedsSwapFloor()` | fee router | The split has a buyback leg, so it needs `flushBuyback(token, minTokensOut)`, not `flush`. |
 | `0x0ebf677f` | `NeedsFinalize()` | fee router | The curve sold out and its pool is not open yet. |
 | `0xd66173a5` | `NotGraduated()` | graduator | The token has no pool yet. |
 | `0xe6a0d45f` | `AlreadyGraduated()` | graduator | It already has one. |
@@ -389,7 +413,9 @@ over the contracts. Amounts are strings in wei; `price` is quote wei per whole t
       "total_supply": "999999999999999999998000", "burned": "1234000000000000000000",
       "price": "10240000000", "volume_24h": "3200000000000000000", "volume_total": "3200000000000000000",
       "trades_total": 3, "launched_at": "2026-09-17T10:12:04.000Z", "graduated_at": null,
-      "curve": "0x0000000000000000000000000000000000000000", "phase": 0, "fee_model": 0,
+      "curve": "0x0000000000000000000000000000000000000000", "phase": 0,
+      "split_stakers_bps": 0, "split_buyback_bps": 0, "split_liquidity_bps": 0, "split_creator_bps": 0,
+      "first_buy_locked": "0", "first_buy_unlock_at": null,
       "sold": "0", "reserve": "0", "curve_supply": "0"
     }
   ]
@@ -399,6 +425,15 @@ over the contracts. Amounts are strings in wei; `price` is quote wei per whole t
 A curve token has `mode: "curve"`, its `curve` address, `phase` 0/1/2, `sold`, `reserve`,
 `curve_supply`, and nulls for the direct fields.
 
+The four `split_*_bps` are the launch's `FeeSplit`, straight off `Launched`. On a curve token they
+sum to 10,000 and are what to render as four percentages. On a direct token they are all zero,
+which means the split does not apply rather than nothing is paid: that launch's tax is divided by
+its own splitter, and `alloc_*_bps` is where it goes.
+
+`first_buy_locked` is token wei of the creator's own first buy, locked in the staking vault in the
+launch transaction, and `first_buy_unlock_at` is when it opens. Zero and null mean the creator took
+their first buy in hand, so a "dev locked" badge is `first_buy_locked > 0`.
+
 `GET /tokens/:token`
 
 The row above plus:
@@ -406,10 +441,20 @@ The row above plus:
 ```json
 {
   "holders": 41,
-  "fees": { "accrued": "96000000000000000", "flushed": "0" },
+  "fees": {
+    "accrued": "96000000000000000", "flushed": "64000000000000000",
+    "to_stakers": "25600000000000000", "to_buyback": "19200000000000000",
+    "to_liquidity": "12800000000000000", "to_creator": "6400000000000000",
+    "burned": "48210000000000000000"
+  },
   "staking": { "staked": "0", "positions": "0" }
 }
 ```
+
+`accrued` is what came in (the router's bookings on a curve token, the splitter's sweeps on a
+direct one) and `flushed` is what has left along the split. The four legs under it are pair wei and
+add up to `flushed`; `burned` is token wei the buyback leg took off the supply, so it never belongs
+in the same sum.
 
 `GET /tokens/:token/trades?limit=50`
 

@@ -6,7 +6,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BaseTest} from "./Base.t.sol";
 import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodFactory} from "../src/HoodFactory.sol";
-import {CurveConfig, FeeModel, Launch, LaunchParams} from "../src/HoodTypes.sol";
+import {HoodStaking} from "../src/HoodStaking.sol";
+import {CurveConfig, FeeSplit, Launch, LaunchParams} from "../src/HoodTypes.sol";
 
 contract FactoryTest is BaseTest {
     /// @dev This one is here because it already bit: the factory inlined the token and the curve
@@ -21,7 +22,7 @@ contract FactoryTest is BaseTest {
 
     function test_launch_fee_goes_to_the_treasury() public {
         uint256 before = treasury.balance;
-        _launch(FeeModel.CreatorKeep);
+        _launch(_toCreator());
         assertEq(treasury.balance - before, LAUNCH_FEE);
     }
 
@@ -33,7 +34,7 @@ contract FactoryTest is BaseTest {
         (bool ok,) = address(factory).call{value: 5 ether}("");
         assertTrue(ok, "a stray donation lands in the factory");
 
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         uint256 before = creator.balance;
         vm.prank(creator);
         factory.launch{value: LAUNCH_FEE + 1 ether}(p);
@@ -45,14 +46,14 @@ contract FactoryTest is BaseTest {
     }
 
     function test_launch_needs_the_fee() public {
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         vm.prank(creator);
         vm.expectRevert(HoodFactory.BadFee.selector);
         factory.launch{value: LAUNCH_FEE - 1}(p);
     }
 
     function test_the_creator_can_take_the_first_buy_in_the_same_transaction() public {
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         uint256 before = creator.balance;
 
         vm.prank(creator);
@@ -64,8 +65,101 @@ contract FactoryTest is BaseTest {
         assertEq(address(factory).balance, 0);
     }
 
+    /// @dev The first buy is the one parcel of tokens nobody else could have bought yet. Locked,
+    ///      it belongs to the creator, it earns from minute one, and it cannot be sold into the
+    ///      people who buy next. The lock is the staking vault's, not a second mechanism.
+    function test_a_creator_can_lock_their_own_first_buy() public {
+        LaunchParams memory p = _params(_toStakers());
+        p.firstBuyLock = 30 days;
+
+        vm.prank(creator);
+        (address token,, uint256 bought) = factory.launch{value: LAUNCH_FEE + 1 ether}(p);
+
+        assertGt(bought, 0);
+        assertEq(IERC20(token).balanceOf(creator), 0, "nothing lands in the creator's wallet");
+
+        (address posToken, address posOwner, uint128 amount, uint64 unlockAt,,) = staking.positions(1);
+        assertEq(posToken, token);
+        assertEq(posOwner, creator, "the position is the creator's, not the factory's");
+        assertEq(amount, bought);
+        assertEq(unlockAt, uint64(block.timestamp) + 30 days);
+
+        Launch memory l = factory.getLaunch(token);
+        assertEq(l.firstBuyLocked, bought, "and the row says so, without reading a log");
+        assertEq(l.firstBuyUnlockAt, unlockAt);
+
+        vm.prank(creator);
+        vm.expectRevert(HoodStaking.StillLocked.selector);
+        staking.unstake(1);
+
+        vm.warp(block.timestamp + 30 days);
+        vm.prank(creator);
+        staking.unstake(1);
+        assertEq(IERC20(token).balanceOf(creator), bought, "and then it is theirs to do as they like");
+    }
+
+    function test_a_locked_first_buy_earns_what_the_staking_leg_pays() public {
+        LaunchParams memory p = _params(_toStakers());
+        p.firstBuyLock = 7 days;
+
+        vm.prank(creator);
+        (address token, address curveAddr,) = factory.launch{value: LAUNCH_FEE + 1 ether}(p);
+
+        _buy(HoodCurve(payable(curveAddr)), alice, 1 ether);
+        router.flush(token);
+        assertGt(staking.pending(1), 0);
+    }
+
+    /// @dev A lock is one of the vault's tiers or it is nothing, so the app, the factory and the
+    ///      vault cannot each mean something different by the same number of seconds.
+    function test_a_lock_that_is_not_a_tier_is_refused() public {
+        LaunchParams memory p = _params(_toStakers());
+        p.firstBuyLock = 10 days;
+        vm.prank(creator);
+        vm.expectRevert(HoodFactory.BadLock.selector);
+        factory.launch{value: LAUNCH_FEE + 1 ether}(p);
+    }
+
+    /// @dev Otherwise a creator walks away believing their first buy is locked when there was none.
+    function test_a_lock_with_no_first_buy_is_refused() public {
+        LaunchParams memory p = _params(_toStakers());
+        p.firstBuyLock = 30 days;
+        vm.prank(creator);
+        vm.expectRevert(HoodFactory.NoFirstBuy.selector);
+        factory.launch{value: LAUNCH_FEE}(p);
+    }
+
+    function test_a_dollar_first_buy_locks_the_same_way() public {
+        CurveConfig memory c = _config();
+        c.startCap = 5_000e6;
+        c.graduationCap = 50_000e6;
+        vm.prank(owner);
+        uint256 usdConfig = factory.addConfig(c);
+
+        LaunchParams memory p = _params(_toStakers());
+        p.pairToken = address(usd);
+        p.configId = usdConfig;
+        p.symbol = "USDLOCK";
+        p.image = "ipfs://lock";
+        p.firstBuy = 10_000e6;
+        p.firstBuyLock = 90 days;
+
+        usd.mint(creator, 10_000e6);
+        vm.startPrank(creator);
+        usd.approve(address(factory), 10_000e6);
+        (address token,, uint256 bought) = factory.launch{value: LAUNCH_FEE}(p);
+        vm.stopPrank();
+
+        assertGt(bought, 0);
+        assertEq(IERC20(token).balanceOf(creator), 0);
+        (, address posOwner, uint128 amount, uint64 unlockAt,,) = staking.positions(1);
+        assertEq(posOwner, creator);
+        assertEq(amount, bought);
+        assertEq(unlockAt, uint64(block.timestamp) + 90 days);
+    }
+
     function test_an_oversized_first_buy_comes_back_to_the_creator() public {
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         uint256 before = creator.balance;
 
         vm.prank(creator);
@@ -78,7 +172,7 @@ contract FactoryTest is BaseTest {
     }
 
     function test_economics_are_pinned_by_the_creator() public {
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         p.econ = factory.previewLaunchEconomics(configId, address(0));
 
         // the launchpad moves its fee between the quote and the signature
@@ -91,11 +185,11 @@ contract FactoryTest is BaseTest {
     }
 
     function test_a_disabled_preset_cannot_be_used_but_live_tokens_keep_trading() public {
-        (, HoodCurve curve) = _launch(FeeModel.CreatorKeep);
+        (, HoodCurve curve) = _launch(_toCreator());
         vm.prank(owner);
         factory.setConfigEnabled(configId, false);
 
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         p.salt = bytes32(uint256(99));
         vm.prank(bob);
         vm.expectRevert(HoodFactory.ConfigDisabled.selector);
@@ -122,7 +216,7 @@ contract FactoryTest is BaseTest {
     }
 
     function test_only_an_allowed_pair_can_be_launched_against() public {
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         p.pairToken = address(0xdead);
         vm.prank(creator);
         vm.expectRevert(HoodFactory.PairNotAllowed.selector);
@@ -133,7 +227,7 @@ contract FactoryTest is BaseTest {
         vm.prank(owner);
         factory.setPair(address(0), true, 1 ether);
 
-        (address token, HoodCurve curve) = _launch(FeeModel.CreatorKeep);
+        (address token, HoodCurve curve) = _launch(_toCreator());
         assertTrue(factory.isSymbolAvailable("FAM"));
 
         _buy(curve, alice, 2 ether); // crosses the 24h volume threshold
@@ -142,7 +236,7 @@ contract FactoryTest is BaseTest {
         assertFalse(factory.isSymbolAvailable("fam"), "case does not get you around it");
         assertEq(factory.symbolLockOwner(factory.symbolHash("FAM")), token);
 
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         p.salt = bytes32(uint256(2));
         vm.prank(bob);
         vm.expectRevert(HoodFactory.TickerLockedError.selector);
@@ -164,13 +258,13 @@ contract FactoryTest is BaseTest {
     function test_a_quiet_token_never_locks_its_ticker() public {
         vm.prank(owner);
         factory.setPair(address(0), true, 1 ether);
-        (, HoodCurve curve) = _launch(FeeModel.CreatorKeep);
+        (, HoodCurve curve) = _launch(_toCreator());
         _buy(curve, alice, 0.1 ether);
         assertTrue(factory.isSymbolAvailable("FAM"));
     }
 
     function test_only_the_current_recipient_moves_the_fee_stream() public {
-        (address token,) = _launch(FeeModel.CreatorKeep);
+        (address token,) = _launch(_toCreator());
         vm.prank(bob);
         vm.expectRevert(HoodFactory.NotRecipient.selector);
         factory.transferCreatorFeeRecipient(token, bob);
@@ -185,13 +279,13 @@ contract FactoryTest is BaseTest {
     }
 
     function test_volume_is_only_recorded_by_the_curve_that_owns_the_token() public {
-        (address token,) = _launch(FeeModel.CreatorKeep);
+        (address token,) = _launch(_toCreator());
         vm.expectRevert(HoodFactory.NotACurve.selector);
         factory.recordVolume(token, 1 ether);
     }
 
     function test_modules_are_wired_once_and_the_handler_only_changes_for_new_launches() public {
-        (, HoodCurve curve) = _launch(FeeModel.CreatorKeep);
+        (, HoodCurve curve) = _launch(_toCreator());
         address pinned = curve.graduationHandler();
 
         vm.prank(owner);
@@ -210,7 +304,7 @@ contract FactoryTest is BaseTest {
         vm.prank(owner);
         uint256 usdConfig = factory.addConfig(c);
 
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         p.pairToken = address(usd);
         p.configId = usdConfig;
         p.symbol = "USDFAM";

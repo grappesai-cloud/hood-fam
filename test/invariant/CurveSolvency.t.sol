@@ -11,7 +11,7 @@ import {HoodCurve} from "../../src/HoodCurve.sol";
 import {HoodFeeRouter} from "../../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../../src/HoodStaking.sol";
 import {CurveMath} from "../../src/libraries/CurveMath.sol";
-import {CurveConfig, FeeModel, LaunchParams, Phase} from "../../src/HoodTypes.sol";
+import {CurveConfig, FeeSplit, LaunchParams, Phase} from "../../src/HoodTypes.sol";
 import {MockGraduator} from "../mocks/Mocks.sol";
 
 /// @notice Drives one native-paired curve with random buys, sells and donations from a pool of
@@ -127,7 +127,7 @@ contract CurveSolvencyInvariant is StdInvariant, Test {
         p.symbol = "INV";
         p.pairToken = address(0);
         p.configId = configId;
-        p.feeModel = FeeModel.StakingRewards;
+        p.feeSplit = FeeSplit({stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0});
         p.creatorFeeRecipient = creator;
         p.salt = bytes32(uint256(1));
         vm.prank(creator);

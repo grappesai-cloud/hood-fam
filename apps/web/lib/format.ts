@@ -1,22 +1,37 @@
 export { fmt, compact, shortAddress, timeUntil, LOCK_TIERS } from "@hood/sdk";
+import { FEE_LEG_LABEL, type FeeLeg } from "@hood/sdk";
 
-/// What a launch does with its trading fee, in one line. A direct launch has no fee model at all:
-/// its tax is split four ways by its own splitter, which is why this takes a null rather than
-/// pretending the absence of a model is model zero, "stakers take the fee".
-export const feeModelLabel = (model: number | null | undefined) =>
-  model === null || model === undefined
-    ? "Split four ways by the splitter"
-    : FEE_MODEL_LABEL[model] ?? "Chosen at launch";
+/// A launch's fee split as the app reads it off a row: the legs that pay something, largest first.
+/// A direct launch is four zeros, because its own splitter divides its tax, and that is not the
+/// same as a curve launch paying nobody, which the factory refuses.
+export interface SplitRow {
+  split_stakers_bps: number;
+  split_buyback_bps: number;
+  split_liquidity_bps: number;
+  split_creator_bps: number;
+  mode?: string;
+}
 
-export const FEE_MODEL_LABEL = [
-  "Stakers take the fee",
-  "Buy back and burn",
-  "Deepen the liquidity",
-  "Creator keeps the fee",
-  "No creator fee",
-] as const;
+export function splitOf(row: SplitRow): { leg: FeeLeg; bps: number; label: string }[] {
+  return ([
+    { leg: "stakers" as const, bps: row.split_stakers_bps ?? 0 },
+    { leg: "buyback" as const, bps: row.split_buyback_bps ?? 0 },
+    { leg: "liquidity" as const, bps: row.split_liquidity_bps ?? 0 },
+    { leg: "creator" as const, bps: row.split_creator_bps ?? 0 },
+  ]).filter((l) => l.bps > 0).sort((a, b) => b.bps - a.bps)
+    .map((l) => ({ ...l, label: FEE_LEG_LABEL[l.leg] }));
+}
 
-export const FEE_MODEL_SHORT = ["staking", "buyback", "liquidity", "creator", "zero fee"] as const;
+/// One line for a card or a row: "60% stakers, 40% buy back and burn".
+export function splitLabel(row: SplitRow): string {
+  if (row.mode === "direct") return "Split four ways by the splitter";
+  const legs = splitOf(row);
+  if (legs.length === 0) return "Chosen at launch";
+  return legs.map((l) => `${Math.round(l.bps / 100)}% ${l.label.toLowerCase()}`).join(", ");
+}
+
+/// Whether locking this token earns anything, which decides what the staking panel says.
+export const paysStakers = (row: SplitRow) => (row.split_stakers_bps ?? 0) > 0;
 
 export const PHASE_LABEL = ["on the curve", "sold out", "graduated"] as const;
 

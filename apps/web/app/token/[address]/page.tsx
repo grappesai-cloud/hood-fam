@@ -11,6 +11,9 @@ import { addresses, directAddresses, EXPLORER } from "@/lib/config";
 import { useLive } from "@/lib/live";
 import { TradeBox } from "@/components/TradeBox";
 import { Tape } from "@/components/Tape";
+import { Sound } from "@/components/Sound";
+import { GraduationRace } from "@/components/GraduationRace";
+import { HolderMap } from "@/components/HolderMap";
 import { TokenChat } from "@/components/TokenChat";
 import { DirectTradeBox } from "@/components/DirectTradeBox";
 import { DirectPanels } from "@/components/DirectPanels";
@@ -23,7 +26,7 @@ const Chart = dynamic(() => import("@/components/Chart").then((m) => m.Chart), {
   loading: () => <div className="h-[320px] w-full animate-pulse rounded-xl bg-[var(--color-ink)]" />,
 });
 import { StakePanel } from "@/components/StakePanel";
-import { ago, compact, feeModelLabel, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, safeUrl, screenerLinks, shortAddress, telegramUrl, twitterUrl } from "@/lib/format";
+import { ago, compact, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, paysStakers, safeUrl, screenerLinks, shortAddress, splitLabel, telegramUrl, twitterUrl } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
 
 interface PoolKey { currency0: Address; currency1: Address; fee: number; tickSpacing: number; hooks: Address }
@@ -182,7 +185,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
           {!isDirect && (
           <div className="panel p-4">
             <h3 className="mb-2 font-semibold">Where the fee goes</h3>
-            <p className="text-sm">{feeModelLabel(data.fee_model)}</p>
+            <p className="text-sm">{splitLabel(data)}</p>
             <p className="mt-1 text-xs dim">
               Chosen at launch and locked. Nobody, including us, can point it somewhere else.
             </p>
@@ -214,7 +217,27 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
           </div>
         </section>
 
-        <Tape token={data.token} symbol={data.symbol} pairToken={data.pair_token} />
+        <HolderMap
+          token={data.token}
+          symbol={data.symbol}
+          creator={data.creator}
+          curve={data.curve}
+          locker={data.locker}
+          splitter={data.splitter}
+          hook={data.hook}
+          totalSupply={totalSupply}
+          holders={data.holders}
+        />
+
+        <GraduationRace current={data.token} />
+
+        {/* The sound toggle is the tape's, and sits on top of it. It is a sibling rather than a
+            child because Tape.tsx is the shared tape every brand's board runs too, and is not this
+            page's to rewrite. */}
+        <div className="tape-block">
+          <Sound token={data.token} progress={progress} />
+          <Tape token={data.token} symbol={data.symbol} pairToken={data.pair_token} />
+        </div>
 
         <TokenChat token={data.token} symbol={data.symbol} creator={data.creator} launchedAt={data.launched_at} />
       </div>
@@ -266,7 +289,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
             being a holder as far as that accumulator is concerned. The contract refuses it; the app
             should not offer it in the first place. */}
         {!isDirect && (
-          <StakePanel token={data.token as Address} symbol={data.symbol} feeModel={data.fee_model ?? 0} />
+          <StakePanel token={data.token as Address} symbol={data.symbol} paysStakers={paysStakers(data)} />
         )}
 
         {isCreator && (

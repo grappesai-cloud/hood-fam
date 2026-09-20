@@ -111,6 +111,10 @@ export default function Analytics() {
   }, [rows, boards]);
 
   const d = pool.data ?? null;
+  // Nobody has scored a point in this season: no trade, no launch, no stake. Every figure the
+  // points distribution is made of is zero because there is nothing in it, not because it measured
+  // zero.
+  const scored = Boolean(d && d.points.participants > 0 && d.points.total > 0);
 
   return (
     <div className="space-y-4">
@@ -198,9 +202,16 @@ export default function Analytics() {
             <div className="space-y-1">
               <Row label="the cut the pool takes" value={`${Number((d.pool.poolBps / 100).toFixed(2))}%`} />
               <Row label="window" value={`${stamp(d.pool.take.windowStart)} to ${stamp(d.pool.take.windowEnd)}`} />
-              <Row label="median wallet" value={asPoints(d.points.median)} />
-              <Row label="p90 wallet" value={asPoints(d.points.p90)} />
-              <Row label="top ten wallets hold" value={ratioPercent(d.points.top10Share)} />
+              {/* A distribution of nothing is not a distribution of zero. With no wallet holding a
+                  point, the median, the ninetieth percentile and the top ten share are all printed
+                  as 0 by the arithmetic behind them, and a zero on this page reads as a measurement
+                  somebody took. These three say there was nothing to measure instead. */}
+              <Row label="median wallet" value={scored ? asPoints(d.points.median) : nothing} />
+              <Row label="p90 wallet" value={scored ? asPoints(d.points.p90) : nothing} />
+              <Row
+                label="top ten wallets hold"
+                value={scored ? ratioPercent(d.points.top10Share) : nothing}
+              />
               <Row
                 label="published split"
                 value={
@@ -282,6 +293,9 @@ export default function Analytics() {
     </div>
   );
 }
+
+/// The absence of a measurement, said the same way in all three places it can happen.
+const nothing = <span className="dim">nothing has traded yet</span>;
 
 function Big({ value, label, note }: { value: string; label: string; note: string }) {
   return (

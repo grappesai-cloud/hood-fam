@@ -28,7 +28,7 @@ import {Launch} from "../HoodTypes.sol";
 /// @notice Turns a sold-out curve into a Uniswap v4 pool and keeps the position forever.
 /// @dev The position NFT never leaves this contract and this contract has no owner, no transfer
 ///      function and no way to decrease liquidity. The only thing anybody can do with it is
-///      collect the fees it earned, which go straight back into the token's fee model. That is the
+///      collect the fees it earned, which go straight back into the token's fee split. That is the
 ///      whole point: graduated liquidity is locked, and the lock is the absence of code, not a promise.
 contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -199,7 +199,7 @@ contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
     }
 
     /// @inheritdoc IGraduationHandler
-    /// @dev Permissionless: the pair side goes back into the token's fee model, the token side is burned.
+    /// @dev Permissionless: the pair side goes back into the token's fee split, the token side is burned.
     function collect(address token) external nonReentrant {
         Position memory pos = _positions[token];
         if (!pos.exists) revert NotGraduated();
@@ -372,7 +372,7 @@ contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
 
     /// @dev The liquidity maths asks for slightly less than we hold, so a sliver of both sides is
     ///      left over. It does not sit here: the token side is burned and the pair side goes into
-    ///      the token's own fee model. No balance in this contract is ever somebody's to take.
+    ///      the token's own fee split. No balance in this contract is ever somebody's to take.
     function _sweepLeftovers(address token, address pairToken) internal {
         uint256 tokenLeft = IERC20(token).balanceOf(address(this));
         if (tokenLeft != 0) IHoodToken(token).burn(tokenLeft);

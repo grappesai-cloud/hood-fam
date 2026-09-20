@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import {FeeModel, Launch, Phase} from "./HoodTypes.sol";
+import {FeeSplit, Launch, Phase} from "./HoodTypes.sol";
 import {PairTransfer} from "./libraries/PairTransfer.sol";
 import {IHoodCurve} from "./interfaces/IHoodCurve.sol";
 import {IHoodFactory} from "./interfaces/IHoodFactory.sol";
@@ -15,13 +15,15 @@ import {IHoodToken} from "./interfaces/IHoodToken.sol";
 import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
 
 /// @title HoodFeeRouter
-/// @notice Holds the creator leg of every trading fee and, on a permissionless flush, spends it the
-///         way the creator chose at launch.
-/// @dev The fee model is read from the registry, where it is written once and never changed. This
+/// @notice Holds the creator leg of every trading fee and, on a permissionless flush, spends it
+///         across the four destinations the creator picked at launch.
+/// @dev The split is read from the registry, where it is written once and never changed. This
 ///      contract has no owner and no withdrawal: whatever is booked for a token can only leave
-///      along that token's model.
+///      along that token's split, and the four legs always add up to the whole of it.
 contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
     using SafeERC20 for IERC20;
+
+    uint256 internal constant BPS = 10_000;
 
     IHoodFactory public immutable factory;
     IHoodStaking public immutable staking;
@@ -32,7 +34,15 @@ contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
     mapping(address asset => uint256) public accounted;
 
     event Accrued(address indexed token, uint256 amount);
-    event Flushed(address indexed token, FeeModel model, uint256 amount, uint256 result);
+    event Flushed(
+        address indexed token,
+        uint256 amount,
+        uint256 toStakers,
+        uint256 toBuyback,
+        uint256 toLiquidity,
+        uint256 toCreator,
+        uint256 tokensBurned
+    );
 
     error UnknownToken();
     error NotACurveLaunch();
@@ -60,14 +70,16 @@ contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
         emit Accrued(token, amount);
     }
 
-    /// @notice Permissionless. Spends what is booked for `token` along its fee model.
-    /// @dev Reverts for a buyback-and-burn token, graduated or not: that one has to buy, and a buy
-    ///      without a floor is a gift to whoever is watching, so it goes through `flushBuyback`.
+    /// @notice Permissionless. Spends what is booked for `token` across its split.
+    /// @dev Reverts for a token with a buyback leg, graduated or not: that leg has to buy, and a
+    ///      buy without a floor is a gift to whoever is watching, so it goes through
+    ///      `flushBuyback`. A token whose split never buys is served here.
     function flush(address token) external nonReentrant {
         _flush(token, 0, false);
     }
 
-    /// @notice Permissionless flush for buyback-and-burn after graduation, with a slippage floor.
+    /// @notice Permissionless flush with a slippage floor, which applies to the buyback leg only.
+    ///         The other three legs do exactly what they do in a plain flush.
     function flushBuyback(address token, uint256 minTokensOut) external nonReentrant {
         _flush(token, minTokensOut, true);
     }
@@ -78,68 +90,104 @@ contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
 
         uint256 amount = accrued[token];
         if (amount == 0) revert NothingToFlush();
+        // A buyback is a market order somebody else can stand in front of, on the pool AND on the
+        // curve: the curve's price is a function of how much has been sold, so a caller can buy,
+        // force a floorless buyback into their own bid and sell into it. Both paths need the caller
+        // to have quoted the trade, which is what `flushBuyback` is for. It is the share that
+        // decides, not the rounded leg, so the same token always flushes the same way.
+        if (l.feeSplit.buybackBps != 0 && !withFloor) revert NeedsSwapFloor();
+
         accrued[token] = 0;
         accounted[l.pairToken] -= amount;
 
-        bool graduated = IHoodCurve(l.curve).phase() == Phase.Graduated;
-        address handler = IHoodCurve(l.curve).graduationHandler();
-        uint256 result;
+        (uint256 toStakers, uint256 toBuyback, uint256 toLiquidity, uint256 toCreator) = _shares(l.feeSplit, amount);
 
-        if (l.feeModel == FeeModel.StakingRewards) {
+        if (toStakers != 0) {
             PairTransfer.pushAndCall(
-                l.pairToken, address(staking), amount, abi.encodeCall(IHoodStaking.notifyReward, (token, amount))
+                l.pairToken, address(staking), toStakers, abi.encodeCall(IHoodStaking.notifyReward, (token, toStakers))
             );
-            result = amount;
-        } else if (l.feeModel == FeeModel.BuybackBurn) {
-            // A buyback is a market order somebody else can stand in front of, on the pool AND on
-            // the curve: the curve's price is a function of how much has been sold, so a caller can
-            // buy, force a floorless buyback into their own bid and sell into it. Both paths need
-            // the caller to have quoted the trade, which is what `flushBuyback` is for.
-            if (graduated) {
-                if (!withFloor) revert NeedsSwapFloor();
-                // ERC-20 pair: the handler pulls what it is allowed to, native goes as value.
-                _approvePair(l.pairToken, handler, amount);
-                result =
-                    IGraduationHandler(handler).buyback{value: _value(l.pairToken, amount)}(token, amount, minTokensOut);
-            } else {
-                if (IHoodCurve(l.curve).phase() == Phase.Sold) revert NeedsFinalize();
-                if (!withFloor) revert NeedsSwapFloor();
-                uint256 before = IERC20(token).balanceOf(address(this));
-                _approvePair(l.pairToken, l.curve, amount);
-                IHoodCurve(l.curve).buy{value: _value(l.pairToken, amount)}(amount, minTokensOut, address(this));
-                uint256 bought = IERC20(token).balanceOf(address(this)) - before;
-                IHoodToken(token).burn(bought);
-                result = bought;
-                // Two things come back from that buy: the creator fee on the buyback itself, which
-                // the curve books through `accrue` like any trade, and whatever rounding kept the
-                // curve from spending, which nothing books. The second is still this token's
-                // money, so it is booked here rather than left stranded.
-                uint256 unbooked = PairTransfer.balance(l.pairToken, address(this)) - accounted[l.pairToken];
-                if (unbooked != 0) {
-                    accrued[token] += unbooked;
-                    accounted[l.pairToken] += unbooked;
-                }
+        }
+        uint256 burned;
+        bool offTheCurve;
+        if (toBuyback != 0) (burned, offTheCurve) = _buyback(l, token, toBuyback, minTokensOut);
+        if (toLiquidity != 0) _liquidity(l, token, toLiquidity);
+        if (toCreator != 0) PairTransfer.push(l.pairToken, l.creatorFeeRecipient, toCreator);
+
+        // Two things come back from a buy off the curve: the creator fee on the buyback itself,
+        // which the curve books through `accrue` like any trade, and whatever rounding kept the
+        // curve from spending, which nothing books. The second is still this token's money, so it
+        // is booked here rather than left stranded. Counted once every leg has been paid out, or
+        // the legs still sitting here would be counted as change and spent a second time.
+        if (offTheCurve) {
+            uint256 unbooked = PairTransfer.balance(l.pairToken, address(this)) - accounted[l.pairToken];
+            if (unbooked != 0) {
+                accrued[token] += unbooked;
+                accounted[l.pairToken] += unbooked;
             }
-        } else if (l.feeModel == FeeModel.LiquidityCompound) {
-            if (graduated) {
-                _approvePair(l.pairToken, handler, amount);
-                IGraduationHandler(handler).compound{value: _value(l.pairToken, amount)}(token, amount);
-            } else {
-                _approvePair(l.pairToken, l.curve, amount);
-                IHoodCurve(l.curve).donate{value: _value(l.pairToken, amount)}(amount);
-            }
-            result = amount;
-        } else if (l.feeModel == FeeModel.CreatorKeep) {
-            PairTransfer.push(l.pairToken, l.creatorFeeRecipient, amount);
-            result = amount;
-        } else {
-            // ZeroFee never books anything through a trade. Anything that lands here was donated,
-            // and the only place it may go is the treasury.
-            PairTransfer.push(l.pairToken, factory.treasury(), amount);
-            result = amount;
         }
 
-        emit Flushed(token, l.feeModel, amount, result);
+        emit Flushed(token, amount, toStakers, toBuyback, toLiquidity, toCreator, burned);
+    }
+
+    // ---------------------------------------------------------------- the four legs
+
+    /// @dev Each leg is floored and the last one with a share takes the remainder, so four legs
+    ///      always add up to exactly what was booked and no wei is ever left behind in here.
+    function _shares(FeeSplit memory s, uint256 amount)
+        internal
+        pure
+        returns (uint256 toStakers, uint256 toBuyback, uint256 toLiquidity, uint256 toCreator)
+    {
+        toStakers = (amount * s.stakersBps) / BPS;
+        toBuyback = (amount * s.buybackBps) / BPS;
+        toLiquidity = (amount * s.liquidityBps) / BPS;
+        toCreator = (amount * s.creatorBps) / BPS;
+        uint256 dust = amount - toStakers - toBuyback - toLiquidity - toCreator;
+        if (dust == 0) return (toStakers, toBuyback, toLiquidity, toCreator);
+        if (s.creatorBps != 0) toCreator += dust;
+        else if (s.liquidityBps != 0) toLiquidity += dust;
+        else if (s.buybackBps != 0) toBuyback += dust;
+        else toStakers += dust;
+    }
+
+    /// @dev Buys the token back and burns it: off the curve before graduation, out of the pool
+    ///      after. Returns what was burned, and whether the buy was the curve's, which is the only
+    ///      one that hands change back.
+    function _buyback(Launch memory l, address token, uint256 amount, uint256 minTokensOut)
+        internal
+        returns (uint256 burned, bool offTheCurve)
+    {
+        Phase phase = IHoodCurve(l.curve).phase();
+        if (phase == Phase.Graduated) {
+            // ERC-20 pair: the handler pulls what it is allowed to, native goes as value.
+            address handler = IHoodCurve(l.curve).graduationHandler();
+            _approvePair(l.pairToken, handler, amount);
+            burned =
+                IGraduationHandler(handler).buyback{value: _value(l.pairToken, amount)}(token, amount, minTokensOut);
+        } else {
+            // A sold-out curve cannot be bought from and its pool is one permissionless `finalize`
+            // away, so the whole flush waits for that call rather than burning nothing.
+            if (phase == Phase.Sold) revert NeedsFinalize();
+            uint256 before = IERC20(token).balanceOf(address(this));
+            _approvePair(l.pairToken, l.curve, amount);
+            IHoodCurve(l.curve).buy{value: _value(l.pairToken, amount)}(amount, minTokensOut, address(this));
+            burned = IERC20(token).balanceOf(address(this)) - before;
+            IHoodToken(token).burn(burned);
+            offTheCurve = true;
+        }
+    }
+
+    /// @dev Deepens the liquidity the token lives in: into the raise before graduation, so the pool
+    ///      opens deeper, and into the locked position after.
+    function _liquidity(Launch memory l, address token, uint256 amount) internal {
+        if (IHoodCurve(l.curve).phase() == Phase.Graduated) {
+            address handler = IHoodCurve(l.curve).graduationHandler();
+            _approvePair(l.pairToken, handler, amount);
+            IGraduationHandler(handler).compound{value: _value(l.pairToken, amount)}(token, amount);
+        } else {
+            _approvePair(l.pairToken, l.curve, amount);
+            IHoodCurve(l.curve).donate{value: _value(l.pairToken, amount)}(amount);
+        }
     }
 
     // ---------------------------------------------------------------- internals

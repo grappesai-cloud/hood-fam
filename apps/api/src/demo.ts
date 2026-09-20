@@ -98,13 +98,27 @@ const pick = <T>(rand: () => number, xs: readonly T[]): T => xs[Math.floor(rand(
 type Machine = "curve" | "direct";
 type Arc = "graduated" | "climbing" | "steady" | "fading" | "fresh";
 
+/// The four legs of the creator fee, in basis points, the way a launch carries them on chain: they
+/// add up to 10,000. A direct launch has no split at all, and carries four zeros for it.
+interface Split {
+  stakers: number;
+  buyback: number;
+  liquidity: number;
+  creator: number;
+}
+
+const NO_SPLIT: Split = { stakers: 0, buyback: 0, liquidity: 0, creator: 0 };
+
 interface Spec {
   name: string;
   symbol: string;
   description: string;
   machine: Machine;
-  /// Index into FEE_MODELS: staking, buyback, liquidity, creator, zero.
-  feeModel: number;
+  /// Where the creator leg of the trading fee goes, picked at launch and fixed forever.
+  split: Split;
+  /// Days the creator's own first buy is locked in the staking vault, 0 for kept in hand. Only a
+  /// tier, because the vault only knows tiers: 7, 30, 90 or 180 days.
+  firstBuyLockDays: number;
   arc: Arc;
   /// Days before now that it launched.
   age: number;
@@ -119,29 +133,29 @@ interface Spec {
 
 const SPECS: Spec[] = [
   { name: "Green Candle Club", symbol: "GREEN", description: "A club with one rule and no treasurer. Fees go to whoever locks the token.",
-    machine: "curve", feeModel: 0, arc: "graduated", age: 19, trades: 120, startEth: 6.5, bond: 42, creator: 3 },
+    machine: "curve", split: { stakers: 10_000, buyback: 0, liquidity: 0, creator: 0 }, firstBuyLockDays: 30, arc: "graduated", age: 19, trades: 120, startEth: 6.5, bond: 42, creator: 3 },
   { name: "Night Shift", symbol: "NIGHT", description: "For the hours when the desk is empty and the chain is not.",
-    machine: "curve", feeModel: 1, arc: "graduated", age: 16, trades: 96, startEth: 4.8, bond: 38, creator: 5 },
+    machine: "curve", split: { stakers: 2_000, buyback: 6_000, liquidity: 2_000, creator: 0 }, firstBuyLockDays: 0, arc: "graduated", age: 16, trades: 96, startEth: 4.8, bond: 38, creator: 5 },
   { name: "Tape Reader", symbol: "TAPE", description: "Every trade is a sentence. This one reads them out loud.",
-    machine: "direct", feeModel: 0, arc: "graduated", age: 14, trades: 88, startEth: 9.5, bond: 12, creator: 0 },
+    machine: "direct", split: NO_SPLIT, firstBuyLockDays: 0, arc: "graduated", age: 14, trades: 88, startEth: 9.5, bond: 12, creator: 0 },
   { name: "Dollar Slice", symbol: "SLICE", description: "Small bites, cheap fees, no table service.",
-    machine: "curve", feeModel: 0, arc: "climbing", age: 11, trades: 84, startEth: 5.6, bond: 40, creator: 7 },
+    machine: "curve", split: { stakers: 5_000, buyback: 0, liquidity: 3_000, creator: 2_000 }, firstBuyLockDays: 0, arc: "climbing", age: 11, trades: 84, startEth: 5.6, bond: 40, creator: 7 },
   { name: "Quiet Money", symbol: "QUIET", description: "No announcements. The chart does the talking.",
-    machine: "direct", feeModel: 0, arc: "climbing", age: 9, trades: 72, startEth: 8, bond: 14, creator: 2 },
+    machine: "direct", split: NO_SPLIT, firstBuyLockDays: 0, arc: "climbing", age: 9, trades: 72, startEth: 8, bond: 14, creator: 2 },
   { name: "Bag Holder Union", symbol: "BAGS", description: "Organised labour for people who did not sell.",
-    machine: "curve", feeModel: 3, arc: "climbing", age: 8, trades: 66, startEth: 4, bond: 36, creator: 0 },
+    machine: "curve", split: { stakers: 0, buyback: 0, liquidity: 0, creator: 10_000 }, firstBuyLockDays: 90, arc: "climbing", age: 8, trades: 66, startEth: 4, bond: 36, creator: 0 },
   { name: "Block One", symbol: "BLOCK", description: "The whole supply in the pool from the first block, taxed both ways.",
-    machine: "direct", feeModel: 0, arc: "steady", age: 7, trades: 54, startEth: 7.2, bond: 15, creator: 9 },
+    machine: "direct", split: NO_SPLIT, firstBuyLockDays: 0, arc: "steady", age: 7, trades: 54, startEth: 7.2, bond: 15, creator: 9 },
   { name: "Small Caps", symbol: "CAPS", description: "Nothing here has a market cap worth writing home about. That is the point.",
-    machine: "curve", feeModel: 2, arc: "steady", age: 6, trades: 48, startEth: 3.2, bond: 34, creator: 11 },
+    machine: "curve", split: { stakers: 3_000, buyback: 0, liquidity: 7_000, creator: 0 }, firstBuyLockDays: 0, arc: "steady", age: 6, trades: 48, startEth: 3.2, bond: 34, creator: 11 },
   { name: "Exit Liquidity", symbol: "EXIT", description: "Named honestly, which is more than most of them manage.",
-    machine: "curve", feeModel: 1, arc: "fading", age: 5, trades: 44, startEth: 4.8, bond: 35, creator: 13 },
+    machine: "curve", split: { stakers: 0, buyback: 5_000, liquidity: 0, creator: 5_000 }, firstBuyLockDays: 0, arc: "fading", age: 5, trades: 44, startEth: 4.8, bond: 35, creator: 13 },
   { name: "Paper Hands Anonymous", symbol: "PAPER", description: "Twelve steps, eleven of which are selling.",
-    machine: "curve", feeModel: 4, arc: "fading", age: 4, trades: 38, startEth: 3.5, bond: 30, creator: 6 },
+    machine: "curve", split: { stakers: 2_500, buyback: 2_500, liquidity: 2_500, creator: 2_500 }, firstBuyLockDays: 7, arc: "fading", age: 4, trades: 38, startEth: 3.5, bond: 30, creator: 6 },
   { name: "Moon Boots", symbol: "BOOTS", description: "Footwear for a trip nobody has booked yet.",
-    machine: "curve", feeModel: 0, arc: "fresh", age: 2, trades: 22, startEth: 4.4, bond: 36, creator: 15 },
+    machine: "curve", split: { stakers: 7_000, buyback: 3_000, liquidity: 0, creator: 0 }, firstBuyLockDays: 0, arc: "fresh", age: 2, trades: 22, startEth: 4.4, bond: 36, creator: 15 },
   { name: "Red Envelope", symbol: "ENVL", description: "Opened once a year, empty the rest of the time.",
-    machine: "direct", feeModel: 0, arc: "fresh", age: 1, trades: 16, startEth: 5.8, bond: 13, creator: 4 },
+    machine: "direct", split: NO_SPLIT, firstBuyLockDays: 0, arc: "fresh", age: 1, trades: 16, startEth: 5.8, bond: 13, creator: 4 },
 ];
 
 const WALLETS = 90;
@@ -198,7 +212,6 @@ interface Trade {
   tx: string;
   logIndex: number;
   pairToken: string;
-  feeModel: number;
 }
 
 interface Built {
@@ -221,6 +234,8 @@ interface Built {
   /// Direct machine.
   ticks: { start: number; bond: number; last: number } | null;
   bonded: boolean;
+  /// What the creator bought of their own token in the launch transaction.
+  firstBuy: bigint;
 }
 
 function buildLaunch(spec: Spec, wallets: string[], now: number, head: number, rand: () => number, pool_: number[]): Built {
@@ -287,7 +302,7 @@ function buildLaunch(spec: Spec, wallets: string[], now: number, head: number, r
     trades.push({
       token, side, trader, pairAmount, tokenAmount, fee, price: unit,
       ts: new Date(at), block: blockOf(at), tx: txOf(`${spec.symbol}:${i}`), logIndex: 3 + (i % 5),
-      pairToken: zeroAddress, feeModel: spec.feeModel,
+      pairToken: zeroAddress,
     });
 
     balances.set(trader, (balances.get(trader) ?? 0n) + (side === "buy" ? tokenAmount : -tokenAmount));
@@ -325,6 +340,7 @@ function buildLaunch(spec: Spec, wallets: string[], now: number, head: number, r
     tx: txOf(`launch:${spec.symbol}`), trades, balances, sold, reserve, volumeTotal: volume, price,
     graduatedAt, phase: spec.machine === "curve" ? (graduatedAt ? 2 : 0) : 0,
     ticks, bonded: spec.machine === "direct" && Boolean(graduatedAt),
+    firstBuy: firstBuyTokens,
   };
 }
 
@@ -370,20 +386,28 @@ export async function seedDemo(options: SeedOptions = {}): Promise<SeedSummary> 
   const art = Boolean(options.art && storageConfigured());
   const built = SPECS.map((spec) => buildLaunch(spec, wallets, now, head, rand, pool_));
 
-  for (const b of built) {
+  for (const [i, b] of built.entries()) {
     const image = art ? (await storeImage(tokenArt(b.spec.symbol))).url : "";
+    // A locked first buy sits in the vault, not in the creator's wallet; the balances below move
+    // it there, the same way the factory stakes it on chain.
+    const locked = b.spec.firstBuyLockDays > 0;
     await pool.query(
-      `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id, fee_model,
+      `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id,
+         split_stakers_bps, split_buyback_bps, split_liquidity_bps, split_creator_bps,
+         first_buy_locked, first_buy_unlock_at,
          name, symbol, image, description, website, twitter, telegram, launched_at, block, tx, mode,
          hook, splitter, locker, pool_id, tick_spacing, pool_fee, buy_tax_bps, sell_tax_bps,
          snipe_tax_bps, snipe_decay_seconds, max_hold_bps, max_buy_bps, restrictions_end_block,
          alloc_creator_bps, alloc_buyback_bps, alloc_dividends_bps, alloc_liquidity_bps,
          total_supply, curve_supply, price, tick_start, tick_bond, last_tick)
        values ($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-               $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40)`,
+               $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45)`,
       [
-        b.token, b.curve, b.creator, zeroAddress, b.spec.feeModel % 3,
-        b.spec.machine === "direct" ? null : b.spec.feeModel,
+        // Presets rotate across the world so the board is not twelve launches of one shape.
+        b.token, b.curve, b.creator, zeroAddress, b.spec.machine === "direct" ? 0 : i % 3,
+        b.spec.split.stakers, b.spec.split.buyback, b.spec.split.liquidity, b.spec.split.creator,
+        locked ? b.firstBuy.toString() : "0",
+        locked ? new Date(b.launchedAt.getTime() + b.spec.firstBuyLockDays * DAY) : null,
         b.spec.name, b.spec.symbol, image, b.spec.description,
         `https://${b.spec.symbol.toLowerCase()}.example`, `https://x.com/${b.spec.symbol.toLowerCase()}fam`, "",
         b.launchedAt, b.block, b.tx, b.spec.machine,
@@ -433,11 +457,12 @@ export async function seedDemo(options: SeedOptions = {}): Promise<SeedSummary> 
        (t.side === "buy" ? t.pairAmount - t.fee : -(t.pairAmount + t.fee)).toString()],
     );
 
-    // The fee the trade booked, in the shape the router emits it.
+    // The fee the trade booked, in the shape the router emits it. An Accrued row is one number:
+    // where it goes is decided when it is flushed, not when it is booked.
     await pool.query(
-      `insert into fee_events (token, kind, amount, result, fee_model, block, tx, log_index, ts)
-       values ($1,'accrued',$2,0,$3,$4,$5,$6,$7) on conflict (tx, log_index) do nothing`,
-      [t.token, t.fee.toString(), t.feeModel, t.block, t.tx, t.logIndex + 1, t.ts],
+      `insert into fee_events (token, kind, amount, result, block, tx, log_index, ts)
+       values ($1,'accrued',$2,0,$3,$4,$5,$6) on conflict (tx, log_index) do nothing`,
+      [t.token, t.fee.toString(), t.block, t.tx, t.logIndex + 1, t.ts],
     );
 
     const usd = await usdValue(t.pairToken, t.pairAmount);
@@ -480,11 +505,34 @@ export async function seedDemo(options: SeedOptions = {}): Promise<SeedSummary> 
     }
   }
 
-  // Locks. Only on launches whose fee model pays stakers, because locking anything else earns a
+  // Locks. Only on launches whose split pays stakers, because locking anything else earns a
   // wallet nothing and nobody would.
   let positionId = 1;
   let stakes = 0;
-  for (const b of built.filter((x) => x.spec.feeModel === 0)) {
+
+  // The creator's own first buy, locked in the vault in the launch transaction. It is a position
+  // like any other, under the same tier and the same vault, which is the whole point of it: the
+  // tokens bought ahead of everybody else cannot be sold into the people who bought next.
+  const TIER_WEIGHT: Record<number, number> = { 7: 12_500, 30: 15_000, 90: 20_000, 180: 25_000 };
+  for (const b of built.filter((x) => x.spec.firstBuyLockDays > 0)) {
+    await pool.query(
+      `insert into stakes (position_id, token, owner, amount, unlock_at, weight_bps, active, claimed, created_at)
+       values ($1,$2,$3,$4,$5,$6,true,0,$7)`,
+      [positionId, b.token, b.creator, b.firstBuy.toString(),
+       new Date(b.launchedAt.getTime() + b.spec.firstBuyLockDays * DAY),
+       TIER_WEIGHT[b.spec.firstBuyLockDays] ?? 10_000, b.launchedAt],
+    );
+    await pool.query(`update balances set balance = balance - $3 where token = $1 and address = $2`,
+      [b.token, b.creator, b.firstBuy.toString()]);
+    await pool.query(
+      `insert into balances (token, address, balance) values ($1,$2,$3)
+       on conflict (token, address) do update set balance = balances.balance + excluded.balance`,
+      [b.token, STAKING, b.firstBuy.toString()]);
+    positionId++;
+    stakes++;
+  }
+
+  for (const b of built.filter((x) => x.spec.split.stakers > 0)) {
     const holders = [...b.balances.entries()].filter(([, v]) => v > ONE * 1000n);
     for (const [owner, balance] of holders.slice(0, 6)) {
       if (rand() < 0.35) continue;
@@ -544,16 +592,28 @@ export async function seedDemo(options: SeedOptions = {}): Promise<SeedSummary> 
   }
 
   // The keeper's flushes on the curve machine, so the fee panel has both halves: what came in and
-  // what the model did with it.
+  // where the split sent it. Each leg is floored and the creator's takes the dust, the way the
+  // router does it, so the four legs add up to the amount exactly.
   for (const b of built.filter((x) => x.spec.machine === "curve")) {
     const accrued = b.trades.reduce((sum, t) => sum + t.fee, 0n);
     if (accrued <= 0n) continue;
     const at = new Date(Math.min(now - 3 * 60_000, b.launchedAt.getTime() + 0.8 * (now - b.launchedAt.getTime())));
     const block = Math.max(1, head - Math.round(((now - at.getTime()) / 1000) * BLOCKS_PER_SECOND));
+    const amount = (accrued * 7n) / 10n;
+    const leg = (bps: number) => (amount * BigInt(bps)) / 10_000n;
+    const legs = [leg(b.spec.split.stakers), leg(b.spec.split.buyback), leg(b.spec.split.liquidity), leg(b.spec.split.creator)];
+    const dust = amount - legs.reduce((sum, v) => sum + v, 0n);
+    const shares = [b.spec.split.stakers, b.spec.split.buyback, b.spec.split.liquidity, b.spec.split.creator];
+    const last = shares.reduce((keep, bps, k) => (bps > 0 ? k : keep), 0);
+    legs[last] = legs[last]! + dust;
+    // The buyback leg bought at the last price it traded at and burned what it got.
+    const burned = b.price > 0n ? (legs[1]! * ONE) / b.price : 0n;
     await pool.query(
-      `insert into fee_events (token, kind, amount, result, fee_model, block, tx, log_index, ts)
-       values ($1,'flushed',$2,$3,$4,$5,$6,1,$7) on conflict (tx, log_index) do nothing`,
-      [b.token, ((accrued * 7n) / 10n).toString(), ((accrued * 7n) / 10n).toString(), b.spec.feeModel,
+      `insert into fee_events (token, kind, amount, result, to_stakers, to_buyback, to_liquidity, to_creator,
+         block, tx, log_index, ts)
+       values ($1,'flushed',$2,$3,$4,$5,$6,$7,$8,$9,1,$10) on conflict (tx, log_index) do nothing`,
+      [b.token, amount.toString(), burned.toString(),
+       legs[0]!.toString(), legs[1]!.toString(), legs[2]!.toString(), legs[3]!.toString(),
        block, txOf(`flush:${b.spec.symbol}`), at],
     );
   }
@@ -588,12 +648,12 @@ const TICKETS = [
     ],
   },
   {
-    status: "answered", subject: "Can I change the fee model after launch",
-    summary: "Creator picked buyback and wants stakers instead. Answered: the model is fixed at launch, by design, and the only way to change it is a new launch.",
+    status: "answered", subject: "Can I change the fee split after launch",
+    summary: "Creator put the whole creator leg on buyback and wants half of it on stakers instead. Answered: the split is fixed at launch, by design, and the only way to change it is a new launch.",
     page: "/launch", source: "assistant", note: "Explained the immutability and pointed at the docs. No action needed.",
     transcript: [
-      { role: "user", content: "i picked buy back and burn, can i switch it to stakers" },
-      { role: "assistant", content: "No, and that is deliberate: the fee rule is written into the launch and nothing, including us, can move it afterwards. It is the same property that lets a buyer trust what the page says. A new launch with the other model is the only route." },
+      { role: "user", content: "i put everything on buy back and burn, can i move half of it to stakers" },
+      { role: "assistant", content: "No, and that is deliberate: the four shares are written into the launch and nothing, including us, can move them afterwards. It is the same property that lets a buyer trust what the page says. A new launch with the split you want is the only route." },
     ],
   },
   {

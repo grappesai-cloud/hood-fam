@@ -6,7 +6,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BaseTest} from "./Base.t.sol";
 import {HoodBridgeFactory} from "../src/omnichain/HoodBridgeFactory.sol";
 import {HoodOFTAdapter} from "../src/omnichain/HoodOFTAdapter.sol";
-import {FeeModel} from "../src/HoodTypes.sol";
 import {MockLZEndpoint} from "./mocks/Mocks.sol";
 
 /// @notice The lock box rules. Messaging itself is exercised against the real endpoint in ForkLZ.t.sol.
@@ -21,7 +20,7 @@ contract BridgeTest is BaseTest {
     }
 
     function test_one_token_gets_exactly_one_lock_box() public {
-        (address token,) = _launch(FeeModel.StakingRewards);
+        (address token,) = _launch(_toStakers());
 
         address predicted = bridge.predictAdapter(token);
         address adapter = bridge.deployAdapter(token);
@@ -40,7 +39,7 @@ contract BridgeTest is BaseTest {
     }
 
     function test_only_the_protocol_can_open_a_route() public {
-        (address token,) = _launch(FeeModel.StakingRewards);
+        (address token,) = _launch(_toStakers());
         bridge.deployAdapter(token);
 
         vm.prank(bob);
@@ -57,7 +56,7 @@ contract BridgeTest is BaseTest {
     }
 
     function test_the_token_keeps_its_supply_when_it_travels() public {
-        (address token, ) = _launch(FeeModel.StakingRewards);
+        (address token, ) = _launch(_toStakers());
         address adapter = bridge.deployAdapter(token);
 
         // the lock box holds nothing until something leaves, and it cannot mint: the token has no

@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BaseTest} from "./Base.t.sol";
 import {HoodCurve} from "../src/HoodCurve.sol";
 import {CurveMath} from "../src/libraries/CurveMath.sol";
-import {FeeModel, Phase} from "../src/HoodTypes.sol";
+import {Phase} from "../src/HoodTypes.sol";
 
 contract CurveTest is BaseTest {
     address internal token;
@@ -14,7 +14,7 @@ contract CurveTest is BaseTest {
 
     function setUp() public override {
         super.setUp();
-        (token, curve) = _launch(FeeModel.CreatorKeep);
+        (token, curve) = _launch(_toCreator());
     }
 
     function test_launch_puts_every_token_on_the_curve() public view {
@@ -40,7 +40,7 @@ contract CurveTest is BaseTest {
         assertEq(curve.sold(), out);
         assertGt(curve.price(), 1e9);
 
-        // 1% total fee, split 30/70 between the protocol and the fee model. The protocol's leg is
+        // 1% total fee, split 30/70 between the protocol and the creator leg. The protocol's leg is
         // booked rather than sent: a treasury that cannot take a transfer must not be able to stop
         // a trade, and this one is an immutable.
         assertEq(treasury.balance, treasuryBefore, "nothing is pushed at the treasury");

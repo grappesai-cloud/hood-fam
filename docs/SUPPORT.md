@@ -73,14 +73,16 @@ page links to the bridge provider directly.
 ## Fees, taxes and where the money goes
 
 **Curve tokens.** Every trade pays the protocol fee (30 bps) to the treasury and the creator fee to
-the fee router. What happens to the creator fee is the fee model, chosen at launch and never
-editable:
+the fee router. What happens to the creator fee is the fee split, chosen at launch and never
+editable. It is four shares that add up to the whole, so a token can do several of these at once:
 
 - Staking rewards: paid to people who locked the token, weighted by amount and lock length.
 - Buyback and burn: buys the token back and burns it.
 - Liquidity: deepens the pool (added to the raise before graduation, donated to the pool after).
 - Creator keeps: paid to the creator's fee recipient.
-- Zero fee: there is no creator fee at all.
+
+A token whose preset charges no creator fee has no creator fee at all; only the protocol's 30 bps
+is paid.
 
 Fees sit in the router until somebody flushes them. Flushing is permissionless, our keeper does it
 regularly, and anyone can call it.
@@ -135,10 +137,12 @@ the way. The form skips used addresses on its own; if it still fails, refresh an
 
 ## Staking
 
-Staking is per token, on curve tokens with the staking fee model. Locks: none (1x), 7 days
+Staking is per token, on curve tokens whose fee split pays stakers. Locks: none (1x), 7 days
 (1.25x), 30 days (1.5x), 90 days (2x), 180 days (2.5x). Rewards come from the creator fee and are
 claimable at any time. You cannot withdraw before the lock ends. Somebody can stake in your name
-with a lock (a "sent stake"); you earn from the first minute and cannot sell before it unlocks.
+with a lock (a "sent stake"); you earn from the first minute and cannot sell before it unlocks. A
+creator can send their own first buy this way at launch, and then it is locked like any other
+position.
 
 When a lock expires the position keeps earning at 1x; anyone can demote it, which is expected.
 

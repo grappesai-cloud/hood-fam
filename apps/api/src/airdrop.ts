@@ -24,11 +24,12 @@ const SPLITTER_PROTOCOL_DIVISOR = 10;
 /// The curve's fee is one number on the trade (`trades.fee` = protocol leg + creator leg) and the
 /// curve splits it `mulDiv(fee, protocolFeeBps, protocolFeeBps + creatorFeeBps)`. Both legs are
 /// per-config immutables that the indexer does not store, so they are configuration here: the
-/// deployed configs all use 30 / 70. A ZeroFee launch (fee_model 4) has no creator leg at all, so
-/// the whole fee is the protocol's; that one the `launches` row does tell us.
+/// deployed configs all use 30 / 70. How big the creator leg is belongs to the preset now, not to
+/// the launch: a preset whose `creatorFeeBps` is zero hands the whole fee to the protocol, and
+/// nothing on the `launches` row says which preset does that, so it is not singled out here. The
+/// note below says so out loud rather than quietly rounding a season's take down.
 const CURVE_PROTOCOL_FEE_BPS = Number(process.env.HOOD_CURVE_PROTOCOL_FEE_BPS ?? 30);
 const CURVE_CREATOR_FEE_BPS = Number(process.env.HOOD_CURVE_CREATOR_FEE_BPS ?? 70);
-const FEE_MODEL_ZERO_FEE = 4;
 
 /// What `usdValue` in the indexer assumes about a pair asset, said out loud so the API can label a
 /// row. The native pair is the chain's own currency at eighteen decimals; every other pair on 4663
@@ -85,8 +86,7 @@ export async function seasonTake(season: number | string): Promise<SeasonTake> {
      ),
      curve as (
        select l.pair_token as asset,
-              sum(div(t.fee * $3::numeric,
-                      $3::numeric + case when l.fee_model = $5 then 0 else $4::numeric end)) as wei
+              sum(div(t.fee * $3::numeric, $3::numeric + $4::numeric)) as wei
        from trades t
        join launches l on l.token = t.token
        cross join win w
@@ -95,7 +95,7 @@ export async function seasonTake(season: number | string): Promise<SeasonTake> {
      )
      select coalesce(d.asset, c.asset) as asset, d.wei as direct_wei, c.wei as curve_wei
      from direct d full join curve c on c.asset = d.asset`,
-    [s.id, SPLITTER_PROTOCOL_DIVISOR, CURVE_PROTOCOL_FEE_BPS, CURVE_CREATOR_FEE_BPS, FEE_MODEL_ZERO_FEE],
+    [s.id, SPLITTER_PROTOCOL_DIVISOR, CURVE_PROTOCOL_FEE_BPS, CURVE_CREATOR_FEE_BPS],
   );
 
   const { rows: claimedRows } = await pool.query<{ asset: string; wei: string }>(
@@ -137,7 +137,7 @@ export async function seasonTake(season: number | string): Promise<SeasonTake> {
 
   const notes = [
     `Direct machine: a tenth of every Swept row, the splitter's hard-coded PROTOCOL_BPS.`,
-    `Curve machine: ${CURVE_PROTOCOL_FEE_BPS} of the ${CURVE_PROTOCOL_FEE_BPS + CURVE_CREATOR_FEE_BPS} bps trading fee on each trade, the whole fee on a ZeroFee launch.`,
+    `Curve machine: ${CURVE_PROTOCOL_FEE_BPS} of the ${CURVE_PROTOCOL_FEE_BPS + CURVE_CREATOR_FEE_BPS} bps trading fee on each trade, the preset's own legs. A preset that charges no creator fee pays the whole fee to the protocol and is counted here at the same ${CURVE_PROTOCOL_FEE_BPS} bps, so its take is understated.`,
     `Graduation fees paid straight to the treasury are not in this number: the indexer does not store them.`,
     `protocol_claimed is a withdrawal of money already counted here, so it is reported and not added.`,
   ];

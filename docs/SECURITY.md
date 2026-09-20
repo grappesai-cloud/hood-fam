@@ -11,7 +11,7 @@ unlikely.
 | Nobody can mint more of a launched token | Neither token contract has a mint function after its constructor or initializer. Omnichain travel locks supply in an adapter rather than minting against a bridge role. |
 | Nobody can take a curve's reserve | `HoodCurve` has no owner, no setter and no withdrawal. Funds leave only by selling back into the curve or by graduating into the pool. |
 | Nobody can pull graduated liquidity | `UniswapV4Graduator` and `HoodLocker` hold their positions and contain no transfer, decrease or rescue function. |
-| Nobody can redirect a fee model or a tax split | Both are written once at launch. There is no setter, on either machine. |
+| Nobody can redirect a fee split or a tax split | Both are written once at launch. There is no setter, on either machine. |
 | Nobody can change a live launch's economics | Every parameter is an immutable or is written once in the launch transaction. Presets are append-only. |
 | The protocol's own cut cannot grow | 30 bps on the curve side and a 1,000 bps constant in the splitter, both in the code rather than in storage. |
 
@@ -66,7 +66,7 @@ inside the launch transaction so nobody can open it first, but it holds no liqui
 curve graduates, and a swap in an EMPTY v4 pool fills nothing: it walks the price to whatever limit
 it is handed, for the cost of gas. Anybody could therefore choose the price a launch's whole raise
 gets minted at, and with it how much of that raise ends up in the pool at all, since the mint takes
-the smaller side and the rest leaves through the fee model. `graduate` now computes the price the
+the smaller side and the rest leaves through the fee split. `graduate` now computes the price the
 raise implies, resets the pool to it (free while the pool is empty), and only accepts a price it
 could not reset if that price is within five percent of the right one. If somebody has put real
 liquidity in at a price further out than that, graduation waits rather than minting into it: anyone

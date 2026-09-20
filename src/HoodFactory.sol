@@ -8,20 +8,21 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import {CurveConfig, FeeModel, Launch, LaunchMode, LaunchParams} from "./HoodTypes.sol";
+import {CurveConfig, FeeSplit, Launch, LaunchMode, LaunchParams} from "./HoodTypes.sol";
 import {HoodCurve} from "./HoodCurve.sol";
 import {HoodDeployer} from "./HoodDeployer.sol";
 import {PairTransfer} from "./libraries/PairTransfer.sol";
 import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
 import {IHoodCurve} from "./interfaces/IHoodCurve.sol";
 import {IHoodFactory} from "./interfaces/IHoodFactory.sol";
+import {IHoodStaking} from "./interfaces/IHoodStaking.sol";
 
 /// @title HoodFactory
 /// @notice The launchpad. Prints a token, opens its curve, keeps the registry, and runs the
 ///         copycat lock that keeps a working ticker from being reused while it is hot.
 /// @dev The owner can change what FUTURE launches get: presets, the launch fee, the pair allow
 ///      list, the graduation handler. Nothing the owner can do reaches a token that already
-///      exists: its curve holds every parameter as an immutable, and its fee model is written
+///      exists: its curve holds every parameter as an immutable, and its fee split is written
 ///      once at launch.
 contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -77,7 +78,13 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         address indexed creator,
         uint256 configId,
         address pairToken,
-        FeeModel feeModel
+        FeeSplit feeSplit
+    );
+    /// @dev Fires only when a creator locked their own first buy, in the same transaction and right
+    ///      after `Launched`. The amount and the unlock also sit on the registry row, so an app can
+    ///      show the lock without replaying any logs; the position id is only here.
+    event FirstBuyLocked(
+        address indexed token, address indexed creator, uint256 positionId, uint256 amount, uint64 unlockAt
     );
     event LaunchMetadata(
         address indexed token,
@@ -104,6 +111,9 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     error PairNotAllowed();
     error BadEconomics();
     error BadFee();
+    error BadSplit();
+    error BadLock();
+    error NoFirstBuy();
     error TickerLockedError();
     error ImageLockedError();
     error NotRecipient();
@@ -205,8 +215,8 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         return _launches[token].creatorFeeRecipient;
     }
 
-    function feeModel(address token) external view returns (FeeModel) {
-        return _launches[token].feeModel;
+    function feeSplit(address token) external view returns (FeeSplit memory) {
+        return _launches[token].feeSplit;
     }
 
     /// @notice Hash of everything that decides a launch's economics right now.
@@ -267,7 +277,13 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         if (msg.value < launchFee_) revert BadFee();
         if (!pairAllowed[p.pairToken]) revert PairNotAllowed();
         if (p.econ != bytes32(0) && p.econ != previewLaunchEconomics(p.configId, p.pairToken)) revert BadEconomics();
-        if (p.feeModel == FeeModel.CreatorKeep && p.creatorFeeRecipient == address(0)) revert ZeroAddress();
+        // The four legs have to be the whole of the creator leg. All four at zero fails the same
+        // check, because money booked with nowhere to go could never leave the router again.
+        uint256 legs = uint256(p.feeSplit.stakersBps) + p.feeSplit.buybackBps + p.feeSplit.liquidityBps
+            + p.feeSplit.creatorBps;
+        if (legs != BPS) revert BadSplit();
+        if (p.feeSplit.creatorBps != 0 && p.creatorFeeRecipient == address(0)) revert ZeroAddress();
+        _checkFirstBuyLock(p, msg.value - launchFee_);
 
         bytes32 sHash = symbolHash(p.symbol);
         bytes32 iHash = keccak256(bytes(p.image));
@@ -278,7 +294,18 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         _register(token, curve, p, sHash, iHash);
 
         PairTransfer.push(address(0), treasury, launchFee_);
-        bought = _firstBuy(p, curve, msg.value - launchFee_);
+        bought = _firstBuy(p, token, curve, msg.value - launchFee_);
+    }
+
+    /// @dev A lock is one of the staking vault's tiers or nothing: asked in seconds of its own, the
+    ///      app, this factory and the vault would each round the same number their own way and the
+    ///      creator would be shown an unlock date the vault does not hold them to.
+    function _checkFirstBuyLock(LaunchParams calldata p, uint256 nativeLeft) internal view {
+        if (p.firstBuyLock == 0) return;
+        if (!IHoodStaking(staking).isTier(p.firstBuyLock)) revert BadLock();
+        // Locking nothing leaves a creator believing their first buy is locked when there was no
+        // first buy at all, so it is refused rather than quietly ignored.
+        if ((p.pairToken == address(0) ? nativeLeft : p.firstBuy) == 0) revert NoFirstBuy();
     }
 
     function _deploy(LaunchParams calldata p, CurveConfig memory c) internal returns (address token, address curve) {
@@ -302,7 +329,7 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         ip.p1 = Math.mulDiv(c.graduationCap, WAD, c.totalSupply);
         ip.liquidityBps = c.liquidityBps;
         ip.protocolFeeBps = c.protocolFeeBps;
-        ip.creatorFeeBps = p.feeModel == FeeModel.ZeroFee ? 0 : c.creatorFeeBps;
+        ip.creatorFeeBps = c.creatorFeeBps;
         ip.poolFee = c.poolFee;
         ip.tickSpacing = c.tickSpacing;
 
@@ -324,32 +351,40 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
             creatorFeeRecipient: p.creatorFeeRecipient == address(0) ? msg.sender : p.creatorFeeRecipient,
             pairToken: p.pairToken,
             configId: p.configId,
-            feeModel: p.feeModel,
+            feeSplit: p.feeSplit,
             symbolHash: sHash,
             imageHash: iHash,
             launchedAt: uint64(block.timestamp),
             exists: true,
             mode: LaunchMode.Curve,
+            firstBuyLocked: 0,
+            firstBuyUnlockAt: 0,
             hook: address(0),
             splitter: address(0),
             locker: address(0)
         });
         tokenOfCurve[curve] = token;
 
-        emit Launched(token, curve, msg.sender, p.configId, p.pairToken, p.feeModel);
+        emit Launched(token, curve, msg.sender, p.configId, p.pairToken, p.feeSplit);
         emit LaunchMetadata(
             token, p.name, p.symbol, p.image, p.description, p.website, p.twitter, p.telegram
         );
     }
 
-    function _firstBuy(LaunchParams calldata p, address curve, uint256 nativeLeft) internal returns (uint256 bought) {
+    function _firstBuy(LaunchParams calldata p, address token, address curve, uint256 nativeLeft)
+        internal
+        returns (uint256 bought)
+    {
+        // A locked first buy is bought to this contract and staked from here, so the tokens never
+        // pass through the creator's wallet on the way to the vault.
+        address to = p.firstBuyLock == 0 ? msg.sender : address(this);
         if (p.pairToken == address(0)) {
             if (nativeLeft == 0) return 0;
             // Measured, not swept: `address(this).balance` would hand this creator whatever native
             // currency happened to be sitting here from anywhere else, and a contract with a
             // `receive` accumulates strays.
             uint256 before = address(this).balance - nativeLeft;
-            bought = IHoodCurve(curve).buy{value: nativeLeft}(nativeLeft, 0, msg.sender);
+            bought = IHoodCurve(curve).buy{value: nativeLeft}(nativeLeft, 0, to);
             // The curve hands back whatever it could not absorb; it belongs to the creator.
             PairTransfer.push(address(0), msg.sender, address(this).balance - before);
         } else {
@@ -358,8 +393,25 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
             if (amount == 0) return 0;
             IERC20(p.pairToken).safeTransferFrom(msg.sender, address(this), amount);
             IERC20(p.pairToken).forceApprove(curve, amount);
-            bought = IHoodCurve(curve).buy(amount, 0, msg.sender);
+            bought = IHoodCurve(curve).buy(amount, 0, to);
         }
+        if (to != msg.sender) _lockFirstBuy(token, bought, p.firstBuyLock);
+    }
+
+    /// @dev The creator's first buy, held in the staking vault in their name instead of in their
+    ///      wallet. The position is theirs, it earns whatever this token's staking leg pays, and
+    ///      the vault will not let it out before the lock is over, so the tokens that were bought
+    ///      ahead of everyone else cannot be sold into the people who bought next. No new lock:
+    ///      it is the same tier, the same vault and the same rule every other staker lives under.
+    function _lockFirstBuy(address token, uint256 amount, uint64 lockDuration) internal {
+        address staking_ = staking;
+        IERC20(token).forceApprove(staking_, amount);
+        uint256 positionId = IHoodStaking(staking_).stakeFor(token, msg.sender, amount, lockDuration);
+        uint64 unlockAt = uint64(block.timestamp) + lockDuration;
+        Launch storage l = _launches[token];
+        l.firstBuyLocked = amount;
+        l.firstBuyUnlockAt = unlockAt;
+        emit FirstBuyLocked(token, msg.sender, positionId, amount, unlockAt);
     }
 
     // ---------------------------------------------------------------- registry writes
@@ -398,12 +450,16 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
             creatorFeeRecipient: creator,
             pairToken: quote,
             configId: 0,
-            feeModel: FeeModel.ZeroFee,
+            // A direct launch never books anything in the fee router; its tax is split in its own
+            // splitter, under allocations the portal writes there and nothing here can read.
+            feeSplit: FeeSplit({stakersBps: 0, buybackBps: 0, liquidityBps: 0, creatorBps: 0}),
             symbolHash: sHash,
             imageHash: iHash,
             launchedAt: uint64(block.timestamp),
             exists: true,
             mode: LaunchMode.Direct,
+            firstBuyLocked: 0,
+            firstBuyUnlockAt: 0,
             hook: hook,
             splitter: splitter,
             locker: locker
@@ -416,7 +472,7 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         // This runs on every trade, so it reads the launch row a field at a time from storage rather
         // than copying the whole struct into memory: the common path (a trade under the copycat
         // lock's threshold, which is most trades) only needs the reporter check and the pair asset,
-        // three slots instead of the fourteen a `Launch memory` load would fetch cold. The ticker
+        // three slots instead of the sixteen a `Launch memory` load would fetch cold. The ticker
         // hashes are read only if a trade actually trips the lock.
         Launch storage l = _launches[token];
         // Either machine may report: a curve for its own token, a hook for its own pool.

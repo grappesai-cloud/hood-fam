@@ -7,7 +7,8 @@ into a v4 pool behind one shared hook with a 99% exponentially decaying snipe ta
 quote assets, which is the shape our curve machine covers). Argus contributed the whole idea of
 skipping the curve: supply as liquidity above the opening price, a tax hook on the pool, a decaying
 snipe surcharge, a revenue split across four destinations and holder dividends. Printr contributed
-the curve machine, the five fee models, time-weighted staking, the ticker lock, the omnichain leg
+the curve machine, the fee models we turned into one split, time-weighted staking, the ticker lock,
+the omnichain leg
 and the agent surface.
 
 ## What came from where
@@ -65,15 +66,18 @@ and the agent surface.
 | Bridge from the portfolio | in | The bridge page sends a launched token out over any open route, and quotes the messaging fee first. |
 | Stablecoin pairings | in | Any ERC-20 on the allow list, six decimals included, traded and graduated in tests. |
 
-## 3. Fees and the five models
+## 3. Fees, split four ways
+
+Not a model a launch picks one of: four shares in bps that add up to 10,000 and are spent pro rata
+on every flush, so a launch can do several of these at once.
 
 | Feature | Status | Note |
 |---|---|---|
-| Proof-of-belief staking | in | |
-| Buyback and burn | in | Off the curve before graduation, out of the real pool after, with a floor. |
-| LP compounding | in | Into the raise before graduation, donated through the PoolManager after. |
-| Creator keep | in | Transferable in one step by the current recipient only. |
-| Zero fee | in | The creator leg goes to zero; the protocol's 30 bps stays. Say the word if you want the literal zero and it is one line. |
+| Proof-of-belief staking | in | The `stakersBps` leg. |
+| Buyback and burn | in | The `buybackBps` leg. Off the curve before graduation, out of the real pool after, with a floor. |
+| LP compounding | in | The `liquidityBps` leg. Into the raise before graduation, donated through the PoolManager after. |
+| Creator keep | in | The `creatorBps` leg. Transferable in one step by the current recipient only. |
+| Zero fee | in | Not a leg: a preset whose `creatorFeeBps` is zero, so nothing is ever booked to split. |
 | Claiming, pushing, keeper | in | Flushing is permissionless, and `apps/keeper` does it within a tick. |
 
 ## 4. Staking and KOL protection
@@ -82,6 +86,7 @@ and the agent surface.
 |---|---|---|
 | Time-weighted multipliers 1x to 2.5x | in | none / 7d / 30d / 90d / 180d. |
 | Send a Stake | in | `stakeFor`, and it is in the app behind one disclosure. |
+| Creator's first buy, locked | in | `LaunchParams.firstBuyLock`, one of the staking tiers; the tokens are staked in the creator's name instead of sent to their wallet. |
 | Positions and claims | in | In the app, in the SDK, in the MCP server, and claimable by anybody on the owner's behalf. |
 
 ## 5. Bonding curve flexibility
@@ -90,7 +95,7 @@ and the agent surface.
 |---|---|---|
 | Custom start and graduation caps | in | Per preset, append only. |
 | Custom liquidity ratio | in | Two knobs, with a floor of 80% into the pool. |
-| Graduation into a real pool | in | Uniswap v4, locked position, fees collectible by anyone into the model. Fork-tested against live 4663. |
+| Graduation into a real pool | in | Uniswap v4, locked position, fees collectible by anyone into the split. Fork-tested against live 4663. |
 
 ## 6. Anti-copycat
 
@@ -164,4 +169,4 @@ and the agent surface.
   and one stranger could otherwise brick or drain every launch on the platform.
 - Graduation is a separate permissionless call, so a failing pool deployment cannot hold a trade.
 - The token has no mint function at all, so no bridge can ever print supply.
-- The fee model cannot be switched after launch.
+- The fee split cannot be switched after launch.

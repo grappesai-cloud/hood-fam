@@ -93,6 +93,17 @@ contract HoodStaking is IHoodStaking, ReentrancyGuard {
         return tiers[tiers.length - 1].weightBps;
     }
 
+    /// @notice Whether `lockDuration` is exactly one of the tiers, not merely long enough for one.
+    /// @dev A caller that locks tokens in somebody else's name has to speak in tiers rather than in
+    ///      arbitrary seconds, or an app and this vault would each round the same lock their own
+    ///      way and show the holder two different unlock dates.
+    function isTier(uint64 lockDuration) external view returns (bool) {
+        for (uint256 i; i < tiers.length; ++i) {
+            if (tiers[i].lock == lockDuration) return true;
+        }
+        return false;
+    }
+
     /// @notice Rewards a position can claim right now.
     function pending(uint256 id) public view returns (uint256) {
         Position memory p = positions[id];

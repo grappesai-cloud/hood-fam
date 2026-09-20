@@ -46,9 +46,9 @@ async function reset() {
   // One token, priced so that a position is worth a round number of dollars: price is pair wei per
   // whole token, so 1e15 wei a token times 1000 tokens is 1 ETH, which is 2000 dollars here.
   await pool.query(
-    `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id, fee_model,
+    `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id, split_stakers_bps,
        name, symbol, launched_at, block, tx, price, total_supply)
-     values ('0xtok','0xcur','0xcre','0xcre','0x0000000000000000000000000000000000000000',0,0,
+     values ('0xtok','0xcur','0xcre','0xcre','0x0000000000000000000000000000000000000000',0,10000,
              'Test','TEST', now() - interval '40 days', 1, '0xtx', $1, $2)`,
     [(10n ** 15n).toString(), (1_000_000n * ONE).toString()],
   );

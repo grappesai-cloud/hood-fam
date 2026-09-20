@@ -15,7 +15,7 @@ import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodBridgeFactory} from "../src/omnichain/HoodBridgeFactory.sol";
 import {HoodOFTAdapter} from "../src/omnichain/HoodOFTAdapter.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
-import {CurveConfig, FeeModel, LaunchParams} from "../src/HoodTypes.sol";
+import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
 
 /// @notice Sends a launched token out over the real LayerZero endpoint, again and again, from a pool
 ///         of holders. Every send locks tokens in the adapter; the invariant is that the canonical
@@ -122,7 +122,7 @@ contract ForkBridgeInvariant is StdInvariant, Test {
 
         LaunchParams memory p;
         p.name = "Bridge"; p.symbol = "BRDG"; p.pairToken = address(0); p.configId = 0;
-        p.feeModel = FeeModel.StakingRewards; p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
+        p.feeSplit = FeeSplit({stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0}); p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
         vm.prank(creator);
         (token,,) = factory.launch(p);
         launchedSupply = IERC20(token).totalSupply();

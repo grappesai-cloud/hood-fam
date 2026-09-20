@@ -10,11 +10,11 @@ Everything in this repo is English only. Verified source is public on the explor
 
 ## Two machines
 
-**The curve.** A creator picks a preset, a pair asset and a fee model, and gets a token with a
+**The curve.** A creator picks a preset, a pair asset and a fee split, and gets a token with a
 bonding curve. The curve sells four fifths of the supply at a linearly rising price. When it sells
 out, anyone can finalize: the pool supply and the raise go into a Uniswap v4 position that this
 system cannot withdraw, cannot transfer and cannot unwind. The only thing anybody can ever do with
-that position is collect the fees it earns, and those go straight back into the token's fee model.
+that position is collect the fees it earns, and those go straight back into the token's fee split.
 
 **Straight to the pool.** No curve, no reserve, no migration. The entire supply goes into one
 Uniswap v4 position above the opening price and buys walk the price up through it, with a hook on
@@ -24,20 +24,34 @@ that is a status rather than a migration, because the liquidity was real and loc
 
 Both machines share one registry, one ticker lock, one staking vault, one points system and one app.
 
-## The five fee models
+## The fee split: four roads, not a choice
 
-Chosen at launch, written into the registry once, never editable afterwards.
+Chosen at launch, written into the registry once, never editable afterwards. The four shares are
+bps and add up to 10,000, so one launch can do several of these at once.
 
-| Model | What the creator leg does |
+| Leg | What that share of the creator leg does |
 |---|---|
-| `StakingRewards` | Pays the people who locked the token, weighted by size and by lock length. |
-| `BuybackBurn` | Buys the token back (off the curve, or out of the pool after graduation) and burns it. |
-| `LiquidityCompound` | Deepens the liquidity: added to the raise before graduation, donated to the pool after. |
-| `CreatorKeep` | Pays the creator fee recipient. Transferable in one step, by the current recipient only. |
-| `ZeroFee` | There is no creator leg. Traders pay the protocol's 30 bps and nothing else. |
+| `stakersBps` | Pays the people who locked the token, weighted by size and by lock length. |
+| `buybackBps` | Buys the token back (off the curve, or out of the pool after graduation) and burns it. |
+| `liquidityBps` | Deepens the liquidity: added to the raise before graduation, donated to the pool after. |
+| `creatorBps` | Pays the creator fee recipient. Transferable in one step, by the current recipient only. |
 
-Flushing is permissionless. Anyone can push a token's fees through its model at any time; if our
-keeper stops, the machine keeps running.
+Every leg is floored and the last leg with a share takes the remainder, so the four always add up to
+exactly what was booked. There is no leg for charging nothing: a launch that wants traders to pay
+the protocol's 30 bps and nothing else picks a preset whose creator fee is zero, which is where the
+size of the fee belongs.
+
+Flushing is permissionless. Anyone can push a token's fees through its split at any time; if our
+keeper stops, the machine keeps running. A split with a buyback leg is flushed with a slippage
+floor (`flushBuyback`), because a permissionless buy with no floor is a gift to whoever is watching.
+
+## The creator's first buy can be locked
+
+A curve launch can spend the creator's own money on the first buy inside the launch transaction, so
+nobody can snipe the gap. `firstBuyLock` locks what it bought: one of the staking vault's tiers (7,
+30, 90 or 180 days), and the tokens go into the vault in the creator's name instead of into their
+wallet. The position is theirs, it earns whatever the token's staking leg pays, and it cannot be
+sold into the people who buy next until the lock is over.
 
 ## What is in this repository
 
@@ -145,14 +159,14 @@ Money coming the other way goes through Relay, which lists 4663 natively.
 `test/ForkV4.t.sol` runs against a fork of 4663 with the real Uniswap v4 deployment: the pool opens
 and is initialized, the locked position holds the liquidity, a swap goes through the UniversalRouter
 (the Robinhood fork of it, with the extra `minHopPriceX36` field), the pool fee comes back and lands
-in the fee model, and a donation reaches the pool.
+in the fee split, and a donation reaches the pool.
 
 Three things that had to be measured rather than assumed, all now encoded:
 
 - The PositionManager rejects `DONATE` with `UnsupportedAction`. Compounding goes through the
   PoolManager's own unlock callback instead.
 - The full-range liquidity maths deliberately asks for slightly less than the curve raised. The
-  sliver left over is not stranded: the token side is burned, the pair side goes into the fee model.
+  sliver left over is not stranded: the token side is burned, the pair side goes into the fee split.
 - Anybody can open a v4 pool for any pair, at any price, for the cost of one transaction. If the
   pool were only opened at graduation, a stranger could open it first at an absurd price and every
   launch on the platform could be bricked or drained that way. So the pool is opened inside the
@@ -177,7 +191,7 @@ Deployment, wallets and route wiring are in `docs/RUNBOOK.md`.
 - **Graduation is its own call.** A pool deployment that reverts must never be able to hold the last
   buy of a curve hostage. The curve stops trading when it sells out; anyone can finalize, in the
   same block if they want.
-- **The fee model cannot be switched after launch.** The buyer of the first minute and the buyer of
+- **The fee split cannot be switched after launch.** The buyer of the first minute and the buyer of
   the last hour are buying the same deal.
 
 ## Coverage

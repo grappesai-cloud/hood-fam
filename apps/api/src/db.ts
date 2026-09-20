@@ -15,7 +15,19 @@ create table if not exists launches (
   fee_recipient    text not null,
   pair_token       text not null,
   config_id        int  not null,
-  fee_model        int  not null,
+  -- The four legs of the creator fee, as picked at launch. They add up to 10,000 on a curve
+  -- launch, and they are all zero on a direct one: its tax never reaches HoodFeeRouter, it is
+  -- split in the launch's own splitter under alloc_*_bps below. So zero here reads as "this
+  -- machine does not use the split", not as "nothing is paid out". Null would say the chain never
+  -- told us, and it does: the registry row carries four zeros for a direct launch.
+  split_stakers_bps   smallint not null default 0,
+  split_buyback_bps   smallint not null default 0,
+  split_liquidity_bps smallint not null default 0,
+  split_creator_bps   smallint not null default 0,
+  -- The creator's own first buy, locked in the staking vault at launch. Zero and null when they
+  -- took it in hand, which is the same thing the registry row says.
+  first_buy_locked    numeric(78,0) not null default 0,
+  first_buy_unlock_at timestamptz,
   name             text not null,
   symbol           text not null,
   image            text not null default '',
@@ -79,11 +91,15 @@ alter table launches add column if not exists alloc_buyback_bps int;
 alter table launches add column if not exists alloc_dividends_bps int;
 alter table launches add column if not exists alloc_liquidity_bps int;
 alter table launches add column if not exists burned numeric(78,0) not null default 0;
--- A direct launch has no fee model: its tax is split four ways by its own splitter, and nothing
--- routes it through HoodFeeRouter. Writing 0 there said "stakers take the fee", which is a model
--- it does not have and which the app then offered to the holder.
-alter table launches alter column fee_model drop not null;
-update launches set fee_model = null where mode = 'direct' and fee_model is not null;
+alter table launches add column if not exists split_stakers_bps smallint not null default 0;
+alter table launches add column if not exists split_buyback_bps smallint not null default 0;
+alter table launches add column if not exists split_liquidity_bps smallint not null default 0;
+alter table launches add column if not exists split_creator_bps smallint not null default 0;
+alter table launches add column if not exists first_buy_locked numeric(78,0) not null default 0;
+alter table launches add column if not exists first_buy_unlock_at timestamptz;
+-- The single fee model is gone from the contracts, so it goes from here too rather than lingering
+-- in every select * as a number no launch has any more.
+alter table launches drop column if exists fee_model;
 
 create table if not exists trades (
   id           bigserial primary key,
@@ -154,13 +170,24 @@ create table if not exists fee_events (
   kind      text not null,
   amount    numeric(78,0) not null,
   result    numeric(78,0) not null default 0,
-  fee_model int,
+  -- Where a flush actually went, straight off the Flushed log: four pair amounts that add up to
+  -- the amount. Null on every other kind, which has no legs to speak of. The result column stays
+  -- what it has always been, the outcome of the money moving: for a flush, the tokens it burned.
+  to_stakers   numeric(78,0),
+  to_buyback   numeric(78,0),
+  to_liquidity numeric(78,0),
+  to_creator   numeric(78,0),
   block     bigint not null,
   tx        text not null,
   log_index int not null,
   ts        timestamptz not null,
   unique (tx, log_index)
 );
+alter table fee_events add column if not exists to_stakers numeric(78,0);
+alter table fee_events add column if not exists to_buyback numeric(78,0);
+alter table fee_events add column if not exists to_liquidity numeric(78,0);
+alter table fee_events add column if not exists to_creator numeric(78,0);
+alter table fee_events drop column if exists fee_model;
 
 create table if not exists seasons (
   id     int primary key,

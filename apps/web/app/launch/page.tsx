@@ -2,27 +2,32 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { parseEther, parseUnits, zeroAddress, type Address } from "viem";
+import { isAddress, parseEther, parseUnits, zeroAddress, type Address } from "viem";
 import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { hoodFactoryAbi, FEE_MODELS, feeModelToIndex } from "@hood/sdk";
+import { hoodFactoryAbi, BPS, FEE_LEG_LABEL, LOCK_TIERS } from "@hood/sdk";
 import { addresses } from "@/lib/config";
 import { fmt } from "@/lib/format";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
-import { Choice, Field, LaunchBar, Rail, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
+import { Choice, Field, LaunchBar, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 
 interface CurvePreset {
   totalSupply: bigint; curveSupplyBps: number; startCap: bigint; graduationCap: bigint;
   liquidityBps: number; protocolFeeBps: number; creatorFeeBps: number; enabled: boolean;
 }
 
-const MODEL_COPY: Record<string, { title: string; body: string }> = {
-  staking: { title: "Stakers take it", body: "Everyone who locks the token earns the trading fee, more for a longer lock." },
-  buyback: { title: "Buy back and burn", body: "The fee buys the token and destroys it. Supply only goes down." },
-  liquidity: { title: "Deepen the liquidity", body: "The fee is added to the pool the token graduates into." },
-  creator: { title: "You keep it", body: "The fee pays the address you name. Transferable later, by you only." },
-  zero: { title: "No creator fee", body: "Traders pay the protocol fee and nothing else. Cheapest to trade." },
-};
+/// The four places the creator leg can go, and what each one means to a buyer reading the page. A
+/// launch splits between them rather than picking one, so these are labels on sliders, not options.
+const LEG_COPY = [
+  { key: "stakers" as const, title: FEE_LEG_LABEL.stakers, body: "Everyone who locks the token earns it, more for a longer lock." },
+  { key: "buyback" as const, title: FEE_LEG_LABEL.buyback, body: "It buys the token back and destroys it. Supply only goes down." },
+  { key: "liquidity" as const, title: FEE_LEG_LABEL.liquidity, body: "It deepens the pool the token graduates into." },
+  { key: "creator" as const, title: FEE_LEG_LABEL.creator, body: "It pays the address you name below. Transferable later, by that address only." },
+];
+
+/// Lock tiers come from the staking vault, because that is where a locked first buy actually sits.
+/// The factory refuses anything that is not one of them, so the form offers exactly those.
+const LOCKS = [{ label: "no lock", seconds: 0 }, ...LOCK_TIERS.filter((t) => t.seconds > 0).map((t) => ({ label: t.label, seconds: t.seconds }))];
 
 const MACHINES = {
   curve: {
@@ -78,8 +83,13 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
 
   const [form, setForm] = useState({
     name: "", symbol: "", description: "", image: "", website: "", twitter: "", telegram: "",
-    feeModel: "staking" as (typeof FEE_MODELS)[number], configId: 0, pairToken: zeroAddress as Address,
+    configId: 0, pairToken: zeroAddress as Address,
     firstBuy: "",
+    // Percentages here, basis points on chain: a slider a person drags should be in the unit they
+    // think in, and the conversion belongs at the edge, once.
+    stakers: 100, buyback: 0, liquidity: 0, creator: 0,
+    feeRecipient: "",
+    firstBuyLock: 0,
   });
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -116,6 +126,12 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const firstBuyWei = form.firstBuy ? (isNative ? parseEther(form.firstBuy) : parseUnits(form.firstBuy, 6)) : 0n;
   const value = (launchFee as bigint | undefined ?? 0n) + (isNative ? firstBuyWei : 0n);
   const tokenDone = form.name.length > 0 && form.symbol.length > 0 && symbolFree !== false;
+  const splitTotal = form.stakers + form.buyback + form.liquidity + form.creator;
+  // The address the creator leg pays. Empty means the wallet doing the launching, which is what it
+  // silently did before; a team that wants the stream elsewhere says so here rather than
+  // discovering later that it went to whichever key happened to sign.
+  const recipient = form.feeRecipient.trim() || address || "";
+  const recipientOk = !form.feeRecipient.trim() || isAddress(form.feeRecipient.trim());
 
   // One reason at a time, in the order somebody would hit them. A button that is off without saying
   // why is the single thing this page used to do worst.
@@ -123,6 +139,10 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : !form.name ? "Step 2 needs a name."
     : !form.symbol ? "Step 2 needs a ticker."
     : symbolFree === false ? "That ticker is locked by a launch that is trading right now."
+    : splitTotal !== 100 ? `Step 3 has to add up to 100%. It is at ${splitTotal}%.`
+    : !recipientOk ? "Step 3 needs a valid address for the fee, or none at all."
+    : form.creator > 0 && !recipient ? "Step 3 pays the creator leg to an address, and there is none."
+    : form.firstBuyLock > 0 && firstBuyWei === 0n ? "Step 4 locks a first buy that is not being made."
     : undefined;
 
   const steps: StepState[] = [
@@ -141,8 +161,13 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         name: form.name, symbol: form.symbol, image: form.image, description: form.description,
         website: form.website, twitter: form.twitter, telegram: form.telegram,
         pairToken: form.pairToken, configId: BigInt(form.configId),
-        feeModel: feeModelToIndex[form.feeModel], creatorFeeRecipient: address,
-        firstBuy: firstBuyWei, salt, econ: (econ as `0x${string}`) ?? `0x${"0".repeat(64)}`,
+        feeSplit: {
+          stakersBps: form.stakers * 100, buybackBps: form.buyback * 100,
+          liquidityBps: form.liquidity * 100, creatorBps: form.creator * 100,
+        },
+        creatorFeeRecipient: (recipient || address) as Address,
+        firstBuy: firstBuyWei, firstBuyLock: BigInt(form.firstBuyLock),
+        salt, econ: (econ as `0x${string}`) ?? `0x${"0".repeat(64)}`,
       }],
       value,
     }));
@@ -190,13 +215,26 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             </div>
           </Step>
 
-          <Step n={3} title="Where the trading fee goes" purpose="Every trade pays a fee. You choose once, here, who it pays. This is the promise a buyer can check on chain, and nobody can change it afterwards, including us." done>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {FEE_MODELS.map((m) => (
-                <Choice key={m} selected={form.feeModel === m} onClick={() => set("feeModel", m)}
-                  title={MODEL_COPY[m]!.title} body={MODEL_COPY[m]!.body} />
+          <Step n={3} title="Where the trading fee goes" purpose="Every trade pays a fee. You decide once, here, how it is divided. This is the promise a buyer can check on chain, and nobody can change it afterwards, including us." done={splitTotal === 100 && recipientOk}>
+            <div className="grid gap-3">
+              {LEG_COPY.map((leg) => (
+                <Slider key={leg.key} label={`${leg.title} ${form[leg.key]}%`} hint={leg.body}
+                  min={0} max={100} step={5} value={form[leg.key]} onChange={(v) => set(leg.key, v)} />
               ))}
             </div>
+            <p className={splitTotal === 100 ? "text-xs dim" : "text-xs text-[var(--color-red)]"}>
+              {splitTotal === 100
+                ? "Adds up to 100%. Every trade divides the creator's share exactly this way, forever."
+                : `These have to add up to 100%. Right now they add up to ${splitTotal}%.`}
+            </p>
+            {form.creator > 0 && (
+              <Field label="Who the creator share pays"
+                help="Leave it empty and it pays the wallet doing this launch. A team usually wants its own Safe here. Only that address can hand the stream on later."
+                error={recipientOk ? undefined : "That is not an address."}>
+                <input className="input mono" placeholder={address ?? "0x..."} value={form.feeRecipient}
+                  onChange={(e) => set("feeRecipient", e.target.value.trim())} />
+              </Field>
+            )}
           </Step>
 
           <Step n={4} title="The curve, and your first buy" purpose="How much supply trades on the curve, what valuation it starts and graduates at, and whether you want the first buy in the same transaction." done>
@@ -218,6 +256,21 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               <input className="input mono" inputMode="decimal" value={form.firstBuy}
                 onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
             </Field>
+
+            {firstBuyWei > 0n && (
+              <Field label="Lock your own first buy"
+                help="A buyer cannot tell a creator who is staying from one who is about to sell into them. Locking says which you are, on chain: the tokens go straight into the staking vault in your name, they earn whatever the fee split pays stakers, and nothing can take them out early, including us.">
+                <div className="flex flex-wrap gap-2">
+                  {LOCKS.map((lock) => (
+                    <button key={lock.seconds} type="button"
+                      className={form.firstBuyLock === lock.seconds ? "btn text-xs" : "btn btn-ghost text-xs"}
+                      onClick={() => set("firstBuyLock", lock.seconds)}>
+                      {lock.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
           </Step>
 
           <LaunchBar
@@ -244,13 +297,15 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         <p className="launch-preview-symbol">$<span>{form.symbol || "TICKER"}</span></p>
         <div className="launch-preview-details">
           <Row label="Launch model" value="Bonding curve" />
-          <Row label="Fee rule" value={MODEL_COPY[form.feeModel]!.title} />
+          <Row label="Fee split" value={LEG_COPY.filter((l) => form[l.key] > 0).map((l) => `${form[l.key]}% ${l.title.toLowerCase()}`).join(", ") || "not set"} />
+          {form.creator > 0 && <Row label="Creator share pays" value={recipient ? `${recipient.slice(0, 6)}…${recipient.slice(-4)}` : "nobody yet"} />}
+          {form.firstBuyLock > 0 && <Row label="Your first buy" value={`locked ${LOCKS.find((l) => l.seconds === form.firstBuyLock)?.label ?? ""}`} />}
           <Row label="Launch fee" value={`${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} ETH`} />
           <Row label="Terms pinned" value={econ ? `${(econ as string).slice(0, 10)}…` : "reading"} />
         </div>
         <WhatHappens items={[
           "Your wallet sends one transaction and pays the launch fee.",
-          "The token, its curve and its fee rule are created together.",
+          "The token, its curve and its fee split are created together.",
           "The terms above are sent with it, so if the preset moves first the transaction reverts instead of launching on terms you did not agree to.",
           "You land on the token page and it is tradable immediately.",
         ]} />

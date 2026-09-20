@@ -11,7 +11,7 @@ import {HoodDeployer} from "../src/HoodDeployer.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
-import {CurveConfig, FeeModel, LaunchParams, Phase} from "../src/HoodTypes.sol";
+import {CurveConfig, FeeSplit, LaunchParams, Phase} from "../src/HoodTypes.sol";
 import {IPoolManager, PoolKey, SwapParams} from "../src/interfaces/IExternal.sol";
 import {MockUSD} from "./mocks/Mocks.sol";
 
@@ -81,7 +81,26 @@ contract ForkV4Test is Test {
         vm.deal(whale, 100 ether);
     }
 
-    function _launch(FeeModel model, string memory symbol) internal returns (address token, HoodCurve curve) {
+    function _toStakers() internal pure returns (FeeSplit memory) {
+        return FeeSplit({stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0});
+    }
+
+    function _toBuyback() internal pure returns (FeeSplit memory) {
+        return FeeSplit({stakersBps: 0, buybackBps: 10_000, liquidityBps: 0, creatorBps: 0});
+    }
+
+    function _toLiquidity() internal pure returns (FeeSplit memory) {
+        return FeeSplit({stakersBps: 0, buybackBps: 0, liquidityBps: 10_000, creatorBps: 0});
+    }
+
+    function _toCreator() internal pure returns (FeeSplit memory) {
+        return FeeSplit({stakersBps: 0, buybackBps: 0, liquidityBps: 0, creatorBps: 10_000});
+    }
+
+    function _launch(FeeSplit memory split, string memory symbol)
+        internal
+        returns (address token, HoodCurve curve)
+    {
         LaunchParams memory p = LaunchParams({
             name: "Hood Fam",
             symbol: symbol,
@@ -92,9 +111,10 @@ contract ForkV4Test is Test {
             telegram: "t.me/hoodfam",
             pairToken: address(0),
             configId: configId,
-            feeModel: model,
+            feeSplit: split,
             creatorFeeRecipient: creator,
             firstBuy: 0,
+            firstBuyLock: 0,
             salt: keccak256(bytes(symbol)),
             econ: bytes32(0)
         });
@@ -117,7 +137,7 @@ contract ForkV4Test is Test {
     }
 
     function test_fork_graduation_opens_a_real_v4_pool() public {
-        (address token, HoodCurve curve) = _launch(FeeModel.StakingRewards, "FAM1");
+        (address token, HoodCurve curve) = _launch(_toStakers(), "FAM1");
         uint256 lpSupply = curve.lpSupply();
         _sellOutAndFinalize(curve);
 
@@ -167,7 +187,7 @@ contract ForkV4Test is Test {
         LaunchParams memory p = LaunchParams({
             name: "Dollar Curve", symbol: "USDC1", image: "ipfs://usd", description: "", website: "",
             twitter: "", telegram: "", pairToken: address(usd), configId: usdConfig,
-            feeModel: FeeModel.BuybackBurn, creatorFeeRecipient: creator, firstBuy: 0,
+            feeSplit: _toBuyback(), creatorFeeRecipient: creator, firstBuy: 0, firstBuyLock: 0,
             salt: bytes32(uint256(77)), econ: bytes32(0)
         });
         vm.prank(creator);
@@ -203,11 +223,11 @@ contract ForkV4Test is Test {
 
         // and the position's dollar fees come home
         graduator.collect(token);
-        assertGt(router.accrued(token), 0, "the pool fee, in dollars, back in the model");
+        assertGt(router.accrued(token), 0, "the pool fee, in dollars, back in the split");
     }
 
     function test_fork_the_pool_is_opened_and_priced_inside_the_launch_transaction() public {
-        (address token, HoodCurve curve) = _launch(FeeModel.StakingRewards, "FAM5");
+        (address token, HoodCurve curve) = _launch(_toStakers(), "FAM5");
 
         // native currency sorts first, so currency0 is ETH and currency1 is the token
         PoolKey memory key =
@@ -229,7 +249,7 @@ contract ForkV4Test is Test {
     }
 
     function test_fork_anyone_can_swap_the_graduated_pool() public {
-        (address token, HoodCurve curve) = _launch(FeeModel.BuybackBurn, "FAM2");
+        (address token, HoodCurve curve) = _launch(_toBuyback(), "FAM2");
         _sellOutAndFinalize(curve);
 
         // the creator fee booked during the sell-out buys the token back out of the real pool
@@ -244,8 +264,8 @@ contract ForkV4Test is Test {
         assertEq(IERC20(token).balanceOf(address(graduator)), 0);
     }
 
-    function test_fork_pool_fees_come_back_to_the_fee_model() public {
-        (address token, HoodCurve curve) = _launch(FeeModel.BuybackBurn, "FAM3");
+    function test_fork_pool_fees_come_back_to_the_fee_split() public {
+        (address token, HoodCurve curve) = _launch(_toBuyback(), "FAM3");
         _sellOutAndFinalize(curve);
 
         // a real swap through the pool, which is what makes the position earn a fee
@@ -260,7 +280,7 @@ contract ForkV4Test is Test {
     }
 
     function test_fork_liquidity_compounding_donates_to_the_pool() public {
-        (address token, HoodCurve curve) = _launch(FeeModel.LiquidityCompound, "FAM4");
+        (address token, HoodCurve curve) = _launch(_toLiquidity(), "FAM4");
         _sellOutAndFinalize(curve);
         (PoolKey memory key,) = graduator.positionOf(token);
 
@@ -280,11 +300,11 @@ contract ForkV4Test is Test {
     /// @dev The pool is opened inside the launch transaction so that nobody else opens it first,
     ///      but it holds no liquidity until graduation, and a swap in an EMPTY v4 pool consumes
     ///      nothing: it walks the price to whatever limit it is handed, for the cost of gas. So a
-    ///      stranger (or the creator, on a launch whose fee model pays them) could pick the price
+    ///      stranger (or the creator, on a launch whose split pays them) could pick the price
     ///      the raise gets minted at, and with it how much of the raise ends up in the pool at all.
     ///      Graduation therefore pins the price to the ratio actually raised.
     function test_fork_a_stranger_cannot_choose_the_price_the_raise_graduates_at() public {
-        (address token, HoodCurve curve) = _launch(FeeModel.CreatorKeep, "FAM5");
+        (address token, HoodCurve curve) = _launch(_toCreator(), "FAM5");
         uint256 lpSupply = curve.lpSupply();
         PoolKey memory key = _emptyKeyFor(token);
         bytes32 id = _poolId(key);
@@ -318,7 +338,7 @@ contract ForkV4Test is Test {
         assertApproxEqRel(POOL_MANAGER.balance - poolBefore, forLp, 0.02e18, "the raise went into the pool");
         assertApproxEqRel(IERC20(token).balanceOf(POOL_MANAGER), lpSupply, 0.01e18, "and so did the supply");
         assertEq(IERC20(token).balanceOf(address(graduator)), 0, "nothing burned out the side door");
-        assertEq(creator.balance, creatorBefore, "and nothing leaked to the fee model");
+        assertEq(creator.balance, creatorBefore, "and nothing leaked to the fee router");
     }
 
     /// @dev The key of a pool that has been opened but not yet graduated into. Native sorts first,

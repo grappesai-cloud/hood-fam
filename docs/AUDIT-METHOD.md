@@ -90,7 +90,7 @@ fie invariantele adevarate degeaba (pe o secventa de reverturi inghitite).
 **`test/ForkCurveGradInvariant.t.sol`** - fuzzeaza exact suprafata lui C1 pe v4 real. Cumpara curba,
 incearca sa OTRAVEASCA pool-ul pre-deschis inca gol (un swap de un wei il muta la orice pret, fix
 atacul), apoi absolveste, si verifica:
-- `graduationPutsTheRaiseInThePool`: dupa absolvire raise-ul e in POOL, nu in fee model. Pe C1 se
+- `graduationPutsTheRaiseInThePool`: dupa absolvire raise-ul e in POOL, nu in fee router. Pe C1 se
   scurgea la fee router si, pe CreatorKeep, la creator. Lansarea foloseste dinadins CreatorKeep, ca
   invarianta sa pice zgomotos daca fixul regreseaza vreodata.
 - `graduatorHoldsNothing`: graduatorul nu ramane cu token sau pereche.

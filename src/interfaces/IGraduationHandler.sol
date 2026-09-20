@@ -32,7 +32,7 @@ interface IGraduationHandler {
     /// @notice Permissionless. Pulls the fees the locked position earned and hands them to the fee router.
     function collect(address token) external;
 
-    /// @notice Adds pair funds to the locked position (the liquidity-compounding model, after graduation).
+    /// @notice Adds pair funds to the locked position (the liquidity leg of a fee split, after graduation).
     function compound(address token, uint256 amount) external payable;
 
     /// @notice Buys `token` out of its pool with `amount` of pair funds and burns what it gets.

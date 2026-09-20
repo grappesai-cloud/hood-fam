@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { parseEther, parseUnits, formatEther, zeroAddress, type Address, type Hash } from "viem";
 
-import { FEE_MODELS, LOCK_TIERS, compact, crossChainBuyLink, quoteCrossChainBuy, canQuoteCrossChain, routes, minOutFromQuote } from "@hood/sdk";
+import { BPS, FEE_LEG_LABEL, LOCK_TIERS, compact, crossChainBuyLink, quoteCrossChainBuy, canQuoteCrossChain, routes, minOutFromQuote } from "@hood/sdk";
 import { generateImage, uploadImage, ImageUploadError } from "@hood/sdk/image";
 import { listWallets, newWallet, importWallet, removeWallet } from "@hood/sdk/keystore";
 
@@ -159,7 +159,13 @@ server.registerTool(
             { name: "curve", type: "address", indexed: true },
             { name: "creator", type: "address", indexed: true },
             { name: "configId", type: "uint256" }, { name: "pairToken", type: "address" },
-            { name: "feeModel", type: "uint8" },
+            {
+              name: "feeSplit", type: "tuple",
+              components: [
+                { name: "stakersBps", type: "uint16" }, { name: "buybackBps", type: "uint16" },
+                { name: "liquidityBps", type: "uint16" }, { name: "creatorBps", type: "uint16" },
+              ],
+            },
           ],
         },
         fromBlock: head > 500_000n ? head - 500_000n : 0n,
@@ -224,7 +230,13 @@ server.registerTool(
       name: z.string(), symbol: z.string(), description: z.string().default(""),
       image: z.string().default(""), website: z.string().default(""), twitter: z.string().default(""),
       telegram: z.string().default(""),
-      feeModel: z.enum(FEE_MODELS).default("staking"),
+      // Four legs in basis points that must add up to 10,000. An agent that hands over three of
+      // them and expects the fourth to be inferred gets a refusal, not a guess.
+      stakersBps: z.number().int().min(0).max(BPS).default(BPS),
+      buybackBps: z.number().int().min(0).max(BPS).default(0),
+      liquidityBps: z.number().int().min(0).max(BPS).default(0),
+      creatorBps: z.number().int().min(0).max(BPS).default(0),
+      firstBuyLock: z.number().int().min(0).default(0).describe("seconds the creator's own first buy is locked in the staking vault: 0, or one of 7, 30, 90, 180 days"),
       configId: z.number().default(0),
       pairToken: addr.default(zeroAddress),
       firstBuy: z.string().default("0").describe("pair units for the creator's own first buy"),
@@ -248,18 +260,24 @@ server.registerTool(
         preset: config,
         raiseAtGraduation: `${formatEther((config.graduationCap * BigInt(config.curveSupplyBps)) / 10_000n)} (approx, in pair units)`,
         firstBuy: firstBuy.toString(),
-        feeModelMeans: {
-          staking: "the fee pays whoever locks the token",
-          buyback: "the fee buys the token back and burns it",
-          liquidity: "the fee deepens the pool it graduates into",
-          creator: "the fee pays you",
-          zero: "there is no creator fee",
-        }[args.feeModel],
+        feeSplitMeans: describeSplit(args),
+        feeSplitAddsUp: args.stakersBps + args.buybackBps + args.liquidityBps + args.creatorBps === BPS,
         next: "hood_launch_token with the same arguments plus confirm: true",
       });
     } catch (e) { return fail(e); }
   },
 );
+
+/// What the split means in words, for a tool that has to explain itself before it spends money.
+function describeSplit(split: { stakersBps: number; buybackBps: number; liquidityBps: number; creatorBps: number }): string {
+  const legs: [number, string][] = [
+    [split.stakersBps, FEE_LEG_LABEL.stakers], [split.buybackBps, FEE_LEG_LABEL.buyback],
+    [split.liquidityBps, FEE_LEG_LABEL.liquidity], [split.creatorBps, FEE_LEG_LABEL.creator],
+  ];
+  const said = legs.filter(([bps]) => bps > 0).sort((a, b) => b[0] - a[0])
+    .map(([bps, label]) => `${Math.round((bps / BPS) * 100)}% ${label.toLowerCase()}`);
+  return said.length ? said.join(", ") : "nothing is allocated, which the factory refuses";
+}
 
 server.registerTool(
   "hood_launch_token",
@@ -269,7 +287,13 @@ server.registerTool(
       name: z.string(), symbol: z.string(), description: z.string().default(""),
       image: z.string().default(""), website: z.string().default(""), twitter: z.string().default(""),
       telegram: z.string().default(""),
-      feeModel: z.enum(FEE_MODELS).default("staking"),
+      // Four legs in basis points that must add up to 10,000. An agent that hands over three of
+      // them and expects the fourth to be inferred gets a refusal, not a guess.
+      stakersBps: z.number().int().min(0).max(BPS).default(BPS),
+      buybackBps: z.number().int().min(0).max(BPS).default(0),
+      liquidityBps: z.number().int().min(0).max(BPS).default(0),
+      creatorBps: z.number().int().min(0).max(BPS).default(0),
+      firstBuyLock: z.number().int().min(0).default(0).describe("seconds the creator's own first buy is locked in the staking vault: 0, or one of 7, 30, 90, 180 days"),
       configId: z.number().default(0),
       pairToken: addr.default(zeroAddress),
       creatorFeeRecipient: addr.optional(),
@@ -285,6 +309,10 @@ server.registerTool(
       const c = ctx.client;
       const { hash } = await c.launch({
         ...args,
+        feeSplit: {
+          stakersBps: args.stakersBps, buybackBps: args.buybackBps,
+          liquidityBps: args.liquidityBps, creatorBps: args.creatorBps,
+        },
         firstBuy: args.firstBuy === "0" ? 0n : parseEther(args.firstBuy),
         creatorFeeRecipient: args.creatorFeeRecipient as Address | undefined,
       });
@@ -362,9 +390,15 @@ server.registerTool(
       const c = ctx.client;
       const [launch, accrued] = await Promise.all([c.getLaunch(token as Address), c.creatorFees(token as Address)]);
       return ok({
-        token, feeModel: launch.feeModel, recipient: launch.creatorFeeRecipient, accrued,
+        token, feeSplit: launch.feeSplit, feeSplitMeans: describeSplit({
+          stakersBps: launch.feeSplit.stakersBps, buybackBps: launch.feeSplit.buybackBps,
+          liquidityBps: launch.feeSplit.liquidityBps, creatorBps: launch.feeSplit.creatorBps,
+        }),
+        recipient: launch.creatorFeeRecipient, accrued,
         accruedPretty: formatEther(accrued),
-        note: "pushing is permissionless: anyone can call hood_claim_fees, the money still goes where the model says",
+        firstBuyLocked: launch.firstBuyLocked.toString(),
+        firstBuyUnlockAt: launch.firstBuyUnlockAt,
+        note: "pushing is permissionless: anyone can call hood_claim_fees, and the split decides where each part lands",
       });
     } catch (e) { return fail(e); }
   },

@@ -21,7 +21,7 @@ interface StakeRow {
 }
 
 /// Proof of belief. Lock longer, take a bigger slice of the same fee stream.
-export function StakePanel({ token, symbol, feeModel }: { token: Address; symbol: string; feeModel: number }) {
+export function StakePanel({ token, symbol, paysStakers: earns }: { token: Address; symbol: string; paysStakers: boolean }) {
   const { address } = useAccount();
   const [amount, setAmount] = useState("");
   const [lock, setLock] = useState(0);
@@ -94,9 +94,9 @@ export function StakePanel({ token, symbol, feeModel }: { token: Address; symbol
       <div>
         <h3 className="font-semibold">Stake {symbol}</h3>
         <p className="text-xs dim">
-          {feeModel === 0
-            ? "This token pays its trading fee to whoever locks it. Longer lock, bigger share."
-            : "This token does not pay stakers, but locking still works and the vault is shared."}
+          {earns
+            ? "Part of this token's trading fee goes to whoever locks it. Longer lock, bigger share."
+            : "This token sends none of its fee to stakers, but locking still works and the vault is shared."}
         </p>
       </div>
 

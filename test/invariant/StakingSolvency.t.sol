@@ -10,7 +10,7 @@ import {HoodDeployer} from "../../src/HoodDeployer.sol";
 import {HoodCurve} from "../../src/HoodCurve.sol";
 import {HoodFeeRouter} from "../../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../../src/HoodStaking.sol";
-import {CurveConfig, FeeModel, LaunchParams} from "../../src/HoodTypes.sol";
+import {CurveConfig, FeeSplit, LaunchParams} from "../../src/HoodTypes.sol";
 import {MockGraduator} from "../mocks/Mocks.sol";
 
 /// @notice Random stake / unstake / claim / demote / reward on one launch's staking vault.
@@ -136,7 +136,7 @@ contract StakingSolvencyInvariant is StdInvariant, Test {
 
         LaunchParams memory p;
         p.name = "Stk"; p.symbol = "STK"; p.pairToken = address(0); p.configId = configId;
-        p.feeModel = FeeModel.StakingRewards; p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
+        p.feeSplit = FeeSplit({stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0}); p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
         vm.prank(creator);
         (token, , ) = factory.launch(p);
         curve = HoodCurve(payable(factory.getLaunch(token).curve));

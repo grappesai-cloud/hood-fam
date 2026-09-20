@@ -154,3 +154,17 @@ export function WhatHappens({ items }: { items: string[] }) {
     </div>
   );
 }
+
+/// Shared: both machines split a fee across destinations now, so both draw the same control.
+export function Slider({ label, min, max, step, value, onChange, hint }: {
+  label: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void; hint?: string;
+}) {
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <input type="range" className="w-full accent-[var(--color-lime)]"
+        min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      {hint && <span className="field-note">{hint}</span>}
+    </label>
+  );
+}

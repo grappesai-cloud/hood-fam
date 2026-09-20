@@ -33,7 +33,7 @@ contract HoodToken is ERC20, ERC20Permit {
         _mint(mintTo, supply);
     }
 
-    /// @notice Destroys `amount` from the caller. Used by the buyback-and-burn fee model.
+    /// @notice Destroys `amount` from the caller. Used by the buyback leg of a fee split.
     function burn(uint256 amount) external {
         _burn(msg.sender, amount);
     }

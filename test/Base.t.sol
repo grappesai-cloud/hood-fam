@@ -8,7 +8,7 @@ import {HoodDeployer} from "../src/HoodDeployer.sol";
 import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
-import {CurveConfig, FeeModel, LaunchParams} from "../src/HoodTypes.sol";
+import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
 import {MockGraduator, MockUSD} from "./mocks/Mocks.sol";
 
 /// @notice Shared rig: one launchpad, one preset, helpers to launch and to trade.
@@ -65,7 +65,38 @@ contract BaseTest is Test {
         });
     }
 
-    function _params(FeeModel model) internal view returns (LaunchParams memory p) {
+    /// @notice The four splits that send the whole creator leg down one road. Most of the suite
+    ///         wants one destination at a time; `_split` is there for the mixtures.
+    function _toStakers() internal pure returns (FeeSplit memory) {
+        return _split(10_000, 0, 0, 0);
+    }
+
+    function _toBuyback() internal pure returns (FeeSplit memory) {
+        return _split(0, 10_000, 0, 0);
+    }
+
+    function _toLiquidity() internal pure returns (FeeSplit memory) {
+        return _split(0, 0, 10_000, 0);
+    }
+
+    function _toCreator() internal pure returns (FeeSplit memory) {
+        return _split(0, 0, 0, 10_000);
+    }
+
+    function _split(uint16 stakers, uint16 buyback, uint16 liquidity, uint16 creatorBps)
+        internal
+        pure
+        returns (FeeSplit memory)
+    {
+        return FeeSplit({
+            stakersBps: stakers,
+            buybackBps: buyback,
+            liquidityBps: liquidity,
+            creatorBps: creatorBps
+        });
+    }
+
+    function _params(FeeSplit memory split) internal view returns (LaunchParams memory p) {
         p = LaunchParams({
             name: "Hood Fam",
             symbol: "FAM",
@@ -76,23 +107,24 @@ contract BaseTest is Test {
             telegram: "t.me/hoodfam",
             pairToken: address(0),
             configId: configId,
-            feeModel: model,
+            feeSplit: split,
             creatorFeeRecipient: creator,
             firstBuy: 0,
+            firstBuyLock: 0,
             salt: bytes32(uint256(1)),
             econ: bytes32(0)
         });
     }
 
-    function _launch(FeeModel model) internal returns (address token, HoodCurve curve) {
-        return _launch(model, _params(model), LAUNCH_FEE);
+    function _launch(FeeSplit memory split) internal returns (address token, HoodCurve curve) {
+        return _launch(split, _params(split), LAUNCH_FEE);
     }
 
-    function _launch(FeeModel model, LaunchParams memory p, uint256 value)
+    function _launch(FeeSplit memory split, LaunchParams memory p, uint256 value)
         internal
         returns (address token, HoodCurve curve)
     {
-        p.feeModel = model;
+        p.feeSplit = split;
         vm.prank(creator);
         (address t, address c,) = factory.launch{value: value}(p);
         return (t, HoodCurve(payable(c)));

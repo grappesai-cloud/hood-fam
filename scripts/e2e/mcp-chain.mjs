@@ -39,7 +39,7 @@ await tool("hood_get_token", { token: curveToken });
 await tool("hood_direct_info", { token: directToken });
 await tool("hood_quote", { token: directToken, side: "buy", amount: "0.1" });
 await tool("hood_supported_chains", { token: curveToken });
-await tool("hood_launch_token", { name: "Agent Curve", symbol: "AGNT", feeModel: "buyback", firstBuy: "0.1" });
+await tool("hood_launch_token", { name: "Agent Curve", symbol: "AGNT", stakersBps: 0, buybackBps: 10_000, liquidityBps: 0, creatorBps: 0, firstBuy: "0.1" });
 await tool("hood_plan_direct_launch", { name: "Agent Direct", symbol: "AGNTD", openValuation: 10, bondValuation: 100 });
 await tool("hood_launch_direct", { name: "Agent Direct", symbol: "AGNTD", openValuation: 10, bondValuation: 100, firstBuy: "0.1" });
 await tool("hood_get_creator_fees", { token: curveToken });

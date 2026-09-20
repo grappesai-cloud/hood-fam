@@ -8,6 +8,10 @@ interface IHoodFeeRouter {
 
     function accrued(address token) external view returns (uint256);
 
-    /// @notice Permissionless. Applies the token's fee model to everything booked for it.
+    /// @notice Permissionless. Spends everything booked for a token across its fee split.
+    /// @dev Reverts when the split has a buyback leg; that one goes through `flushBuyback`.
     function flush(address token) external;
+
+    /// @notice The same flush with a slippage floor, which applies to the buyback leg only.
+    function flushBuyback(address token, uint256 minTokensOut) external;
 }

@@ -29,7 +29,7 @@ What it does, asserting after every step:
 4. brings up the indexer and the read API against the fork
 5. the curve machine: a launch with a creator first buy, six trades from four wallets, a stake, the
    fee router flush into the staking model, a claim, graduation into the locked Uniswap v4 position,
-   a swap on the real pool and a permissionless `collect` back into the fee model
+   a swap on the real pool and a permissionless `collect` back into the fee split
 6. the direct machine: a portal launch with a mined hook salt, the opening window refusing a whale,
    a buy inside the snipe surcharge, the surcharge decaying to nothing, buys and a sell through the
    hook, `flushClaims`, a sweep with the four way split, `claimProtocol`, and one buyback run

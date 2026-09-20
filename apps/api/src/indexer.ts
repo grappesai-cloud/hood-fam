@@ -39,7 +39,10 @@ const MAX_CHUNK = BigInt(process.env.HOOD_LOG_CHUNK ?? "5000");
 
 const events = {
   launched: parseAbiItem(
-    "event Launched(address indexed token, address indexed curve, address indexed creator, uint256 configId, address pairToken, uint8 feeModel)",
+    "event Launched(address indexed token, address indexed curve, address indexed creator, uint256 configId, address pairToken, (uint16 stakersBps, uint16 buybackBps, uint16 liquidityBps, uint16 creatorBps) feeSplit)",
+  ),
+  firstBuyLocked: parseAbiItem(
+    "event FirstBuyLocked(address indexed token, address indexed creator, uint256 positionId, uint256 amount, uint64 unlockAt)",
   ),
   launchMetadata: parseAbiItem(
     "event LaunchMetadata(address indexed token, string name, string symbol, string image, string description, string website, string twitter, string telegram)",
@@ -54,7 +57,9 @@ const events = {
   claimed: parseAbiItem("event Claimed(uint256 indexed id, address indexed to, uint256 amount)"),
   demoted: parseAbiItem("event Demoted(uint256 indexed id, uint32 weightBps)"),
   accrued: parseAbiItem("event Accrued(address indexed token, uint256 amount)"),
-  flushed: parseAbiItem("event Flushed(address indexed token, uint8 model, uint256 amount, uint256 result)"),
+  flushed: parseAbiItem(
+    "event Flushed(address indexed token, uint256 amount, uint256 toStakers, uint256 toBuyback, uint256 toLiquidity, uint256 toCreator, uint256 tokensBurned)",
+  ),
   transfer: parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)"),
   // the direct machine
   directLaunched: parseAbiItem(
@@ -165,17 +170,23 @@ async function onLaunched(log: Log & { args: Record<string, unknown> }) {
   const a = log.args;
   const token = (a.token as string).toLowerCase();
   const curve = (a.curve as string).toLowerCase();
+  // The split is one non-indexed tuple at the end of the log, four shares of the creator fee that
+  // add up to 10,000. It is written once here because the contract writes it once, at launch.
+  const split = a.feeSplit as { stakersBps: number; buybackBps: number; liquidityBps: number; creatorBps: number };
   // The prose (name, symbol, artwork, links) arrives in LaunchMetadata, emitted in the same
   // transaction right after this one. The row is created here and filled in there.
   const { rows: created } = await pool.query<{ token: string }>(
-    `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id, fee_model,
+    `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id,
+       split_stakers_bps, split_buyback_bps, split_liquidity_bps, split_creator_bps,
        name, symbol, launched_at, block, tx, mode)
-     values ($1,$2,$3,$3,$4,$5,$6,'','',$7,$8,$9,'curve')
+     values ($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,'','',$10,$11,$12,'curve')
      on conflict (token) do nothing
      returning token`,
     [
       token, curve, (a.creator as string).toLowerCase(), (a.pairToken as string).toLowerCase(),
-      Number(a.configId), Number(a.feeModel), await blockTime(log.blockNumber!), log.blockNumber!.toString(), log.transactionHash,
+      Number(a.configId),
+      Number(split.stakersBps), Number(split.buybackBps), Number(split.liquidityBps), Number(split.creatorBps),
+      await blockTime(log.blockNumber!), log.blockNumber!.toString(), log.transactionHash,
     ],
   );
   if (created[0]) unannounced.add(token);
@@ -201,6 +212,21 @@ async function onLaunched(log: Log & { args: Record<string, unknown> }) {
   tokens.add(token);
   // The 500 for printing is not paid here: see creditLaunch. A token nobody ever trades pays
   // nothing, or printing junk becomes the cheapest way to farm a season.
+}
+
+/// The creator's own first buy, staked in their name in the same transaction as the launch. Only
+/// fired when a lock happened, and always after Launched, so the row is already there. The amount
+/// and the unlock go on the row rather than into a table of their own: the app shows "dev locked"
+/// next to the launch, and one launch can only ever lock once.
+async function onFirstBuyLocked(log: Log & { args: Record<string, unknown> }) {
+  await pool.query(
+    `update launches set first_buy_locked = $2, first_buy_unlock_at = $3 where token = $1`,
+    [
+      (log.args.token as string).toLowerCase(),
+      (log.args.amount as bigint).toString(),
+      new Date(Number(log.args.unlockAt as bigint) * 1000),
+    ],
+  );
 }
 
 async function onTrade(log: Log & { args: Record<string, unknown> }, side: "buy" | "sell") {
@@ -355,11 +381,13 @@ async function onDirectLaunched(log: Log & { args: Record<string, unknown> }) {
     }
   }
 
+  // The split columns stay at their zero default: a direct launch's tax never reaches the fee
+  // router, it is split in its own splitter, and that allocation lands in alloc_*_bps below.
   const { rows: created } = await pool.query<{ token: string }>(
-    `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id, fee_model,
+    `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id,
        name, symbol, launched_at, block, tx, mode, hook, splitter, locker, restrictions_end_block,
        total_supply, burned)
-     values ($1,$2,$3,$3,$4,0,null,'','',$5,$6,$7,'direct',$8,$9,$10,$11,$12,$13)
+     values ($1,$2,$3,$3,$4,0,'','',$5,$6,$7,'direct',$8,$9,$10,$11,$12,$13)
      on conflict (token) do nothing
      returning token`,
     [
@@ -624,14 +652,21 @@ export async function creditLaunch(token: string, usd: number, when: Date) {
   await pool.query(`update launches set launch_points_at = $2 where token = $1 and launch_points_at is null`, [token, when]);
 }
 
+/// Money the fee router moved. `Accrued` is one number, what a trade booked. `Flushed` is that pot
+/// leaving along the token's split, so it carries the four destinations and whatever the buyback
+/// leg burned. The four legs are kept because they are the only place the money is ever counted:
+/// the split on the launch row says the shares, these rows say what was actually paid on them.
 async function onFeeEvent(log: Log & { args: Record<string, unknown> }, kind: "accrued" | "flushed") {
+  const a = log.args;
+  const leg = (name: string) => (kind === "flushed" ? (a[name] as bigint).toString() : null);
   await pool.query(
-    `insert into fee_events (token, kind, amount, result, fee_model, block, tx, log_index, ts)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict (tx, log_index) do nothing`,
+    `insert into fee_events (token, kind, amount, result, to_stakers, to_buyback, to_liquidity, to_creator,
+       block, tx, log_index, ts)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) on conflict (tx, log_index) do nothing`,
     [
-      (log.args.token as string).toLowerCase(), kind, (log.args.amount as bigint).toString(),
-      (log.args.result as bigint | undefined)?.toString() ?? "0",
-      log.args.model === undefined ? null : Number(log.args.model),
+      (a.token as string).toLowerCase(), kind, (a.amount as bigint).toString(),
+      (a.tokensBurned as bigint | undefined)?.toString() ?? "0",
+      leg("toStakers"), leg("toBuyback"), leg("toLiquidity"), leg("toCreator"),
       log.blockNumber!.toString(), log.transactionHash, log.logIndex, await blockTime(log.blockNumber!),
     ],
   );
@@ -653,6 +688,7 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
   const l = log as Log & { args: Record<string, unknown> };
   switch (log.eventName) {
     case "Launched": if (address === FACTORY) await onLaunched(l); break;
+    case "FirstBuyLocked": if (address === FACTORY) await onFirstBuyLocked(l); break;
     case "LaunchMetadata": if (address === FACTORY) await onLaunchMetadata(l); break;
     case "Bought": await onTrade(l, "buy"); break;
     case "Sold": await onTrade(l, "sell"); break;

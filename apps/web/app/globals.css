@@ -964,3 +964,89 @@ details.fineprint { border: 1px solid var(--glass-line); background: #ffffff05; 
   font-size: 0.78rem; color: var(--color-dim); background: none; border: 0;
 }
 @media (min-width: 720px) { .wallet-door { display: none; } }
+
+
+/* ---------------------------------------------------------------- the race, the map, the sound
+   Three things a token page did not have: the launch closest to its pool, the shape of who holds
+   this one, and a way to hear a buy land. All three are built out of the primitives above (.panel,
+   .btn, .fact, .card-progress, .empty-inline) and the palette at the top of this file, and none of
+   them introduces a colour, so a brand that has restyled those carries all three into its own look
+   without a line of its own. */
+
+/* The strip: who is closest to graduating, from anywhere. */
+.race-head, .holder-map-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.race-head h3, .holder-map-head h3 { font-size: 16px; font-weight: 700; }
+.holder-map-scale { font-size: 11px; }
+.race-quiet { color: #949a8d; font-size: 12.5px; line-height: 1.5; }
+/* One line, and on a phone four: the ticker leads, the distance follows it, and the way in stays
+   on the right of whatever row it lands on. */
+.race-lead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 12px; min-height: 44px; padding: 4px 0; color: var(--color-text); }
+a.race-lead:hover .race-go { color: var(--color-lime); }
+.race-ticker { font-family: var(--font-mono); font-size: 15px; font-weight: 700; letter-spacing: -.02em; }
+.race-gap { color: #949a8d; font-size: 12px; }
+.race-gap strong { color: var(--color-lime); font-family: var(--font-mono); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.race-need { overflow-wrap: anywhere; color: #949a8d; font-family: var(--font-mono); font-size: 11px; }
+.race-go { margin-left: auto; color: #8d947f; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; transition: color .18s; }
+.race .card-progress { margin-top: 10px; }
+/* The runners up are links, and a link a thumb has to hit is a chip, not a word in a sentence. */
+.race-rest { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; color: #7f8579; font-size: 11px; }
+.race-rest a { display: inline-flex; align-items: center; min-height: 40px; border: 1px solid var(--glass-line); border-radius: 100px; padding: 0 12px; background: #ffffff08; color: #98a08d; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+.race-rest a:hover { border-color: var(--glass-hover-line); color: var(--color-text); }
+
+/* The map: every holder as a circle, in proportion, largest first. The cap is what keeps a wide
+   column from blowing one circle up to the height of a phone: past this the drawing stops growing
+   and simply sits at the left of the panel. */
+.holder-map-plot { display: block; width: 100%; max-width: 560px; height: auto; margin: 2px 0 10px; }
+.holder-dot circle { fill: var(--color-lime); fill-opacity: .18; stroke: var(--color-lime); stroke-opacity: .5; stroke-width: 1; transition: fill-opacity .18s, stroke-opacity .18s; }
+/* A piece of the machine is drawn as one: dashed and unlit, so the biggest circle on a curve
+   launch cannot be mistaken for somebody's position. */
+.holder-dot.is-ours circle { fill: var(--color-dim); fill-opacity: .1; stroke: var(--color-dim); stroke-opacity: .7; stroke-dasharray: 4 3; }
+.holder-dot.is-creator circle { stroke: var(--color-text); stroke-opacity: .85; stroke-width: 2; }
+.holder-dot.is-on circle { fill-opacity: .42; stroke-opacity: 1; }
+.holder-dot:focus { outline: none; }
+.holder-dot:focus-visible circle { stroke: var(--color-text); stroke-opacity: 1; stroke-width: 2; }
+/* The slot for the circle being read. It is always here, so nothing under it moves when a pointer
+   crosses the map. */
+.holder-read { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 10px; min-height: 40px; padding: 9px 0; border-top: 1px solid var(--glass-line); font-size: 12px; }
+.holder-read b { color: #fff; font-size: 13px; font-weight: 700; }
+.holder-read .mono { font-size: 11px; }
+.holder-read > .dim { font-size: 11px; }
+.holder-legend { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 12px; padding: 0; list-style: none; }
+.holder-legend li { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--glass-line); border-radius: 100px; padding: 6px 11px; background: #ffffff08; color: #98a08d; font-size: 11px; }
+.holder-legend li b { color: #c8cfbd; font-weight: 600; }
+.holder-legend li.is-ours { border-style: dashed; }
+.holder-legend li.is-creator { border-color: #ffffff38; color: #e4e8dc; }
+/* Three numbers, as many to a row as the column can hold without squeezing a label into a stack of
+   single words. */
+.holder-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 10px; }
+.holder-facts .fact strong { font-size: 18px; }
+.holder-facts .fact span { font-size: 11px; letter-spacing: .06em; }
+.holder-note { margin-top: 11px; color: #7f8579; font-size: 11px; line-height: 1.55; }
+
+/* The sound toggle, which belongs to the tape. It is a sibling of the tape panel rather than a
+   child of it, because the tape is shared with every brand's board, so the panel opens a line for
+   it at the top of its own frame instead: the control reads as the tape's, not as something
+   floating between two panels. The sibling combinator is what makes that conditional, because with
+   less motion asked for there is no toggle at all and the panel must not keep the gap. */
+.tape-block { display: grid; }
+.sound-row { display: flex; justify-content: flex-end; }
+.tape-block .sound-row { position: relative; z-index: 1; padding: 12px 22px 0; }
+.tape-block .sound-row ~ .trade-tape { margin-top: -52px; padding-top: 68px !important; }
+.sound-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; border: 1px solid var(--glass-line); border-radius: 100px; padding: 0 14px; background: #ffffff08; color: #98a08d; font-family: var(--font-mono); font-size: 11px; transition: color .18s, border-color .18s, background .18s; }
+.sound-toggle:hover { border-color: var(--glass-hover-line); color: var(--color-text); }
+.sound-toggle.is-on { border-color: #ccff0059; background: #ccff0014; color: var(--color-text); }
+.sound-dot { width: 6px; height: 6px; border-radius: 50%; background: #ffffff2e; }
+.sound-toggle.is-on .sound-dot { background: var(--color-lime); box-shadow: 0 0 10px 1px #ccff00a6; }
+.sound-what { color: #7f8579; }
+
+@media (max-width: 580px) {
+  /* The map is the last thing that should be cramped, so it takes the whole width of the panel and
+     the sentence about what is our own contract and what is not stays under it. */
+  .race-need { font-size: 11px; }
+  .sound-toggle { padding: 0 11px; }
+  .holder-legend li { padding: 6px 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holder-dot circle, .race-go, .sound-toggle { transition: none; }
+}

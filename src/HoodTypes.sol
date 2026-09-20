@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-/// @notice What happens to the creator leg of the trading fee. Chosen at launch, locked forever.
-enum FeeModel {
-    StakingRewards, // paid to stakers of this token, time-weighted (proof of belief)
-    BuybackBurn, // buys the token back and burns it
-    LiquidityCompound, // deepens the liquidity that the token graduates into
-    CreatorKeep, // paid to the creator fee recipient
-    ZeroFee // no creator leg at all; traders only pay the protocol fee
+/// @notice Where the creator leg of the trading fee goes. Chosen at launch, locked forever.
+/// @dev An allocation rather than a choice: the four legs are spent pro rata on every flush and
+///      must add up to exactly 10_000, so a creator can pay their stakers and keep a slice and
+///      still deepen the pool. `creatorBps = 10_000` is "I keep all of it".
+///
+///      There is no leg for "charge nothing". How BIG the creator leg is belongs to the preset, not
+///      here: a launch that wants traders to pay the protocol and nobody else picks a preset whose
+///      `creatorFeeBps` is zero, and then nothing is ever booked to split.
+struct FeeSplit {
+    uint16 stakersBps; // paid to stakers of this token, time-weighted (proof of belief)
+    uint16 buybackBps; // buys the token back and burns it
+    uint16 liquidityBps; // deepens the liquidity that the token graduates into
+    uint16 creatorBps; // paid to the creator fee recipient
 }
 
 /// @notice Which machine a launch runs on.
@@ -34,7 +40,7 @@ struct CurveConfig {
     uint256 graduationCap; // fully diluted valuation in pair units at the last curve token sold
     uint16 liquidityBps; // share of the raise that seeds the pool; the rest is the graduation fee
     uint16 protocolFeeBps; // trading fee leg paid to the protocol treasury
-    uint16 creatorFeeBps; // trading fee leg routed to the fee model
+    uint16 creatorFeeBps; // trading fee leg routed to the fee split
     uint24 poolFee; // pool fee for the graduated pool
     int24 tickSpacing; // tick spacing for the graduated pool
     bool enabled; // whether new launches may still pick this preset
@@ -51,9 +57,10 @@ struct LaunchParams {
     string telegram;
     address pairToken; // address(0) = native
     uint256 configId;
-    FeeModel feeModel;
-    address creatorFeeRecipient; // ignored for ZeroFee, required for CreatorKeep
+    FeeSplit feeSplit;
+    address creatorFeeRecipient; // required when the split pays the creator anything
     uint256 firstBuy; // pair units spent on the creator's own first buy, in the launch transaction
+    uint64 firstBuyLock; // seconds the first buy is locked in the staking vault; 0 = not locked
     bytes32 salt; // vanity salt, namespaced by the caller
     bytes32 econ; // economics hash pinned by the caller; see HoodFactory.previewLaunchEconomics
 }
@@ -65,12 +72,16 @@ struct Launch {
     address creatorFeeRecipient;
     address pairToken;
     uint256 configId;
-    FeeModel feeModel; // curve mode only
+    FeeSplit feeSplit; // curve mode only; a direct launch splits its tax in its own splitter
     bytes32 symbolHash;
     bytes32 imageHash;
     uint64 launchedAt;
     bool exists;
     LaunchMode mode;
+    /// @notice Token wei of the creator's first buy locked in the staking vault, and when it opens.
+    ///         Both zero when the creator took their first buy in hand.
+    uint256 firstBuyLocked;
+    uint64 firstBuyUnlockAt;
     address hook; // direct mode only
     address splitter; // direct mode only
     address locker; // direct mode only

@@ -1,25 +1,49 @@
 import { z } from "zod";
 
-/// What happens to the creator leg of the trading fee. Picked at launch, locked forever.
-export const FEE_MODELS = ["staking", "buyback", "liquidity", "creator", "zero"] as const;
-export type FeeModel = (typeof FEE_MODELS)[number];
+/// Where the creator leg of the trading fee goes. Four destinations rather than one choice, set at
+/// launch and never editable, and they must add up to the whole: a creator splits it the way the
+/// direct machine has always split its tax. A launch that wants no creator fee at all does not pick
+/// a leg for it, it uses a preset whose creatorFeeBps is zero, which is where that belongs.
+export const FEE_LEGS = ["stakers", "buyback", "liquidity", "creator"] as const;
+export type FeeLeg = (typeof FEE_LEGS)[number];
 
-export const feeModelToIndex: Record<FeeModel, number> = {
-  staking: 0,
-  buyback: 1,
-  liquidity: 2,
-  creator: 3,
-  zero: 4,
-};
-export const feeModelFromIndex = (i: number): FeeModel => FEE_MODELS[i] ?? "staking";
+export interface FeeSplit {
+  stakersBps: number;
+  buybackBps: number;
+  liquidityBps: number;
+  creatorBps: number;
+}
 
-export const feeModelLabel: Record<FeeModel, string> = {
-  staking: "Stakers take the fee",
+export const FEE_LEG_LABEL: Record<FeeLeg, string> = {
+  stakers: "Stakers take it",
   buyback: "Buy back and burn",
   liquidity: "Deepen the liquidity",
-  creator: "Creator keeps the fee",
-  zero: "No creator fee",
+  creator: "The creator keeps it",
 };
+
+export const BPS = 10_000;
+
+/// The whole, or the launch reverts. Stated here so a form can say so before a wallet does.
+export function splitAddsUp(split: FeeSplit): boolean {
+  return split.stakersBps + split.buybackBps + split.liquidityBps + split.creatorBps === BPS;
+}
+
+/// The legs that actually pay something, largest first, for anywhere a split has to be read out.
+export function splitLegs(split: FeeSplit): { leg: FeeLeg; bps: number }[] {
+  return ([
+    { leg: "stakers" as const, bps: split.stakersBps },
+    { leg: "buyback" as const, bps: split.buybackBps },
+    { leg: "liquidity" as const, bps: split.liquidityBps },
+    { leg: "creator" as const, bps: split.creatorBps },
+  ]).filter((l) => l.bps > 0).sort((a, b) => b.bps - a.bps);
+}
+
+/// A split in one line: "60% stakers, 40% buy back and burn".
+export function splitLabel(split: FeeSplit): string {
+  const legs = splitLegs(split);
+  if (legs.length === 0) return "no creator leg";
+  return legs.map((l) => `${Math.round((l.bps / BPS) * 100)}% ${FEE_LEG_LABEL[l.leg].toLowerCase()}`).join(", ");
+}
 
 export const PHASES = ["curve", "sold", "graduated"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -37,10 +61,21 @@ export const launchParamsSchema = z.object({
   telegram: z.string().max(200).default(""),
   pairToken: addressSchema.default("0x0000000000000000000000000000000000000000"),
   configId: z.union([z.number(), z.bigint()]).default(0),
-  feeModel: z.enum(FEE_MODELS).default("staking"),
+  /// Four numbers that must add up to 10,000. The default sends the whole creator leg to stakers,
+  /// which is what the single-choice default used to mean.
+  feeSplit: z.object({
+    stakersBps: z.number().int().min(0).max(BPS),
+    buybackBps: z.number().int().min(0).max(BPS),
+    liquidityBps: z.number().int().min(0).max(BPS),
+    creatorBps: z.number().int().min(0).max(BPS),
+  }).refine(splitAddsUp, { message: "the four legs must add up to 10,000" })
+    .default({ stakersBps: BPS, buybackBps: 0, liquidityBps: 0, creatorBps: 0 }),
   creatorFeeRecipient: addressSchema.optional(),
   /// Pair units spent on the creator's own first buy, inside the launch transaction.
   firstBuy: z.union([z.string(), z.bigint()]).default("0"),
+  /// Seconds the creator's own first buy is locked in the staking vault. Zero is no lock, and any
+  /// other value must be one of the vault's tiers (7, 30, 90 or 180 days) or the launch reverts.
+  firstBuyLock: z.union([z.number(), z.bigint()]).default(0),
   salt: z.string().optional(),
   /// Economics hash read with previewLaunchEconomics. Zero skips the check.
   econ: z.string().optional(),
@@ -67,7 +102,10 @@ export interface Launch {
   creatorFeeRecipient: `0x${string}`;
   pairToken: `0x${string}`;
   configId: bigint;
-  feeModel: FeeModel;
+  feeSplit: FeeSplit;
+  /// Token units of the creator's own first buy that were locked in the staking vault at launch.
+  firstBuyLocked: bigint;
+  firstBuyUnlockAt: number;
   symbolHash: `0x${string}`;
   imageHash: `0x${string}`;
   launchedAt: number;

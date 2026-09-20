@@ -11,7 +11,7 @@ import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
-import {CurveConfig, FeeModel, LaunchParams, Phase} from "../src/HoodTypes.sol";
+import {CurveConfig, FeeSplit, LaunchParams, Phase} from "../src/HoodTypes.sol";
 import {IPoolManager, PoolKey, SwapParams} from "../src/interfaces/IExternal.sol";
 
 interface IStateView {
@@ -149,10 +149,10 @@ contract ForkCurveGradInvariant is StdInvariant, Test {
         vm.stopPrank();
 
         LaunchParams memory p;
-        // CreatorKeep is the model C1 could rug through: on C1 the raise leaks to the fee router and
+        // A whole creator leg is what C1 could rug through: on C1 the raise leaks to the fee router and
         // out to the creator. Using it makes the invariant fail loudly if the fix ever regresses.
         p.name = "Grad"; p.symbol = "GRAD"; p.pairToken = address(0); p.configId = configId;
-        p.feeModel = FeeModel.CreatorKeep; p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
+        p.feeSplit = FeeSplit({stakersBps: 0, buybackBps: 0, liquidityBps: 0, creatorBps: 10_000}); p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
         vm.prank(creator);
         (token,,) = factory.launch(p);
         curve = HoodCurve(payable(factory.getLaunch(token).curve));
@@ -198,14 +198,14 @@ contract ForkCurveGradInvariant is StdInvariant, Test {
         uint256 creatorBefore = creator.balance;
         curve.finalize();
 
-        // the raise is in the pool, the creator got nothing extra, the fee model did not get the raise
+        // the raise is in the pool, the creator got nothing extra, the fee router did not get the raise
         assertGt(IStateView(STATE_VIEW).getLiquidity(poolId), 0, "pool funded");
         assertApproxEqRel(IERC20(token).balanceOf(POOL_MANAGER), lpSupply, 0.02e18, "supply in the pool");
         assertLt(router.accrued(token), raiseTarget / 10, "raise did not leak");
         assertEq(creator.balance, creatorBefore, "creator stole nothing");
     }
 
-    /// @notice Once the curve has graduated, the raise is in the POOL and not in the fee model.
+    /// @notice Once the curve has graduated, the raise is in the POOL and not in the fee router.
     ///         This is C1, inverted into a property: on the bug, a nudged empty pool made graduation
     ///         mint almost nothing on the pair side and sweep the raise out to the fee router (and,
     ///         on CreatorKeep, on to the creator). If it holds through every fuzzed nudge, C1 stays
@@ -218,7 +218,7 @@ contract ForkCurveGradInvariant is StdInvariant, Test {
         assertGt(IStateView(STATE_VIEW).getLiquidity(poolId), 0, "graduated pool has no liquidity");
         assertApproxEqRel(IERC20(token).balanceOf(POOL_MANAGER), lpSupply, 0.02e18, "the supply did not reach the pool");
         // On C1 the raise leaks here. A healthy graduation only leaves a rounding sliver.
-        assertLt(router.accrued(token), raiseTarget / 10, "the raise leaked to the fee model");
+        assertLt(router.accrued(token), raiseTarget / 10, "the raise leaked to the fee router");
     }
 
     /// @notice The graduator never keeps leftovers: no token and no pair sit on it. Any that would

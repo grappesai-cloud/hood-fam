@@ -16,7 +16,7 @@ import { Artwork } from "@/components/Artwork";
 import { Addr, ConfirmButton, Row } from "@/components/admin/ui";
 import { AddressInput, deployedAt, same, useOwnerWrite, validAddress, WriteError } from "@/components/admin/owner";
 import {
-  compact, feeModelLabel, fmt, imageUrl, launchProgress, pairDecimals, pairSymbol, shortAddress,
+  compact, fmt, imageUrl, launchProgress, pairDecimals, pairSymbol, shortAddress, splitLabel,
 } from "@/lib/format";
 
 /// The page a creator comes back to. The token page is written for whoever is thinking about
@@ -27,12 +27,6 @@ import {
 ///
 /// Every button says why it cannot be pressed instead of simply going grey: a wallet that is not
 /// the one being paid, an address this deployment never configured, or nothing waiting to move.
-
-/// FeeModel.CreatorKeep. The one model where the creator leg is paid out to a wallet, which makes
-/// the flush their claim and the recipient something they can hand over.
-const CREATOR_KEEP = 3;
-/// FeeModel.BuybackBurn. After graduation its flush has to swap, and a swap needs a price floor.
-const BUYBACK_BURN = 1;
 
 export default function CreatorPage() {
   const { address, isConnected } = useAccount();
@@ -59,8 +53,8 @@ export default function CreatorPage() {
         {intro}
         <section>
           <Empty
-            title="This is where a launch is run from."
-            body="Connect the wallet that printed them and this page gathers every one: push the trading fee through to wherever it was pointed at launch, collect what the pool has earned, claim your own share, and hand the fee stream to somebody else."
+            title="Collect what your launches have earned."
+            body="Connect the wallet that printed them and you get every launch on one page, what each one is worth right now, and one button for each payment that is sitting there waiting to be moved."
             action={
               <button className="btn" disabled={isPending || !connector}
                 onClick={() => connector && connect({ connector })}>
@@ -133,7 +127,11 @@ function Launch({ t, me }: { t: TokenRow; me: Address }) {
   const sym = pairSymbol(t.pair_token);
   const progress = launchProgress(t);
   const isCreator = same(t.creator, me);
-  const keeps = !direct && t.fee_model === CREATOR_KEEP;
+  // The creator leg pays a wallet, which is what makes the flush their claim and the recipient
+  // something they can hand over.
+  const keeps = !direct && (t.split_creator_bps ?? 0) > 0;
+  // Any part of the fee that buys back has to swap, and a swap after graduation needs a price floor.
+  const buysBack = !direct && (t.split_buyback_bps ?? 0) > 0;
   const splitter = direct && t.splitter ? (t.splitter as Address) : undefined;
   const locker = direct && t.locker ? (t.locker as Address) : undefined;
   const native = t.pair_token === zeroAddress;
@@ -191,8 +189,8 @@ function Launch({ t, me }: { t: TokenRow; me: Address }) {
     !feeRouter ? "the fee router is not configured on this deployment"
     : accrued === undefined ? "still reading what the router is holding"
     : accrued === 0n ? "nothing is waiting in the router"
-    : graduated && t.fee_model === BUYBACK_BURN ? "a graduated buy back and burn buys on the open market, so its flush needs a price floor and goes through the keeper"
-    : t.phase === 1 && t.fee_model === BUYBACK_BURN ? "the curve is sold out: open the pool first"
+    : graduated && buysBack ? "a graduated buy back and burn buys on the open market, so its flush needs a price floor and goes through the keeper"
+    : t.phase === 1 && buysBack ? "the curve is sold out: open the pool first"
     : undefined;
 
   const collectReason =
@@ -241,7 +239,7 @@ function Launch({ t, me }: { t: TokenRow; me: Address }) {
         <Fact label={`${sym} market cap`} value={compact(mcap, dec)} />
         <Fact label={`${sym} 24h volume`} value={compact(BigInt(t.volume_24h || "0"), dec)} />
         <Fact label="trades" value={String(t.trades_total)} />
-        <Fact label="where the fee goes" value={direct ? "split by the splitter" : feeModelLabel(t.fee_model)} />
+        <Fact label="where the fee goes" value={direct ? "split by the splitter" : splitLabel(t)} />
       </div>
 
       <div className="creator-progress">
@@ -264,7 +262,7 @@ function Launch({ t, me }: { t: TokenRow; me: Address }) {
             label={keeps && paysMe ? "claim what is waiting to my wallet" : "push the fees through"}
             note={keeps
               ? `Anybody can send it. It lands at ${recipient ? shortAddress(recipient) : "the fee recipient"}, in one hop.`
-              : `Anybody can send it. On this launch it goes to: ${feeModelLabel(t.fee_model).toLowerCase()}.`}
+              : `Anybody can send it. On this launch it goes to: ${splitLabel(t).toLowerCase()}.`}
             reason={flushReason}
             pending={pending}
             onClick={() => send("flush", () => writeContractAsync({

@@ -45,7 +45,7 @@ const mine = (n) => publicClient.request({ method: "anvil_mine", params: [`0x${n
 
 // ---------------------------------------------------------------- the curve
 console.log("curve: launching");
-const { hash: curveHash } = await creator.hood.launch({ name: "Curve Fam", symbol: "CFAM", feeModel: "staking", firstBuy: parseEther("0.2") });
+const { hash: curveHash } = await creator.hood.launch({ name: "Curve Fam", symbol: "CFAM", feeSplit: { stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0 }, firstBuy: parseEther("0.2") });
 const { token: cToken, curve } = await creator.hood.launchResult(curveHash);
 await wait(await alice.hood.buy(curve, parseEther("0.5")));
 await wait(await bob.hood.buy(curve, parseEther("0.4")));

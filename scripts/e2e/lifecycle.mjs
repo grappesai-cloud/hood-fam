@@ -467,13 +467,21 @@ async function curveMachine(a) {
   const treasuryBefore = await balanceOf(zeroAddress, treasury.address);
   const firstBuy = parseEther("0.2");
   const { hash } = await hood(creator).launch({
-    name: "Rehearsal Fam", symbol: "RFAM", feeModel: "staking", description: "the fam takes the fee", firstBuy,
+    name: "Rehearsal Fam", symbol: "RFAM", description: "the fam takes the fee", firstBuy,
+    // Split rather than a single model, and deliberately not a round one: the rehearsal should
+    // exercise the rounding remainder, not a case where every leg divides evenly.
+    feeSplit: { stakersBps: 5_000, buybackBps: 0, liquidityBps: 2_500, creatorBps: 2_500 },
   });
   const { token, curve, receipt: launchReceipt } = await hood(creator).launchResult(hash);
   check("the curve launch landed a token and a curve", Boolean(token) && Boolean(curve), `${token} / ${curve}`);
 
   const launch = await hood(creator).getLaunch(token);
-  check("the registry knows the launch and its fee model", launch.exists && launch.feeModel === "staking" && same(launch.creator, creator.address));
+  check(
+    "the registry knows the launch and its fee split",
+    launch.exists && same(launch.creator, creator.address)
+      && launch.feeSplit.stakersBps === 5_000 && launch.feeSplit.liquidityBps === 2_500 && launch.feeSplit.creatorBps === 2_500,
+    `${launch.feeSplit?.stakersBps}/${launch.feeSplit?.buybackBps}/${launch.feeSplit?.liquidityBps}/${launch.feeSplit?.creatorBps}`,
+  );
   // Only one of the two things the treasury earns here is pushed to it. The flat launch fee is sent
   // by the factory inside this transaction; the protocol's thirty of the hundred bps the first buy
   // paid as a trading fee is BOOKED on the curve as protocolClaimable and pulled later by anybody
@@ -533,11 +541,22 @@ async function curveMachine(a) {
     `position ${positionId}, ${formatEther(stakeAmount)} RFAM`);
 
   const stakingBefore = await balanceOf(zeroAddress, a.staking);
+  const creatorFeeBefore = await balanceOf(zeroAddress, creator.address);
   await send(keeper, a.feeRouter, hoodFeeRouterAbi, "flush", [token]);
   check("the flush emptied the router's book for this token",
     (await read(a.feeRouter, hoodFeeRouterAbi, "accrued", [token])) === 0n);
-  check("the flush moved the fee into the staking contract, which is what this fee model means",
-    (await balanceOf(zeroAddress, a.staking)) - stakingBefore === accrued, `${formatEther(accrued)} ETH`);
+
+  // The launch above splits the creator leg 50 stakers / 25 liquidity / 25 creator, so this is the
+  // arithmetic that matters: each destination gets its share and the shares add up to the whole,
+  // with the last non-zero leg carrying the rounding remainder.
+  const toStakers = (await balanceOf(zeroAddress, a.staking)) - stakingBefore;
+  const toCreator = (await balanceOf(zeroAddress, creator.address)) - creatorFeeBefore;
+  check("the stakers' half of the fee reached the staking contract",
+    toStakers === (accrued * 5_000n) / 10_000n, `${formatEther(toStakers)} of ${formatEther(accrued)} ETH`);
+  check("the creator's quarter reached the fee recipient",
+    toCreator > 0n && toCreator <= (accrued * 2_500n) / 10_000n + 1n, `${formatEther(toCreator)} ETH`);
+  check("nothing of the flush was left behind",
+    (await balanceOf(zeroAddress, a.feeRouter)) === 0n, "the router holds nothing for this token");
   const pending = await read(a.staking, hoodStakingAbi, "pending", [positionId]);
   check("the staker can claim the fee that just arrived", pending > 0n, `${formatEther(pending)} ETH pending`);
 

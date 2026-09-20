@@ -259,12 +259,20 @@ export async function buildServer() {
     const { rows } = await pool.query(`select *, (${STATUS}) as status from launches where token = $1`, [token.toLowerCase()]);
     if (!rows[0]) return reply.code(404).send({ error: "unknown token" });
     // `accrued` is what came in: the router's bookings on a curve token, the splitter's sweeps on a
-    // direct one. The claims and buybacks that follow are slices of it, not more of it.
+    // direct one. The claims and buybacks that follow are slices of it, not more of it. `flushed`
+    // is what has left along the split, and the four legs under it are where it went; they add up
+    // to it. `burned` is the tokens the buyback leg took off the supply, which is not pair money
+    // and never belongs in the same sum.
     const [{ rows: holders }, { rows: fees }, { rows: stakes }] = await Promise.all([
       pool.query(`select count(*) as holders from balances where token = $1 and balance > 0`, [token.toLowerCase()]),
       pool.query(
         `select coalesce(sum(amount) filter (where kind in ('accrued', 'swept')), 0) as accrued,
-                coalesce(sum(result) filter (where kind = 'flushed'), 0) as flushed
+                coalesce(sum(amount) filter (where kind = 'flushed'), 0) as flushed,
+                coalesce(sum(to_stakers), 0) as to_stakers,
+                coalesce(sum(to_buyback), 0) as to_buyback,
+                coalesce(sum(to_liquidity), 0) as to_liquidity,
+                coalesce(sum(to_creator), 0) as to_creator,
+                coalesce(sum(result) filter (where kind = 'flushed'), 0) as burned
          from fee_events where token = $1`, [token.toLowerCase()]),
       pool.query(`select coalesce(sum(amount),0) as staked, count(*) as positions from stakes where token = $1 and active`, [token.toLowerCase()]),
     ]);

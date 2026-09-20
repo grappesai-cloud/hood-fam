@@ -207,7 +207,7 @@ try {
     abi: hoodFactoryAbi, functionName: "launch",
     args: [{
       name: "Team Coin", symbol: "TEAM", image: "", description: "launched by a 2 of 2 Safe", website: "", twitter: "", telegram: "",
-      pairToken: "0x0000000000000000000000000000000000000000", configId: 0n, feeModel: 0, creatorFeeRecipient: team,
+      pairToken: "0x0000000000000000000000000000000000000000", configId: 0n, feeSplit: { stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0 }, creatorFeeRecipient: team,
       firstBuy, salt: keccak256(stringToBytes("team")), econ,
     }],
   });

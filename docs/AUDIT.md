@@ -6,28 +6,28 @@ logistics and where to look hardest.
 
 ## What is in scope
 
-Everything under `src/`: 4,449 lines of Solidity, eighteen deployable contracts, no proxies, no
+Everything under `src/`: 4,596 lines of Solidity, eighteen deployable contracts, no proxies, no
 upgradeability, no pausing except a gate on NEW direct launches.
 
 | Contract | Lines | Deployed size | What it is |
 |---|---|---|---|
 | `direct/HoodPortal.sol` | 558 | 16,635 | the direct machine's door: one transaction that deploys a token, mines nothing, opens a v4 pool and locks the position |
 | `graduation/UniswapV4Graduator.sol` | 443 | 13,423 | curve graduation into a locked v4 position, permissionless fee collection, compounding |
-| `HoodFactory.sol` | 443 | 12,980 | the registry and the launch transaction for the curve machine; presets, pairs, econ hash |
+| `HoodFactory.sol` | 507 | 14,413 | the registry and the launch transaction for the curve machine; presets, pairs, econ hash, the creator's locked first buy |
 | `direct/HoodLaunchHook.sol` | 334 | 7,425 | the v4 hook that taxes both sides of a swap, including the opening surcharge and the hold limits |
 | `HoodCurve.sol` | 323 | 8,769 | the bonding curve: exact-in and exact-out buys, sells, fees, graduation |
 | `direct/HoodRevenueSplitter.sol` | 256 | 5,448 | the four-way split of the tax, the protocol tenth, dividends |
-| `HoodStaking.sol` | 256 | 5,692 | one vault for every launch, lock multipliers, permissionless claim and demote |
+| `HoodStaking.sol` | 267 | 5,938 | one vault for every launch, lock multipliers, permissionless claim and demote |
 | `HoodSeasonDrop.sol` | 221 | 4,445 | merkle claim per season, funded in the same call that publishes the root |
 | `direct/HoodBuybackModule.sol` | 200 | 6,094 | permissionless buyback, capped in price impact, resumable |
-| `HoodFeeRouter.sol` | 167 | 5,866 | the five fee models, permissionless flush, no owner and no withdrawal |
+| `HoodFeeRouter.sol` | 215 | 5,970 | the four-way split of the creator fee leg, permissionless flush, no owner and no withdrawal |
 | `direct/HoodLocker.sol` | 158 | 4,518 | holds the direct machine's position for good; harvest and deepen only |
 | `omnichain/HoodBridgeFactory.sol` | 141 | 14,486 | LayerZero OFT adapter per token, per route |
 | `direct/HoodLaunchToken.sol` | 141 | 8,825 | the clone the direct machine stamps |
 | `direct/HoodDirectDeployer.sol` | 88 | 20,628 | deploys a hook at a mined address bound to its creator |
 | `libraries/CurveMath.sol` | 71 | library | the curve's arithmetic |
 | `libraries/PairTransfer.sol` | 61 | library | native and ERC-20 payment paths, fee-on-transfer refused |
-| `HoodDeployer.sol`, `HoodToken.sol`, `HoodTypes.sol` | 176 | | the curve machine's token and shared types |
+| `HoodDeployer.sol`, `HoodToken.sol`, `HoodTypes.sol` | 187 | | the curve machine's token and shared types |
 
 **Out of scope, and why it still matters.** `apps/` and `packages/` are off chain: the indexer, the
 read API, the app, the SDK. Nothing there can move money. One seam is worth an auditor's attention
@@ -73,9 +73,9 @@ re-verified.
 |---|---|---|
 | `SeasonDrop.t.sol` | 20 | the merkle claim, funding, windows, sweeping |
 | `DirectSwap.t.sol` | 17 | the hook's taxes on real swaps, both directions, exact-in and exact-out |
-| `Factory.t.sol` | 17 | launches, presets, pairs, the econ hash, the copycat lock |
+| `Factory.t.sol` | 22 | launches, presets, pairs, the econ hash, the copycat lock, the locked first buy |
 | `Curve.t.sol` + `CurveMath.t.sol` | 21 | curve arithmetic, both buy paths, sells, sold-out, finalize |
-| `FeeModels.t.sol` | 12 | all five models, flushes, what each does with a fee |
+| `FeeSplit.t.sol` | 19 | the four legs, how a split rounds, flushes, what each leg does with a fee |
 | `DirectSplitter.t.sol` | 11 | the four-way split, the protocol tenth, dividends, claims |
 | `DirectToken.t.sol` + `DirectHook.t.sol` | 17 | the clone, the hold and buy limits, the surcharge decay |
 | `Staking.t.sol` | 9 | locks, weights, claims, demotion |

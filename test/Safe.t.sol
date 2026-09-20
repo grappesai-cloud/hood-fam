@@ -13,7 +13,7 @@ import {HoodFactory} from "../src/HoodFactory.sol";
 import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodSeasonDrop} from "../src/HoodSeasonDrop.sol";
-import {FeeModel, LaunchParams} from "../src/HoodTypes.sol";
+import {LaunchParams} from "../src/HoodTypes.sol";
 
 /// @notice hood.fam with a real Safe v1.4.1 in both of the places one belongs: as the protocol's
 ///         owner and treasury, and as an ordinary user of it (a team launching, trading, staking,
@@ -112,7 +112,7 @@ contract SafeTest is BaseTest, SafeRig {
         _call(ops, address(factory), 0, abi.encodeCall(HoodFactory.setTreasury, (address(ops))), _first(opsKeys, 2));
 
         uint256 before = address(ops).balance;
-        (, HoodCurve curve) = _launch(FeeModel.CreatorKeep);
+        (, HoodCurve curve) = _launch(_toCreator());
         // The launch fee is pushed in the launch transaction, into the Safe's receive.
         assertEq(address(ops).balance - before, LAUNCH_FEE);
 
@@ -128,7 +128,7 @@ contract SafeTest is BaseTest, SafeRig {
     /// @notice Why the Safe has to be the treasury from the first deploy: a curve pins the treasury it
     ///         was launched with, and a later move only reaches launches made after it.
     function test_aCurveKeepsTheTreasuryItLaunchedWith() public {
-        (, HoodCurve early) = _launch(FeeModel.CreatorKeep);
+        (, HoodCurve early) = _launch(_toCreator());
         _handOver();
         _call(ops, address(factory), 0, abi.encodeCall(HoodFactory.setTreasury, (address(ops))), _first(opsKeys, 2));
 
@@ -147,7 +147,7 @@ contract SafeTest is BaseTest, SafeRig {
         (ISafe team, uint256[] memory keys) = _newSafe("team", 2, 2);
         vm.deal(address(team), 10 ether);
 
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         p.creatorFeeRecipient = address(team);
         p.firstBuy = 0.5 ether;
         p.salt = bytes32(uint256(7));
@@ -163,7 +163,7 @@ contract SafeTest is BaseTest, SafeRig {
     }
 
     function test_aSafeSellsAndStakesWithOneSignatureRoundEach() public {
-        (address token, HoodCurve curve) = _launch(FeeModel.StakingRewards);
+        (address token, HoodCurve curve) = _launch(_toStakers());
         (ISafe team, uint256[] memory keys) = _newSafe("team", 3, 2);
         uint256[] memory two = _first(keys, 2);
         vm.deal(address(team), 5 ether);
@@ -202,7 +202,7 @@ contract SafeTest is BaseTest, SafeRig {
     }
 
     function test_aBatchIsAllOrNothing() public {
-        (address token, HoodCurve curve) = _launch(FeeModel.CreatorKeep);
+        (address token, HoodCurve curve) = _launch(_toCreator());
         (ISafe team, uint256[] memory keys) = _newSafe("team", 2, 2);
         vm.deal(address(team), 5 ether);
         _call(team, address(curve), 1 ether, abi.encodeCall(HoodCurve.buy, (1 ether, 0, address(team))), keys);
@@ -227,9 +227,9 @@ contract SafeTest is BaseTest, SafeRig {
 
     function test_aCreatorFeeStreamPaysIntoASafe() public {
         (ISafe team,) = _newSafe("team", 2, 2);
-        LaunchParams memory p = _params(FeeModel.CreatorKeep);
+        LaunchParams memory p = _params(_toCreator());
         p.creatorFeeRecipient = address(team);
-        (address token, HoodCurve curve) = _launch(FeeModel.CreatorKeep, p, LAUNCH_FEE);
+        (address token, HoodCurve curve) = _launch(_toCreator(), p, LAUNCH_FEE);
 
         _buy(curve, alice, 2 ether);
         uint256 before = address(team).balance;
@@ -270,7 +270,7 @@ contract SafeTest is BaseTest, SafeRig {
 
     function _launched() internal view returns (address token, address curve, address creator) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 topic = keccak256("Launched(address,address,address,uint256,address,uint8)");
+        bytes32 topic = keccak256("Launched(address,address,address,uint256,address,(uint16,uint16,uint16,uint16))");
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter == address(factory) && logs[i].topics[0] == topic) {
                 return (
