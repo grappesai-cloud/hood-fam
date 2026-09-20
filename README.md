@@ -73,6 +73,12 @@ can do, what the owner can, and the risks that are accepted rather than solved.
 | `HoodOFTAdapter` / `HoodOFTRemote` | The lock box here, the mirror there. |
 | `CurveMath` | The curve arithmetic, in one exact division. |
 
+There is no multisig contract here on purpose. The owner and the treasury are a **Safe** (v1.4.1,
+the canonical deployment that is already on 4663), created by `script/DeploySafe.s.sol` before
+anything else and accepted in one batch with `npm run safe -- accept`. Any user can be a Safe too:
+the app runs inside Safe{Wallet} as a Safe App, and a team's approval and trade are signed once,
+together. `docs/RUNBOOK.md` section 0a is the whole procedure.
+
 ## The curve
 
 `price(s) = p0 + (p1 - p0) * s / supply`, where `p0` and `p1` come from the start cap and the

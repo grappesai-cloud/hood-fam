@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { zeroAddress, type Address } from "viem";
+import { receiptTimeout } from "@/lib/safe";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { fmt, shortAddress } from "@/lib/format";
 import { getOrNull, weiOf, when, type Proof } from "./data";
@@ -75,7 +76,7 @@ export function ClaimPanel({ season }: { season: number }) {
           p.proof.map((node) => node as `0x${string}`),
         ],
       });
-      await publicClient?.waitForTransactionReceipt({ hash });
+      await publicClient?.waitForTransactionReceipt({ hash, timeout: receiptTimeout(hash) });
       setSent(true);
       await queryClient.invalidateQueries();
     } catch (e) {

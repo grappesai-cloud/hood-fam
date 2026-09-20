@@ -13,7 +13,9 @@
     "test": "forge test --no-match-path 'test/Fork*.t.sol'",
     "check:points": "node scripts/checks/points-accrual.mjs",
     "abis:check": "node scripts/abis.mjs --check",
-    "check:fetch": "node scripts/checks/safe-fetch.mjs"
+    "check:fetch": "node scripts/checks/safe-fetch.mjs",
+    "safe": "node scripts/safe.mjs",
+    "check:safe": "node scripts/checks/safe-batch.mjs"
   },
   "keywords": [],
   "author": "",

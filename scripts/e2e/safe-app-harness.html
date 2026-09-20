@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Safe App harness</title>
+<style>
+  body { margin: 0; font: 14px ui-monospace, monospace; background: #111; color: #ddd; }
+  header { padding: 8px 12px; border-bottom: 1px solid #333; display: flex; gap: 16px; align-items: center; }
+  iframe { width: 100%; height: calc(100vh - 41px); border: 0; background: #000; }
+  #log { position: fixed; right: 8px; bottom: 8px; max-width: 40vw; max-height: 40vh; overflow: auto; background: #000c; padding: 8px; font-size: 11px; }
+</style>
+</head>
+<body>
+<!--
+  Safe{Wallet}, as far as the app can tell.
+
+  hood.fam inside a Safe is an iframe, and everything the app's wallet does goes over postMessage to
+  the Safe app framing it. This stands in for that: it speaks the same protocol the Safe Apps SDK
+  expects, and instead of collecting signatures it waits a few seconds (so the "waiting in your Safe"
+  state is real and visible) and then executes the transaction as the Safe on a local anvil, through
+  `anvil_impersonateAccount`. The chain-side Safe semantics are covered by test/Safe.t.sol and
+  scripts/e2e/safe.mjs; what this covers is the app: connecting as a Safe, proposing, waiting, and
+  picking the receipt back up.
+
+  Served from the app's own origin (copied into apps/web/public by scripts/e2e/safe-ui.mjs), because
+  the page's CSP only lets itself and app.safe.global frame it.
+-->
+<header>
+  <strong>Safe App harness</strong>
+  <span id="safe"></span>
+  <span id="state">idle</span>
+</header>
+<iframe id="app"></iframe>
+<pre id="log"></pre>
+<script>
+const params = new URLSearchParams(location.search);
+const SAFE = params.get("safe");
+const RPC = params.get("rpc") || "http://127.0.0.1:8547";
+const DELAY = Number(params.get("delay") ?? 6000); // how long "the other signers" take
+const OWNERS = (params.get("owners") || "").split(",").filter(Boolean);
+const THRESHOLD = Number(params.get("threshold") ?? 2);
+document.getElementById("safe").textContent = `${SAFE} · ${THRESHOLD} of ${OWNERS.length}`;
+const app = document.getElementById("app");
+app.src = params.get("app") || "/admin";
+
+const logEl = document.getElementById("log");
+const log = (...a) => { logEl.textContent = `${a.join(" ")}\n${logEl.textContent}`.slice(0, 4000); };
+window.harness = { sent: [], executed: [] };
+
+let rpcId = 1;
+async function rpc(method, params = []) {
+  const res = await fetch(RPC, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: rpcId++, method, params }),
+  });
+  const body = await res.json();
+  if (body.error) throw new Error(body.error.message || "rpc error");
+  return body.result;
+}
+
+const pending = new Map(); // safeTxHash -> { txHash }
+const randomHash = () => `0x${[...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+
+/// The Safe signs nothing here: anvil lets us act as the Safe directly, which is the same state the
+/// chain would be in once its owners had signed.
+async function executeAsSafe(txs) {
+  await rpc("anvil_impersonateAccount", [SAFE]);
+  let last;
+  for (const tx of txs) {
+    last = await rpc("eth_sendTransaction", [{ from: SAFE, to: tx.to, data: tx.data || "0x", value: tx.value && tx.value !== "0" ? `0x${BigInt(tx.value).toString(16)}` : "0x0" }]);
+    window.harness.executed.push(last);
+  }
+  await rpc("anvil_stopImpersonatingAccount", [SAFE]);
+  return last;
+}
+
+const respond = (id, data) => app.contentWindow.postMessage({ id, success: true, data, version: "9.1.0" }, "*");
+const fail = (id, error) => app.contentWindow.postMessage({ id, success: false, error: String(error), version: "9.1.0" }, "*");
+
+window.addEventListener("message", async (msg) => {
+  if (msg.source !== app.contentWindow || !msg.data || !msg.data.method) return;
+  const { id, method, params } = msg.data;
+  log("<-", method);
+  try {
+    switch (method) {
+      case "getSafeInfo":
+        return respond(id, { safeAddress: SAFE, chainId: 4663, threshold: THRESHOLD, owners: OWNERS, isReadOnly: false, network: "ROBINHOOD" });
+      case "getEnvironmentInfo":
+        return respond(id, { origin: location.origin });
+      case "getChainInfo":
+        return respond(id, {
+          chainName: "Robinhood Chain", chainId: "4663", shortName: "robinhood",
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18, logoUri: "" },
+          blockExplorerUriTemplate: { address: "", txHash: "", api: "" },
+        });
+      case "getSafeBalances":
+        return respond(id, []);
+      case "rpcCall":
+        return respond(id, await rpc(params.call, params.params));
+      case "sendTransactions": {
+        const safeTxHash = randomHash();
+        window.harness.sent.push({ safeTxHash, txs: params.txs });
+        pending.set(safeTxHash, {});
+        document.getElementById("state").textContent = "proposed, waiting for signers";
+        log("proposed", safeTxHash, `${params.txs.length} call(s)`);
+        // The signers take their time, then it goes through.
+        setTimeout(async () => {
+          try {
+            const txHash = await executeAsSafe(params.txs);
+            pending.set(safeTxHash, { txHash });
+            document.getElementById("state").textContent = `executed ${txHash.slice(0, 12)}`;
+            log("executed", txHash);
+          } catch (e) {
+            log("execution failed", e.message);
+          }
+        }, DELAY);
+        return respond(id, { safeTxHash });
+      }
+      case "getTxBySafeTxHash": {
+        const p = pending.get(params.safeTxHash) || {};
+        return respond(id, {
+          txHash: p.txHash ?? null,
+          txStatus: p.txHash ? "SUCCESS" : "AWAITING_CONFIRMATIONS",
+          detailedExecutionInfo: { confirmations: p.txHash ? [1, 2] : [1], confirmationsRequired: THRESHOLD },
+        });
+      }
+      default:
+        return fail(id, `harness does not implement ${method}`);
+    }
+  } catch (e) {
+    fail(id, e.message ?? e);
+  }
+});
+</script>
+</body>
+</html>

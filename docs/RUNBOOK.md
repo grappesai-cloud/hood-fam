@@ -9,8 +9,8 @@ Four roles, four addresses, all generated for this project and used for nothing 
 | role | what it does | where the key lives |
 |---|---|---|
 | deployer | sends the deployment, then hands ownership over | a fresh key, used once |
-| owner | presets, launch fee, pair list, routes | a Safe, or a hardware wallet |
-| treasury | receives the protocol fee and the graduation fee | a wallet with no other job |
+| owner | presets, launch fee, pair list, routes | **a Safe** (section 0a) |
+| treasury | receives the protocol fee and the graduation fee | **the same Safe** |
 | keeper | finalizes, flushes, collects | a hot key on the server, holding gas and nothing else |
 
 ```bash
@@ -30,6 +30,50 @@ transaction. This is not hypothetical: it is why the rehearsal derives its own k
 ```bash
 cast code $TREASURY --rpc-url $HOOD_RPC   # must print 0x, for every one of the four
 ```
+
+(The Safe is the exception: it is a contract by definition, and section 0a checks it differently.)
+
+## 0a. The Safe that owns it
+
+The owner and the treasury are one Safe, created before anything else is deployed. hood.fam ships no
+multisig of its own: Safe v1.4.1 is already on 4663 at its canonical addresses, byte for byte the
+code Safe runs on every other chain (the deploy script refuses to build on anything else), and
+Safe{Wallet} supports the chain as `robinhood`.
+
+```bash
+export SAFE_OWNERS=0xA,0xB,0xC     # signers, each on its own device; not the deployer key
+export SAFE_THRESHOLD=2            # under 2 is refused: a 1-of-N is one key with extra steps
+forge script script/DeploySafe.s.sol --rpc-url robinhood --broadcast
+```
+
+The address is worked out before anything is sent, so a second run with the same owners, threshold
+and salt finds the same Safe and sends nothing. Then deploy with `OWNER` and `TREASURY` both set to
+it (section 1): on 4663 the deploy refuses an owner that is not a Safe of at least two signers.
+
+**The treasury has to be the Safe from the first deploy.** A curve pins the treasury it was launched
+with, so moving the treasury later reaches only launches made after the move. The direct machine
+pulls to the portal's current treasury, so that half does follow a change.
+
+**Accepting ownership.** The factory, the portal and the bridge factory are `Ownable2Step`: the
+deploy hands them over and nothing moves until the Safe accepts. One batch does all three:
+
+```bash
+export HOOD_SAFE=0x...   # plus HOOD_FACTORY / HOOD_PORTAL / HOOD_BRIDGE_FACTORY / HOOD_SEASON_DROP
+npm run safe -- accept
+```
+
+That writes a Transaction Builder file. In Safe{Wallet}: Apps, Transaction Builder, drop the file in,
+and every signer sees each call decoded before signing. It needs no key on the deploying machine and
+no API key anywhere. `npm run safe -- info` says who owns what and what is still waiting;
+`npm run safe -- call factory "setLaunchFee(uint256)" 1000000000000000` builds any other owner call
+the same way. With `SAFE_SIGNER_KEYS` (or `--keystore`) it can also sign and send, which is how the
+rehearsal drives it; on mainnet the signers sign in Safe{Wallet}, on their own devices.
+
+**The app from inside the Safe.** Safe{Wallet} opens hood.fam as a Safe App (Apps, add custom app,
+paste the site's URL; the manifest is at `/manifest.json`). Connected that way the wallet is the Safe
+itself: the admin page's switches, and every ordinary thing a team does, become Safe transactions
+that the other signers approve. A self-hosted Safe{Wallet} is allowed in with
+`NEXT_PUBLIC_SAFE_APP_ORIGINS` (its origin, exactly), which also opens the frame in the app's CSP.
 
 ## 1. Contracts
 

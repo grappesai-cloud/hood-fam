@@ -133,6 +133,17 @@ and the agent surface.
 | Audit | out | Nothing here has had one. |
 | Partner and bot white-label APIs | out | The SDK is the surface a bot would integrate; no partner program exists. |
 
+## 10. The multisig
+
+| Feature | Status | Note |
+|---|---|---|
+| Owner and treasury on a Safe | in | Safe v1.4.1, the canonical 4663 deployment, checked by code hash before anything builds on it. `script/DeploySafe.s.sol` creates it (refusing a 1-of-N, and a deployer who is also a signer), `Deploy.s.sol` refuses an owner on 4663 that is not a Safe of two or more. |
+| Taking ownership | in | One batch for the factory, the portal, the bridge factory and the drop: `npm run safe -- accept` writes a Transaction Builder file whose checksum Safe{Wallet} accepts without a warning. |
+| Owner calls from a terminal | in | `npm run safe -- call factory "setLaunchFee(uint256)" …`, as a file to sign in Safe{Wallet}, or signed and sent locally for a rehearsal. |
+| The app as a Safe App | in | Safe{Wallet} opens hood.fam in a frame and the wallet is the Safe. `/manifest.json`, `frame-ancestors` for app.safe.global only, and a self-hosted Safe allowed in by env. |
+| A Safe as a user | in | Launch, trade, stake, claim, collect fees. Approval and action go as one Safe transaction, the app waits for the signers rather than for a hash that will never be mined, and the bridge makes a Safe name its destination instead of assuming it owns its own address on another chain. |
+| Proving it | in | 12 Solidity tests against the real Safe bytecode, 34 assertions end to end on a local 4663 (`scripts/e2e/safe.mjs`), and 14 in a real browser inside a stand-in Safe{Wallet} (`scripts/e2e/safe-ui.mjs`). |
+
 ## In this repo and not in any of the three
 
 - The two machines share one registry, so a ticker lock, the staking vault, the points, the bridge

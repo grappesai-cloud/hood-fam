@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
 import { Providers } from "./providers";
+import { SafeStrip } from "@/components/SafeStrip";
 import { Nav } from "@/components/Nav";
 import { SupportChatMount } from "@/components/SupportChatMount";
 import { DemoBanner } from "@/components/DemoBanner";
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Spotlight />
         <Providers>
           <Nav />
+          <SafeStrip />
           <DemoBanner />
           <main className="site-main">{children}</main>
           <footer className="site-footer">

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Empty } from "@/components/Empty";
+import { usePreferredConnector } from "@/lib/safe";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { erc20Abi, zeroAddress, type Address } from "viem";
@@ -35,7 +36,8 @@ const BUYBACK_BURN = 1;
 
 export default function CreatorPage() {
   const { address, isConnected } = useAccount();
-  const { connect, connectors, isPending } = useConnect();
+  const { connect, isPending } = useConnect();
+  const connector = usePreferredConnector();
 
   const { data, isError } = useQuery({
     queryKey: ["creator-launches", address],
@@ -60,8 +62,8 @@ export default function CreatorPage() {
             title="This is where a launch is run from."
             body="Connect the wallet that printed them and this page gathers every one: push the trading fee through to wherever it was pointed at launch, collect what the pool has earned, claim your own share, and hand the fee stream to somebody else."
             action={
-              <button className="btn" disabled={isPending || !connectors[0]}
-                onClick={() => connect({ connector: connectors[0]! })}>
+              <button className="btn" disabled={isPending || !connector}
+                onClick={() => connector && connect({ connector })}>
                 {isPending ? "Connecting…" : "Connect"}
               </button>
             }

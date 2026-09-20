@@ -25,7 +25,12 @@ future protocol claims on every direct launch, because the tenth is pulled to th
 treasury, and reaches nothing else. Ownership of the portal moves in two steps. None of that reaches
 a token that already exists.
 
-The owner should be a multisig. The deployer key is used once and then has no role.
+**The owner is a Safe.** Safe v1.4.1, canonical deployment, at least two signers; the deploy script
+on 4663 refuses an owner that is not one, and refuses a Safe one key can drive alone. The treasury is
+the same Safe. The deployer key is used once and then has no role, and is never a signer of the Safe.
+What that buys: no single key can add a preset, move the treasury, gate launches or open a bridge
+route, and losing one signer's laptop loses nothing. What it does not buy: the signers are still the
+trust boundary, and a majority of them can do everything in the list above.
 
 ## Accepted risks, named
 

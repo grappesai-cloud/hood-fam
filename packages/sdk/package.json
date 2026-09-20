@@ -9,7 +9,8 @@
     "./chains": "./dist/chains.js",
     "./keystore": "./dist/keystore.js",
     "./image": "./dist/image.js",
-    "./crosschain": "./dist/crosschain.js"
+    "./crosschain": "./dist/crosschain.js",
+    "./safe": "./dist/safe.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

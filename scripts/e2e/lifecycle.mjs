@@ -265,7 +265,7 @@ function parseDeployment(out) {
 async function deploy() {
   step("2. the deployment, through the repo's own scripts");
   const env = {
-    PRIVATE_KEY: deployer.key, OWNER: owner.address, TREASURY: treasury.address,
+    PRIVATE_KEY: deployer.key, OWNER: owner.address, TREASURY: treasury.address, ALLOW_EOA_OWNER: "true",
     // keeps this run's broadcast artefacts out of the repo's own broadcast directory
     FOUNDRY_BROADCAST: join(runDir, "broadcast"),
   };

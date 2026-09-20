@@ -3,12 +3,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useEffect, useMemo, useState } from "react";
-import { parseUnits, formatUnits, maxUint256, zeroAddress, type Address } from "viem";
+import { encodeFunctionData, parseUnits, formatUnits, maxUint256, zeroAddress, type Address } from "viem";
 import { useAccount, useBalance, usePublicClient, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { hoodLaunchHookAbi, minOutFromQuote, quoteDirectSwap } from "@hood/sdk";
 import { uniswapV4 } from "@hood/sdk";
 import { buildSwap, universalRouterAbi } from "@/lib/direct";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
+import { useBatch, useSafeAccount, type Call } from "@/lib/safe";
 
 const erc20 = [
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
@@ -45,6 +46,8 @@ export function DirectTradeBox({ token, hook, quote, symbol, poolFee, tickSpacin
   const [hash, setHash] = useState<`0x${string}` | undefined>();
   const [error, setError] = useState<string>();
   const receipt = useWaitForTransactionReceipt({ hash });
+  const { canBatch, batch } = useBatch();
+  const { safe } = useSafeAccount();
   const queryClient = useQueryClient();
   useEffect(() => {
     // the transaction landed: every number on this page is stale until it is read again
@@ -141,14 +144,23 @@ export function DirectTradeBox({ token, hook, quote, symbol, poolFee, tickSpacin
 
   async function submitInner() {
     if (!address) return;
+    // Selling through the router needs the token approved to Permit2 and Permit2 told the router may
+    // spend it. A wallet that batches signs all of it, and the swap, once.
+    const approvals: Call[] = [];
     if (needsTokenApproval) {
-      setHash(await writeContractAsync({
-        address: token, abi: erc20, functionName: "approve",
-        args: [uniswapV4.permit2 as Address, maxUint256],
-      }));
-      return;
+      approvals.push({ to: token, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [uniswapV4.permit2 as Address, maxUint256] }) });
     }
     if (needsPermit) {
+      approvals.push({ to: uniswapV4.permit2 as Address, data: encodeFunctionData({ abi: permit2Abi, functionName: "approve", args: [token, uniswapV4.universalRouter as Address, MAX_UINT160, Number(MAX_UINT48)] }) });
+    }
+    if (approvals.length > 0 && !canBatch) {
+      if (needsTokenApproval) {
+        setHash(await writeContractAsync({
+          address: token, abi: erc20, functionName: "approve",
+          args: [uniswapV4.permit2 as Address, maxUint256],
+        }));
+        return;
+      }
       setHash(await writeContractAsync({
         address: uniswapV4.permit2 as Address, abi: permit2Abi, functionName: "approve",
         args: [token, uniswapV4.universalRouter as Address, MAX_UINT160, Number(MAX_UINT48)],
@@ -167,13 +179,28 @@ export function DirectTradeBox({ token, hook, quote, symbol, poolFee, tickSpacin
     // A hooked pool's gas moves with the clock: the opening surcharge decays between the wallet's
     // estimate and the block that executes the swap. Estimate here and send with a third more,
     // so the swap does not die inside the hook's own bookkeeping.
+    // Ten minutes is plenty for a key that signs now. A Safe's transaction is mined when its
+    // signers are done, which can be tomorrow, so it gets three days; the minimum received below
+    // is what protects the price in the meantime, not the clock.
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + (safe ? 3 * 24 * 3600 : 600));
     const request = {
       address: uniswapV4.universalRouter as Address,
       abi: universalRouterAbi,
       functionName: "execute" as const,
-      args: [commands, inputs, BigInt(Math.floor(Date.now() / 1000) + 600)] as const,
+      args: [commands, inputs, deadline] as const,
       value: buying && isNative ? amountWei : 0n,
     };
+    if (approvals.length > 0 && canBatch) {
+      const id = await batch([
+        ...approvals,
+        { to: request.address, data: encodeFunctionData({ abi: universalRouterAbi, functionName: "execute", args: request.args }), value: request.value },
+      ]);
+      if (id) return setHash(id);
+    }
+    // A Safe sends no gas limit: its provider would pass one through as `safeTxGas`, and with that
+    // set a failing swap stops reverting. The Safe would spend its nonce, record the failure and
+    // report success. The Safe estimates the execution itself.
+    if (safe) return setHash(await writeContractAsync(request));
     const estimate = await publicClient!.estimateContractGas({ ...request, account: address });
     setHash(await writeContractAsync({ ...request, gas: (estimate * 13n) / 10n }));
   }

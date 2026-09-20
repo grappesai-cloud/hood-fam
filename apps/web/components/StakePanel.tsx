@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { parseEther, maxUint256, type Address } from "viem";
+import { encodeFunctionData, parseEther, maxUint256, type Address } from "viem";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { hoodStakingAbi } from "@hood/sdk";
 import { addresses } from "@/lib/config";
 import { api } from "@/lib/api";
 import { fmt, LOCK_TIERS, timeUntil } from "@/lib/format";
+import { useBatch } from "@/lib/safe";
 
 const erc20 = [
   { type: "function", name: "allowance", stateMutability: "view", inputs: [{ type: "address" }, { type: "address" }], outputs: [{ type: "uint256" }] },
@@ -29,6 +30,7 @@ export function StakePanel({ token, symbol, feeModel }: { token: Address; symbol
   const [hash, setHash] = useState<`0x${string}` | undefined>();
   const [error, setError] = useState<string>();
   const receipt = useWaitForTransactionReceipt({ hash });
+  const { canBatch, batch } = useBatch();
   const queryClient = useQueryClient();
   useEffect(() => {
     // the transaction landed: every number on this page is stale until it is read again
@@ -67,8 +69,18 @@ export function StakePanel({ token, symbol, feeModel }: { token: Address; symbol
   async function stakeInner() {
     if (!address) return;
     if (needsApproval) {
-      setHash(await writeContractAsync({ address: token, abi: erc20, functionName: "approve", args: [addresses.staking, maxUint256] }));
-      return;
+      // One transaction for a wallet that batches: approve, then lock. See TradeBox.
+      if (canBatch) {
+        const lockData = beneficiary
+          ? encodeFunctionData({ abi: hoodStakingAbi, functionName: "stakeFor", args: [token, beneficiary as Address, wei, BigInt(lock)] })
+          : encodeFunctionData({ abi: hoodStakingAbi, functionName: "stake", args: [token, wei, BigInt(lock)] });
+        const id = await batch([
+          { to: token, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [addresses.staking, maxUint256] }) },
+          { to: addresses.staking, data: lockData },
+        ]);
+        if (id) return setHash(id);
+      }
+      return setHash(await writeContractAsync({ address: token, abi: erc20, functionName: "approve", args: [addresses.staking, maxUint256] }));
     }
     setHash(await writeContractAsync(
       beneficiary

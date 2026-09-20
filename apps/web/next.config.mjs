@@ -1,6 +1,10 @@
 /// A Content-Security-Policy that fits a wallet dApp rather than fighting it.
-/// - `frame-ancestors 'none'` and `X-Frame-Options: DENY` are the point: the app has a Connect
-///   button and one-click trade, and a page that can be framed can be clickjacked into either.
+/// - `frame-ancestors` is the point: the app has a Connect button and one-click trade, and a page
+///   that can be framed can be clickjacked into either. Exactly one origin may frame it,
+///   app.safe.global, because that is how a Safe uses hood.fam: Safe{Wallet} opens it as a Safe App
+///   in an iframe and the wallet on the other side is the Safe itself. `X-Frame-Options` is gone
+///   rather than set to DENY: it has no allow-list, and a browser that honours it would contradict
+///   the CSP (browsers that support `frame-ancestors` ignore the header, but not all do).
 /// - `img-src` has to be open: token artwork is a URL a stranger typed at launch, on any host, so
 ///   locking it down would break the board. `javascript:` never matches an img-src of hosts, so
 ///   an artwork field cannot smuggle script even here.
@@ -16,7 +20,8 @@ const CSP = [
   "img-src 'self' data: blob: https: http:",
   "font-src 'self' data:",
   "connect-src 'self' https: http: wss: ws:",
-  "frame-ancestors 'none'",
+  // Plus whatever a self-hosted Safe{Wallet} is served from (NEXT_PUBLIC_SAFE_APP_ORIGINS).
+  `frame-ancestors 'self' https://app.safe.global ${(process.env.NEXT_PUBLIC_SAFE_APP_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean).join(" ")}`.trim(),
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -24,7 +29,6 @@ const CSP = [
 
 const SECURITY_HEADERS = [
   { key: "Content-Security-Policy", value: CSP },
-  { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
@@ -39,7 +43,11 @@ export default {
   // The app talks to its own indexer, which is deployed beside it. No third party in the data path.
   env: { NEXT_PUBLIC_BUILD: new Date().toISOString() },
   async headers() {
-    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+    return [
+      { source: "/:path*", headers: SECURITY_HEADERS },
+      // Safe{Wallet} fetches the Safe App manifest from its own origin before it will open the app.
+      { source: "/manifest.json", headers: [{ key: "Access-Control-Allow-Origin", value: "*" }] },
+    ];
   },
   webpack: (config) => {
     // wagmi's connector bundle reaches for Coinbase's optional x402 payment packages. The app only

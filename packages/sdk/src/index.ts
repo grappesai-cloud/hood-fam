@@ -6,6 +6,7 @@ export * from "./crosschain.js";
 export * from "./direct.js";
 export * from "./swap.js";
 export * from "./quote.js";
+export * from "./safe.js";
 export { hoodPortalAbi, hoodLaunchHookAbi, hoodRevenueSplitterAbi, hoodLockerAbi, hoodBuybackModuleAbi, hoodLaunchTokenAbi, hoodDirectDeployerAbi } from "./abi.generated.js";
 export { hoodFactoryAbi, hoodCurveAbi, hoodTokenAbi, hoodFeeRouterAbi, hoodStakingAbi, uniswapV4GraduatorAbi, hoodBridgeFactoryAbi, hoodOFTAdapterAbi } from "./abi.generated.js";
 export { hoodSeasonDropAbi } from "./abi.generated.js";

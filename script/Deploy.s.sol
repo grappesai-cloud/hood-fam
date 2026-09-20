@@ -14,10 +14,16 @@ import {HoodDirectDeployer} from "../src/direct/HoodDirectDeployer.sol";
 import {HoodLaunchToken} from "../src/direct/HoodLaunchToken.sol";
 import {HoodBuybackModule} from "../src/direct/HoodBuybackModule.sol";
 import {CurveConfig} from "../src/HoodTypes.sol";
+import {ISafe, SafeLib} from "./safe/Safe.sol";
 
 /// @notice Deploys hood.fam on Robinhood Chain 4663.
 /// @dev The deployer is the owner while it wires the modules and seeds the presets, then hands
 ///      ownership to OWNER. Use a wallet generated for this project and nothing else.
+///
+///      On 4663, OWNER and TREASURY must both be a Safe with at least two signers (create it first
+///      with `script/DeploySafe.s.sol`). ALLOW_EOA_OWNER=true lifts that, for a rehearsal on a fork
+///      and never for the real thing: one key owning the presets and the fee switch is one phished
+///      laptop away from owning every future launch.
 ///
 ///      forge script script/Deploy.s.sol --rpc-url robinhood --broadcast
 contract Deploy is Script {
@@ -35,6 +41,11 @@ contract Deploy is Script {
         address owner = vm.envAddress("OWNER");
         address treasury = vm.envAddress("TREASURY");
         address deployer = vm.addr(pk);
+
+        if (block.chainid == 4663 && !vm.envOr("ALLOW_EOA_OWNER", false)) {
+            _requireSafe("OWNER", owner);
+            _requireSafe("TREASURY", treasury);
+        }
 
         vm.startBroadcast(pk);
 
@@ -125,7 +136,9 @@ contract Deploy is Script {
             bridge.transferOwnership(owner);
             portal.transferOwnership(owner);
             // All three are Ownable2Step: nothing moves until the owner calls acceptOwnership().
+            // From a Safe that is one batch: `npm run safe -- accept` builds it.
             console.log("PENDING: owner must call acceptOwnership() on factory, bridge and portal");
+            if (SafeLib.looksLikeSafe(owner)) console.log("         one Safe batch: npm run safe -- accept");
         }
 
         vm.stopBroadcast();
@@ -141,5 +154,13 @@ contract Deploy is Script {
         console.log("tokenImpl ", address(tokenImplementation));
         console.log("buyback   ", address(buybackModule));
         console.log("start block", block.number);
+    }
+
+    /// @dev A Safe with at least two signers, or the deploy stops before it sends anything.
+    function _requireSafe(string memory what, address who) internal view {
+        require(SafeLib.looksLikeSafe(who), string.concat(what, " is not a Safe; run script/DeploySafe.s.sol first"));
+        uint256 threshold = ISafe(who).getThreshold();
+        require(threshold >= 2, string.concat(what, " is a Safe that one key can drive alone"));
+        console.log(what, "is a Safe", threshold);
     }
 }

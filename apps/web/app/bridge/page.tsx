@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { parseEther, zeroAddress, type Address } from "viem";
+import { isAddress, parseEther, zeroAddress, type Address } from "viem";
 import { useAccount, useReadContract, useWriteContract } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
 import { hoodBridgeFactoryAbi, hoodOFTAdapterAbi, routes, crossChainBuyLink } from "@hood/sdk";
 import { addresses } from "@/lib/config";
 import { api, type TokenRow } from "@/lib/api";
 import { fmt } from "@/lib/format";
+import { useSafeAccount } from "@/lib/safe";
 
 const ORIGINS = [
   { id: 1, name: "Ethereum" }, { id: 8453, name: "Base" }, { id: 42161, name: "Arbitrum" },
@@ -99,16 +100,25 @@ function SendOut({ address }: { address?: Address }) {
   const hasAdapter = adapter && adapter !== zeroAddress;
   const wei = (() => { try { return parseEther(amount || "0"); } catch { return 0n; } })();
 
+  // A bridge sends to an address on the far chain, and by default that is this wallet's own. For a
+  // key that is the same wallet everywhere. For a Safe it is not: a Safe is a contract, and the
+  // same address on Base is whatever happens to be deployed there, which is usually nothing and is
+  // nobody's. Tokens sent to it are gone. So a Safe has to type where they should land.
+  const { safe } = useSafeAccount();
+  const [destination, setDestination] = useState("");
+  const recipient = (safe ? destination : address) as Address | undefined;
+  const recipientOk = Boolean(recipient && isAddress(recipient));
+
   const { data: quote } = useReadContract({
     address: (adapter as Address) ?? zeroAddress, abi: hoodOFTAdapterAbi, functionName: "quoteSend",
     args: [{
       dstEid: routes[route].eid,
-      to: `0x${(address ?? zeroAddress).slice(2).padStart(64, "0")}` as `0x${string}`,
+      to: `0x${((recipientOk ? recipient : address) ?? zeroAddress).slice(2).padStart(64, "0")}` as `0x${string}`,
       amountLD: wei, minAmountLD: wei,
       extraOptions: "0x00030100110100000000000000000000000000030d40" as `0x${string}`,
       composeMsg: "0x" as `0x${string}`, oftCmd: "0x" as `0x${string}`,
     }, false],
-    query: { enabled: Boolean(hasAdapter && wei > 0n && address) },
+    query: { enabled: Boolean(hasAdapter && wei > 0n && address && recipientOk) },
   });
 
   const fee = (quote as { nativeFee: bigint } | undefined)?.nativeFee ?? 0n;
@@ -160,12 +170,24 @@ function SendOut({ address }: { address?: Address }) {
             <span className="dim">messaging fee</span>
             <span className="mono">{fmt(fee, 18, 6)} ETH</span>
           </div>
-          <button className="btn w-full" disabled={!address || wei === 0n || fee === 0n}
+          {safe && (
+            <label className="block">
+              <span className="mb-1 block text-xs dim">who receives them on {routes[route].name}</span>
+              <input className="input mono" placeholder="0x..." value={destination}
+                onChange={(e) => setDestination(e.target.value.trim())} />
+              <span className="mt-1 block text-xs dim">
+                You are connected as a Safe. A Safe is a contract, and nothing of yours exists at this
+                address on {routes[route].name} unless you deployed it there yourself. Tokens sent to an
+                address nobody controls cannot be recovered by anyone, including us.
+              </span>
+            </label>
+          )}
+          <button className="btn w-full" disabled={!address || wei === 0n || fee === 0n || !recipientOk}
             onClick={() => writeContractAsync({
               address: adapter as Address, abi: hoodOFTAdapterAbi, functionName: "send",
               args: [{
                 dstEid: routes[route].eid,
-                to: `0x${address!.slice(2).padStart(64, "0")}` as `0x${string}`,
+                to: `0x${recipient!.slice(2).padStart(64, "0")}` as `0x${string}`,
                 amountLD: wei, minAmountLD: wei,
                 extraOptions: "0x00030100110100000000000000000000000000030d40" as `0x${string}`,
                 composeMsg: "0x" as `0x${string}`, oftCmd: "0x" as `0x${string}`,

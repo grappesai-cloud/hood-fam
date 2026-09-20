@@ -3,10 +3,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useEffect, useMemo, useState } from "react";
-import { parseUnits, formatUnits, maxUint256, zeroAddress, type Address } from "viem";
+import { encodeFunctionData, parseUnits, formatUnits, maxUint256, zeroAddress, type Address } from "viem";
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract, useBalance, useReadContracts } from "wagmi";
 import { hoodCurveAbi } from "@hood/sdk";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
+import { useBatch } from "@/lib/safe";
 
 const erc20 = [
   { type: "function", name: "allowance", stateMutability: "view", inputs: [{ type: "address" }, { type: "address" }], outputs: [{ type: "uint256" }] },
@@ -25,6 +26,7 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
   const [hash, setHash] = useState<`0x${string}` | undefined>();
   const [error, setError] = useState<string>();
   const receipt = useWaitForTransactionReceipt({ hash });
+  const { canBatch, batch } = useBatch();
   const queryClient = useQueryClient();
   useEffect(() => {
     // the transaction landed: every number on this page is stale until it is read again
@@ -88,12 +90,21 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
   async function submitInner() {
     if (!address) return;
     if (needsApproval) {
-      const h = await writeContractAsync({
-        address: side === "buy" ? pairToken : token,
-        abi: erc20, functionName: "approve", args: [curve, maxUint256],
-      });
-      setHash(h);
-      return;
+      const approving = side === "buy" ? pairToken : token;
+      // A wallet that takes a batch does the approval and the trade as one transaction. For a Safe
+      // that is one round of signatures instead of two, and the approval cannot end up granted with
+      // the trade behind it never made.
+      if (canBatch) {
+        const tradeData = side === "buy"
+          ? encodeFunctionData({ abi: hoodCurveAbi, functionName: "buy", args: [amountWei, minOut, address] })
+          : encodeFunctionData({ abi: hoodCurveAbi, functionName: "sell", args: [amountWei, minOut, address] });
+        const id = await batch([
+          { to: approving, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [curve, maxUint256] }) },
+          { to: curve, data: tradeData, value: side === "buy" && isNative ? amountWei : 0n },
+        ]);
+        if (id) return setHash(id);
+      }
+      return setHash(await writeContractAsync({ address: approving, abi: erc20, functionName: "approve", args: [curve, maxUint256] }));
     }
     if (side === "buy") {
       setHash(await writeContractAsync({

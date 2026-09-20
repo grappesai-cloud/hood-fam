@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect, useBalance } from "wagmi";
 import { shortAddress, fmt } from "@/lib/format";
+import { usePreferredConnector, useSafeAccount } from "@/lib/safe";
 
 const LINKS = [
   { href: "/", label: "Explore" },
@@ -18,9 +19,11 @@ const LINKS = [
 export function Nav() {
   const path = usePathname();
   const { address, isConnected } = useAccount();
-  const { connect, connectors, isPending } = useConnect();
+  const { connect, isPending } = useConnect();
   const { disconnect } = useDisconnect();
   const { data: balance } = useBalance({ address });
+  const connector = usePreferredConnector();
+  const { safe } = useSafeAccount();
 
   return (
     <header className="site-header">
@@ -38,11 +41,12 @@ export function Nav() {
         <span className="chain-pill"><i /> Robinhood Chain</span>
         {isConnected ? (
           <button className="btn btn-ghost wallet-button mono text-xs" onClick={() => disconnect()}>
-            {balance ? `${fmt(balance.value, 18, 3)} ETH · ` : ""}{shortAddress(address!)}
+            {safe ? `Safe ${safe.threshold}/${safe.owners.length} · ` : balance ? `${fmt(balance.value, 18, 3)} ETH · ` : ""}
+            {shortAddress(address!)}
           </button>
         ) : (
-          <button className="btn wallet-button" disabled={isPending}
-            onClick={() => connect({ connector: connectors[0]! })}>
+          <button className="btn wallet-button" disabled={isPending || !connector}
+            onClick={() => connector && connect({ connector })}>
             {isPending ? "Connecting…" : "Connect"}
           </button>
         )}
