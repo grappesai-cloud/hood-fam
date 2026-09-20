@@ -283,6 +283,24 @@ try {
   const mine = room.find((m) => m.body === said);
   check("it carries who said it, from the chain", Boolean(mine) && mine.author.toLowerCase() === wallet.toLowerCase() && mine.holdingBps > 0, mine ? `${mine.rank}, ${mine.holdingBps} bps, creator ${mine.isCreator}` : "");
   check("it went out on the live stream", streamed.includes(said), streamed.split("\n").filter((l) => l.startsWith("event:")).join(" ").slice(0, 80));
+  // What a scam post looks like in a room: a contract address that is not this one, and a link.
+  const trap = `real contract 0x000000000000000000000000000000000000dEaD claim at https://not-hood.example/claim`;
+  await page.evaluate(async (text) => {
+    const box = document.querySelector(".chat-composer textarea, .chat-composer input");
+    const setter = Object.getOwnPropertyDescriptor(box.constructor.prototype, "value").set;
+    setter.call(box, text);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 5200)); // the room's own rate limit, one every five seconds
+    [...document.querySelectorAll(".chat-composer button")].find((b) => !b.disabled)?.click();
+  }, trap);
+  await sleep(4000);
+  const marks = await page.evaluate(() => ({
+    foreign: document.querySelectorAll(".chat-addr.is-other").length,
+    held: document.querySelectorAll(".chat-link-held").length,
+    clickable: document.querySelectorAll(".chat-log a.chat-link").length,
+  }));
+  check("an address that is not this token is marked in the room", marks.foreign > 0, JSON.stringify(marks));
+  check("a link in a fresh launch is shown but not clickable", marks.held > 0 && marks.clickable === 0, JSON.stringify(marks));
   await page.screenshot({ path: join(SHOTS, "wizard-5-chat.png") });
   await reader.cancel().catch(() => {});
 

@@ -927,3 +927,12 @@ details.fineprint { border: 1px solid var(--glass-line); background: #ffffff05; 
 .safe-strip-link { text-decoration: underline; text-underline-offset: 3px; }
 @keyframes safe-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .safe-dot { animation: none; } }
+
+/* A room is also where somebody will post the wrong contract address, or a link to a page that
+   wants a wallet. Neither is hidden: one is marked, the other is not a click while a launch is new
+   (components/TokenChat.tsx). */
+.chat-addr { padding: 0 0.15em; border-bottom: 1px dotted var(--color-line); }
+.chat-addr.is-other { color: var(--color-red); border-bottom-color: currentColor; }
+.chat-addr-note { font-size: 0.82em; letter-spacing: 0.04em; text-transform: uppercase; }
+.chat-link { color: var(--color-lime); text-decoration: underline; text-underline-offset: 3px; }
+.chat-link-held { color: var(--color-dim); text-decoration: underline dotted; text-underline-offset: 3px; cursor: not-allowed; }

@@ -37,7 +37,7 @@ const erc20 = [
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
 ] as const;
 
-export function TokenChat({ token, symbol, creator }: { token: string; symbol: string; creator: string }) {
+export function TokenChat({ token, symbol, creator, launchedAt }: { token: string; symbol: string; creator: string; launchedAt?: string }) {
   const { address } = useAccount();
   const { connect, isPending: connecting } = useConnect();
   const connector = usePreferredConnector();
@@ -114,6 +114,11 @@ export function TokenChat({ token, symbol, creator }: { token: string; symbol: s
 
   /// One signature, once, and then a token. The nonce comes back with the exact sentence to sign,
   /// so the app never composes that sentence itself and the two halves cannot drift apart.
+  // A launch's first day is when a fake claim page is worth posting, so that is the window where a
+  // link is shown but not offered as a click. An unknown launch time is treated as new: withholding
+  // a click costs a reader nothing, and giving one too early can cost them everything.
+  const young = !launchedAt || Date.now() - new Date(launchedAt).getTime() < YOUNG_FOR_MS;
+
   async function openSession(): Promise<string> {
     if (!address) throw new Error("Connect a wallet to post.");
     const kept = session.current ?? readSession(address);
@@ -196,6 +201,9 @@ export function TokenChat({ token, symbol, creator }: { token: string; symbol: s
             mine={Boolean(address) && m.author?.toLowerCase() === address?.toLowerCase()}
             canHide={isCreator}
             onHide={hide}
+            token={token}
+            symbol={symbol}
+            young={young}
           />
         ))}
         {!messages.length && (
@@ -273,12 +281,60 @@ function holding(bps: number | undefined): string | null {
   return `${(bps / 100).toFixed(bps < 100 ? 2 : 1)}%`;
 }
 
-function Message({ message, hidden, mine, canHide, onHide }: {
+/// The two things a launchpad room is used to attack a reader: a contract address that is not the
+/// one this room is about, and a link to a page that will ask for their wallet. Neither is solved by
+/// a word filter, so neither is filtered: an address is checked against the token and marked when it
+/// is a different one, and a link is not a link while a launch is new, which is the window the fake
+/// claim pages live in. Everything is still said; only the click is withheld.
+const ADDRESS_OR_URL = /(0x[0-9a-fA-F]{40}|https?:\/\/[^\s]+|(?:^|\s)(?:www\.)[^\s]+)/g;
+const YOUNG_FOR_MS = 24 * 60 * 60 * 1000;
+
+function Body({ text, token, symbol, young }: { text: string; token: string; symbol: string; young: boolean }) {
+  const pieces = text.split(ADDRESS_OR_URL).filter((piece) => piece !== undefined && piece !== "");
+  return (
+    <>
+      {pieces.map((piece, i) => {
+        const value = piece.trim();
+        if (/^0x[0-9a-fA-F]{40}$/.test(value)) {
+          const isThisToken = value.toLowerCase() === token.toLowerCase();
+          return (
+            <span key={i} className={isThisToken ? "chat-addr mono" : "chat-addr is-other mono"}
+              title={isThisToken ? `The contract of $${symbol}` : `This is not the contract of $${symbol}`}>
+              {value}
+              {!isThisToken && <span className="chat-addr-note"> not ${symbol}</span>}
+            </span>
+          );
+        }
+        if (/^(https?:\/\/|www\.)/i.test(value)) {
+          if (young) {
+            return (
+              <span key={i} className="chat-link-held" title="A link is not clickable in a launch's first day.">
+                {piece}
+              </span>
+            );
+          }
+          const href = value.startsWith("www.") ? `https://${value}` : value;
+          return (
+            <a key={i} className="chat-link" href={href} target="_blank" rel="nofollow noreferrer noopener">
+              {piece}
+            </a>
+          );
+        }
+        return <span key={i}>{piece}</span>;
+      })}
+    </>
+  );
+}
+
+function Message({ message, hidden, mine, canHide, onHide, token, symbol, young }: {
   message: ChatMessage;
   hidden: boolean;
   mine: boolean;
   canHide: boolean;
   onHide: (id: ChatMessage["id"]) => void;
+  token: string;
+  symbol: string;
+  young: boolean;
 }) {
   const share = holding(message.holdingBps);
   // The API blanks a hidden message for everyone but its author. A message hidden from this tab a
@@ -303,7 +359,7 @@ function Message({ message, hidden, mine, canHide, onHide }: {
         <p className="chat-body chat-quiet">hidden by the creator</p>
       ) : (
         <p className="chat-body">
-          {body}
+          <Body text={body} token={token} symbol={symbol} young={young} />
           {hidden && <span className="chat-note"> Hidden by the creator. Only you still see it.</span>}
         </p>
       )}

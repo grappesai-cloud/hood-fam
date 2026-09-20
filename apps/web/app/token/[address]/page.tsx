@@ -216,7 +216,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
 
         <Tape token={data.token} symbol={data.symbol} pairToken={data.pair_token} />
 
-        <TokenChat token={data.token} symbol={data.symbol} creator={data.creator} />
+        <TokenChat token={data.token} symbol={data.symbol} creator={data.creator} launchedAt={data.launched_at} />
       </div>
 
       <aside className="space-y-4">
