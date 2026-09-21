@@ -31,11 +31,23 @@ contract AllowQuotes is Script {
         uint256[] memory graduationCaps = _uints(plan, ".graduationCaps");
         // Not every quote the pad takes can carry a curve: see the note in scripts/quotes/plan.mjs.
         bool[] memory curvePresets = vm.parseJsonBoolArray(plan, ".curvePresets");
+        // Tokens that held a ticker the issuer's own share has since claimed. Two assets in the
+        // menu under one ticker is how somebody launches against the joke believing it is the
+        // company, so the loser is switched off. Nothing it already launched is touched.
+        address[] memory withdraw = vm.parseJsonAddressArray(plan, ".withdraw");
         require(
             assets.length == thresholds.length && assets.length == startCaps.length
                 && assets.length == graduationCaps.length && assets.length == curvePresets.length,
             "the plan's columns are different lengths"
         );
+
+        // Every preset the factory already carries, read once. Asking the factory again for every
+        // asset in the plan is the same read repeated tens of thousands of times over a remote
+        // node, which turns a ten minute run into an afternoon.
+        uint256 existingCount = factory.configCount();
+        CurveConfig[] memory known = new CurveConfig[](existingCount + assets.length);
+        for (uint256 i; i < existingCount; i++) known[i] = factory.getConfig(i);
+        uint256 knownCount = existingCount;
 
         vm.startBroadcast(pk);
         uint256 pairs;
@@ -46,22 +58,22 @@ contract AllowQuotes is Script {
                 factory.setPair(assets[i], true, thresholds[i]);
                 pairs++;
             }
-            if (curvePresets[i] && !_hasPreset(factory, assets[i], startCaps[i], graduationCaps[i])) {
-                factory.addConfig(
-                    CurveConfig({
-                        pairToken: assets[i],
-                        totalSupply: 1_000_000_000e18,
-                        curveSupplyBps: 8000,
-                        startCap: startCaps[i],
-                        graduationCap: graduationCaps[i],
-                        liquidityBps: 9000,
-                        protocolFeeBps: 30,
-                        creatorFeeBps: 70,
-                        poolFee: 3000,
-                        tickSpacing: 60,
-                        enabled: true
-                    })
-                );
+            if (curvePresets[i] && !_hasPreset(known, knownCount, assets[i], startCaps[i], graduationCaps[i])) {
+                CurveConfig memory config = CurveConfig({
+                    pairToken: assets[i],
+                    totalSupply: 1_000_000_000e18,
+                    curveSupplyBps: 8000,
+                    startCap: startCaps[i],
+                    graduationCap: graduationCaps[i],
+                    liquidityBps: 9000,
+                    protocolFeeBps: 30,
+                    creatorFeeBps: 70,
+                    poolFee: 3000,
+                    tickSpacing: 60,
+                    enabled: true
+                });
+                factory.addConfig(config);
+                known[knownCount++] = config;
                 presets++;
             }
             if (!portal.quoteAllowed(assets[i])) {
@@ -69,8 +81,17 @@ contract AllowQuotes is Script {
                 quotes++;
             }
         }
+        uint256 withdrawn;
+        for (uint256 i; i < withdraw.length; i++) {
+            if (factory.pairAllowed(withdraw[i])) {
+                factory.setPair(withdraw[i], false, 0);
+                withdrawn++;
+            }
+            if (portal.quoteAllowed(withdraw[i])) portal.setQuote(withdraw[i], false);
+        }
         vm.stopBroadcast();
 
+        console.log("pairs withdrawn", withdrawn);
         console.log("assets in the plan", assets.length);
         console.log("pairs allowed", pairs);
         console.log("presets added", presets);
@@ -84,14 +105,15 @@ contract AllowQuotes is Script {
         return vm.parseJsonUintArray(plan, key);
     }
 
-    function _hasPreset(HoodFactory factory, address pairToken, uint256 startCap, uint256 graduationCap)
-        internal
-        view
-        returns (bool)
-    {
-        uint256 count = factory.configCount();
+    function _hasPreset(
+        CurveConfig[] memory known,
+        uint256 count,
+        address pairToken,
+        uint256 startCap,
+        uint256 graduationCap
+    ) internal pure returns (bool) {
         for (uint256 i; i < count; i++) {
-            CurveConfig memory c = factory.getConfig(i);
+            CurveConfig memory c = known[i];
             if (c.enabled && c.pairToken == pairToken && c.startCap == startCap && c.graduationCap == graduationCap) {
                 return true;
             }

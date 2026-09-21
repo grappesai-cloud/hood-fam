@@ -25,7 +25,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import {
-  createPublicClient, createWalletClient, erc20Abi, getAddress, http, parseAbiItem,
+  createPublicClient, createWalletClient, erc20Abi, getAddress, http, keccak256, parseAbiItem,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -44,6 +44,11 @@ const arg = (name, fallback) => {
 const MIN_USD = Number(arg("min-usd", "25000"));
 const LIMIT = Number(arg("limit", "400"));
 const ON_FORK = process.argv.includes("--fork");
+/// Price what the file already names, again, and nothing else. The two expensive passes (every
+/// pool ever opened, every swap of the last stretch) are about finding assets; when the question
+/// is only what they are worth now, or when the pricing rule itself has changed, this skips both
+/// and rewrites the same list with today's numbers.
+const REPRICE = process.argv.includes("--reprice");
 /// What a thousand dollars is allowed to lose going in and straight back out. Above this the pool
 /// is a shop window: a price exists, and nothing can be bought at it.
 const MAX_ROUND_TRIP_BPS = Number(arg("max-loss-bps", "300"));
@@ -168,12 +173,24 @@ function loadCache() {
   catch { return { scannedTo: 0, pools: [] }; }
 }
 
+/// What the last run offered. An asset that is already in the menu does not fall out of it because
+/// it had a quiet hour: the threshold above decides what gets IN, not what stays. Dropping one
+/// would leave it allowed on chain and unpriceable in the app, which is the worst of both.
+function loadPrevious() {
+  try { return JSON.parse(readFileSync(join(ROOT, "deploy/quotes.json"), "utf8")).assets ?? []; }
+  catch { return []; }
+}
+const previousAssets = loadPrevious();
+const offered = previousAssets.filter((a) => a.verdict === "candidate");
+
 const headNow = await client.getBlockNumber();
 const cache = loadCache();
-const from = BigInt(cache.scannedTo || 0);
-console.error(from === 0n
-  ? "reading every pool this chain has ever opened against the dollar (once; cached afterwards)…"
-  : `reading the pools opened since block ${from}…`);
+const from = REPRICE ? headNow : BigInt(cache.scannedTo || 0);
+console.error(REPRICE
+  ? `pricing what deploy/quotes.json already names, from the ${cache.pools.length.toLocaleString()} cached pools…`
+  : from === 0n
+    ? "reading every pool this chain has ever opened against the dollar (once; cached afterwards)…"
+    : `reading the pools opened since block ${from}…`);
 
 const found = [...cache.pools];
 for (const side of ["token0", "token1"]) {
@@ -206,39 +223,57 @@ for (const p of found) {
 }
 console.error(`  ${candidates.size} assets have a pool against the dollar`);
 
+/// A pool somebody could actually trade in. Uniswap's fee is in hundredths of a bip, so three per
+/// cent is 30000, and this chain is full of pools far above it: eighty, ninety, ninety nine per
+/// cent, the fixed remains of other pads' launch pools. v4's dynamic fee flag is not a fee at all
+/// but a marker that a hook sets one per swap, and on 4663 those are the busiest venues there are,
+/// five thousand of them behind a single hook, so they count as tradeable.
+///
+/// This is a preference, not a filter. A share of Lockheed Martin was being priced at a third of
+/// its value by a ninety nine per cent pool, but plenty of shares here have liquidity ONLY in an
+/// expensive pool, and the price such a pool quotes is usually right: a high fee is a cost of
+/// getting out, not a lie about what the thing is worth. So the deepest tradeable pool wins, and
+/// the expensive ones are read only when nothing else has any liquidity at all.
+const TRADEABLE_FEE = 30_000;
+const DYNAMIC_FEE = 0x800000;
+const tradeable = (pool) => Number(pool.fee) === DYNAMIC_FEE || Number(pool.fee) <= TRADEABLE_FEE;
+
 /// The deepest pool an asset has, and what it says the asset is worth.
+///
+/// All of them, and all of them at once. Reading the first twenty four was how a share of Lockheed
+/// Martin came out at a third of its price: its real pool, holding nearly six million dollars, was
+/// the twenty seventh in the list, and a ninety nine per cent pool with a tight range won the ones
+/// that were read. And one at a time would be four hundred round trips per asset where the
+/// client's batching makes it four.
 async function priceOf(asset, pools, decimals) {
-  let best = null;
-  for (const p of pools.slice(0, 24)) {
+  const read = await Promise.all(pools.slice(0, 64).map(async (p) => {
     try {
       if (p.kind === "v3") {
-        const [slot0, liquidity] = await Promise.all([
+        const [slot0, liquidity, held] = await Promise.all([
           client.readContract({ address: p.pool, abi: v3Pool, functionName: "slot0" }),
           client.readContract({ address: p.pool, abi: v3Pool, functionName: "liquidity" }),
+          // Real dollars sitting in the pool, which is the only depth figure that cannot be
+          // inflated by a price nobody trades at.
+          client.readContract({ address: USDG, abi: erc20Abi, functionName: "balanceOf", args: [p.pool] }),
         ]);
-        if (slot0[0] === 0n || liquidity === 0n) continue;
-        // Real dollars sitting in the pool, which is the only depth figure that cannot be inflated
-        // by a price nobody trades at.
-        const held = await client.readContract({ address: USDG, abi: erc20Abi, functionName: "balanceOf", args: [p.pool] });
-        const usd = usdFrom(slot0[0], p.assetIsToken0, decimals);
-        const depth = Number(held) / 1e6;
-        if (!best || depth > best.depth) best = { ...p, usd, depth };
-      } else {
-        const [slot0, liquidity] = await Promise.all([
-          client.readContract({ address: STATE_VIEW, abi: stateView, functionName: "getSlot0", args: [p.poolId] }),
-          client.readContract({ address: STATE_VIEW, abi: stateView, functionName: "getLiquidity", args: [p.poolId] }),
-        ]);
-        if (slot0[0] === 0n || liquidity === 0n) continue;
-        const usd = usdFrom(slot0[0], p.assetIsToken0, decimals);
-        // v4 keeps every pool's money in one contract, so the dollars in THIS pool are the virtual
-        // reserve: liquidity divided by the square root of the price, in the dollar's direction.
-        const sqrt = Number(slot0[0]) / 2 ** 96;
-        const dollars = p.assetIsToken0 ? (Number(liquidity) * sqrt) / 1e6 : Number(liquidity) / sqrt / 1e6;
-        if (!best || dollars > best.depth) best = { ...p, usd, depth: dollars };
+        if (slot0[0] === 0n || liquidity === 0n) return null;
+        return { ...p, usd: usdFrom(slot0[0], p.assetIsToken0, decimals), depth: Number(held) / 1e6 };
       }
-    } catch { /* a pool that will not answer is not a price */ }
-  }
-  return best;
+      const [slot0, liquidity] = await Promise.all([
+        client.readContract({ address: STATE_VIEW, abi: stateView, functionName: "getSlot0", args: [p.poolId] }),
+        client.readContract({ address: STATE_VIEW, abi: stateView, functionName: "getLiquidity", args: [p.poolId] }),
+      ]);
+      if (slot0[0] === 0n || liquidity === 0n) return null;
+      // v4 keeps every pool's money in one contract, so the dollars in THIS pool are the virtual
+      // reserve: liquidity divided by the square root of the price, in the dollar's direction.
+      const sqrt = Number(slot0[0]) / 2 ** 96;
+      const dollars = p.assetIsToken0 ? (Number(liquidity) * sqrt) / 1e6 : Number(liquidity) / sqrt / 1e6;
+      return { ...p, usd: usdFrom(slot0[0], p.assetIsToken0, decimals), depth: dollars };
+    } catch { return null; /* a pool that will not answer is not a price */ }
+  }));
+  const priced = read.filter(Boolean);
+  const deepest = (set) => set.reduce((best, p) => (!best || p.depth > best.depth ? p : best), null);
+  return deepest(priced.filter(tradeable)) ?? deepest(priced);
 }
 
 // ---- what actually trades ---------------------------------------------------------------------
@@ -266,9 +301,9 @@ const STEP = 2_000n;                                  // what the node serves in
 const volume = new Map();                             // pool -> dollars traded
 const addVolume = (key, dollars) => volume.set(key, (volume.get(key) ?? 0) + dollars);
 
-console.error(`reading the swaps of the last ${WINDOW} blocks…`);
+if (!REPRICE) console.error(`reading the swaps of the last ${WINDOW} blocks…`);
 let swaps = 0;
-for (let to = head; to > head - WINDOW; to -= STEP) {
+for (let to = REPRICE ? 0n : head; to > head - WINDOW; to -= STEP) {
   const from = to > STEP ? to - STEP : 0n;
   const [v4Logs, v3Logs] = await Promise.all([
     client.getLogs({ address: POOL_MANAGER, event: v4Swap, fromBlock: from, toBlock: to }).catch(() => []),
@@ -290,7 +325,7 @@ for (let to = head; to > head - WINDOW; to -= STEP) {
   swaps += v4Logs.length + v3Logs.length;
   if (from === 0n) break;
 }
-console.error(`  ${swaps.toLocaleString()} swaps, ${volume.size} pools with any volume at all`);
+if (!REPRICE) console.error(`  ${swaps.toLocaleString()} swaps, ${volume.size} pools with any volume at all`);
 
 const best = new Map(); // asset -> its busiest pool against the dollar
 for (const [key, dollars] of volume) {
@@ -300,11 +335,80 @@ for (const [key, dollars] of volume) {
   if (!prev || dollars > prev.traded) best.set(p.asset, { ...p, traded: dollars });
 }
 const worthReading = [...best.entries()].filter(([, p]) => p.traded >= MIN_USD).sort((a, b) => b[1].traded - a[1].traded);
-console.error(`  ${worthReading.length} assets traded at least $${MIN_USD.toLocaleString()} against the dollar in that window`);
+if (!REPRICE) console.error(`  ${worthReading.length} assets traded at least $${MIN_USD.toLocaleString()} against the dollar in that window`);
+
+// ---- the chain's own shares ---------------------------------------------------------------------
+//
+// Volume is the wrong question for these. Every tokenised share on 4663 is a clone of one beacon
+// proxy, so a single codehash separates the issuer's own tokens from the ones that only borrow the
+// name, and plenty do: five tokens here answer to NVDA and four of them are jokes. A share of
+// Boeing that saw no swap in the last hour is still a share of Boeing, and a creator who wants to
+// be paid in one should find it in the menu. So these come in on identity, and the only thing they
+// still have to prove is that their price is readable.
+const EQUITY_CODEHASH = "0x6c1fdd40002dcb440c7fff6a84171404d279ccb057803b65826f7546acd65630";
+const EQUITY_SUFFIX = " \u2022 Robinhood Token";
+
+const equities = new Map(); // asset -> { symbol, decimals, company }
+if (!REPRICE && !process.argv.includes("--no-equities")) {
+  const assets = [...candidates.keys()];
+  console.error(`reading the name of all ${assets.length.toLocaleString()} of them, to find the chain's own shares…`);
+  const names = await readMany(assets.map((address) => ({ address, abi: erc20Abi, functionName: "name" })));
+  const named = assets.filter((_, i) => {
+    const n = names[i];
+    return n.status === "success" && typeof n.result === "string" && n.result.endsWith(EQUITY_SUFFIX);
+  });
+  console.error(`  ${named.length} carry the issuer's name; checking each one's code`);
+  const genuine = [];
+  for (let i = 0; i < named.length; i += 25) {
+    const chunk = named.slice(i, i + 25);
+    const codes = await Promise.all(chunk.map((a) => client.getBytecode({ address: a }).catch(() => null)));
+    chunk.forEach((a, j) => { if (codes[j] && keccak256(codes[j]) === EQUITY_CODEHASH) genuine.push(a); });
+  }
+  console.error(`  ${genuine.length} are clones of the issuer's beacon; the other ${named.length - genuine.length} only borrow the name`);
+  const meta = await readMany(genuine.flatMap((address) => [
+    { address, abi: erc20Abi, functionName: "symbol" },
+    { address, abi: erc20Abi, functionName: "decimals" },
+    { address, abi: erc20Abi, functionName: "name" },
+  ]));
+  genuine.forEach((address, i) => {
+    const [symbol, decimals, name] = [meta[i * 3], meta[i * 3 + 1], meta[i * 3 + 2]];
+    if (symbol.status !== "success" || decimals.status !== "success") return;
+    equities.set(address, {
+      symbol: symbol.result,
+      decimals: Number(decimals.result),
+      company: name.status === "success" ? String(name.result).slice(0, -EQUITY_SUFFIX.length) : String(symbol.result),
+    });
+  });
+}
 
 const rows = [];
+
+// The shares go in first, so a menu that is ever cut short is cut short at the memes.
+for (const [asset, share] of equities) {
+  if (share.decimals > 18) { rows.push({ address: asset, symbol: share.symbol, decimals: share.decimals, verdict: "more than eighteen decimals" }); continue; }
+  const price = await priceOf(asset, candidates.get(asset) ?? [], share.decimals);
+  if (!price || !(price.usd > 0) || !Number.isFinite(price.usd)) {
+    rows.push({ address: asset, symbol: share.symbol, decimals: share.decimals, verdict: "no pool with a readable price" });
+    continue;
+  }
+  rows.push({
+    address: asset, symbol: share.symbol, name: share.company, decimals: share.decimals, share: true,
+    usd: price.usd, traded: Math.round(best.get(asset)?.traded ?? 0),
+    pool: price.kind === "v3"
+      ? { kind: "v3", pool: price.pool, assetIsToken0: price.assetIsToken0 }
+      : { kind: "v4", poolId: price.poolId, assetIsToken0: price.assetIsToken0 },
+    verdict: "candidate",
+  });
+}
+console.error(`  ${rows.filter((r) => r.verdict === "candidate").length} of them can be priced`);
+
+// `--limit` is the size of the meme half of the menu. The shares above are not rationed by it:
+// they are the chain's own assets, and there are two hundred of them at most.
+let byVolume = 0;
 for (const [asset, pool] of worthReading) {
-  if (rows.length >= LIMIT) break;
+  if (equities.has(asset)) continue; // already in, on identity
+  if (byVolume >= LIMIT) break;
+  byVolume++;
   let symbol = "";
   let decimals = 0;
   try {
@@ -331,6 +435,34 @@ for (const [asset, pool] of worthReading) {
     verdict: "candidate",
   });
   console.error(`  ${symbol.padEnd(10)} $${price.usd.toFixed(4).padStart(12)}  $${Math.round(pool.traded).toLocaleString().padStart(12)} traded`);
+}
+
+// The ones that were in the menu before and did not come up this time: same asset, same pools, a
+// price read again now.
+let carried = 0;
+for (const a of offered) {
+  if (rows.some((r) => r.address.toLowerCase() === a.address.toLowerCase())) continue;
+  const pools = candidates.get(getAddress(a.address)) ?? (a.pool ? [a.pool] : []);
+  const price = await priceOf(getAddress(a.address), pools, a.decimals);
+  if (!price || !(price.usd > 0) || !Number.isFinite(price.usd)) {
+    // It was in the menu and its price has gone. Said out loud rather than dropped, because an
+    // asset that is allowed on chain and priced nowhere is the one thing this file exists to catch.
+    rows.push({ address: a.address, symbol: a.symbol, decimals: a.decimals, verdict: "no pool with a readable price" });
+    continue;
+  }
+  rows.push({
+    ...a, usd: price.usd, traded: Math.round(best.get(getAddress(a.address))?.traded ?? a.traded ?? 0),
+    pool: price.kind === "v3"
+      ? { kind: "v3", pool: price.pool, assetIsToken0: price.assetIsToken0 }
+      : { kind: "v4", poolId: price.poolId, assetIsToken0: price.assetIsToken0 },
+  });
+  carried++;
+}
+if (carried) console.error(`  ${carried} priced again from the last run's list`);
+// A verdict this run did not reach is still the last thing anybody established about that asset.
+for (const a of previousAssets) {
+  if (a.verdict === "candidate") continue;
+  if (!rows.some((r) => r.address.toLowerCase() === a.address.toLowerCase())) rows.push(a);
 }
 
 mkdirSync(join(ROOT, "deploy"), { recursive: true });

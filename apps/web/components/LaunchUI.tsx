@@ -176,7 +176,7 @@ export function Slider({ label, min, max, step, value, onChange, hint }: {
 /// cards, everything else lives behind a search, and whatever is currently chosen is always shown
 /// as a card whether or not it is one of the usual ones.
 export function PairChooser({ pairs, value, onPick }: {
-  pairs: { address: string; symbol: string; decimals: number; share: boolean; usd: number }[];
+  pairs: { address: string; symbol: string; name?: string | null; decimals: number; share: boolean; usd: number }[];
   value: string;
   onPick: (address: `0x${string}`) => void;
 }) {
@@ -185,14 +185,21 @@ export function PairChooser({ pairs, value, onPick }: {
   const featured = pairs.slice(0, 6);
   const shown = chosen && !featured.some((p) => p.address === chosen.address) ? [...featured, chosen] : featured;
   const rest = pairs.filter((p) => !shown.some((s) => s.address === p.address));
-  const matches = query.trim()
-    ? rest.filter((p) => p.symbol.toLowerCase().includes(query.trim().toLowerCase()) || p.address.toLowerCase() === query.trim().toLowerCase())
+  // A ticker is not how most people know a company. Somebody after a share of Boeing types
+  // "boeing", not "BA", so the company's own name is searched alongside the ticker.
+  const needle = query.trim().toLowerCase();
+  const matches = needle
+    ? rest.filter((p) =>
+      p.symbol.toLowerCase().includes(needle)
+      || (p.name ?? "").toLowerCase().includes(needle)
+      || p.address.toLowerCase() === needle)
     : [];
+  const restShares = rest.filter((p) => p.share).length;
 
-  const body = (p: { symbol: string; share: boolean }) =>
+  const body = (p: { symbol: string; name?: string | null; share: boolean }) =>
     p.symbol === "ETH" ? "The chain's own currency. No approval and no second transaction."
       : p.symbol === "USDG" ? "The dollar on this chain. A price that does not move underneath you."
-      : p.share ? `A tokenised share. Buyers pay in ${p.symbol}, the raise is held in ${p.symbol}, and your share of the fee arrives in ${p.symbol}.`
+      : p.share ? `${p.name ?? p.symbol}, tokenised. Buyers pay in ${p.symbol}, the raise is held in ${p.symbol}, and your share of the fee arrives in ${p.symbol}.`
       : `Buyers pay in ${p.symbol}, the raise is held in ${p.symbol}, and your share of the fee arrives in ${p.symbol}.`;
 
   return (
@@ -209,17 +216,27 @@ export function PairChooser({ pairs, value, onPick }: {
 
       {rest.length > 0 && (
         <details className="pair-more">
-          <summary>{rest.length} more, by ticker or address</summary>
-          <input className="input mt-2" placeholder="NVDA, or 0x…" value={query}
+          <summary>
+            {restShares > 0
+              ? `${rest.length} more, ${restShares} of them shares, by ticker, company or address`
+              : `${rest.length} more, by ticker or address`}
+          </summary>
+          <input className="input mt-2" placeholder="NVDA, Nvidia, or 0x…" value={query}
             onChange={(e) => setQuery(e.target.value)} />
           <div className="mt-2 grid gap-1.5">
             {matches.slice(0, 12).map((p) => (
               <button key={p.address} type="button" className="pair-row"
                 onClick={() => { setQuery(""); onPick(p.address as `0x${string}`); }}>
                 <span className="pair-row-symbol">{p.symbol}</span>
+                {/* Always rendered, even empty: the row is a three column grid, and a missing
+                    middle cell would slide every price left on that row alone. */}
+                <span className="pair-row-name">{p.name ?? ""}</span>
                 <span className="pair-row-price mono">{p.usd > 0 ? `$${p.usd.toLocaleString(undefined, { maximumFractionDigits: 4 })}` : "no price"}</span>
               </button>
             ))}
+            {needle && matches.length > 12 && (
+              <p className="text-xs dim">{matches.length - 12} more match. Narrow it down.</p>
+            )}
             {query.trim() && matches.length === 0 && <p className="text-xs dim">Nothing by that name is allowed here.</p>}
           </div>
         </details>
