@@ -47,8 +47,25 @@ const toWei = (whole, decimals) => {
   return BigInt(int + padded).toString();
 };
 
+/// A ticker a person can read. An asset with no symbol, or one that is a paragraph, would render
+/// as a blank card in the chooser and be unidentifiable in a wallet afterwards.
+const nameable = (symbol) => typeof symbol === "string" && /^[\x20-\x7e]{1,12}$/.test(symbol.trim()) && symbol.trim().length > 0;
+
+// Two tokens on this chain can carry the same ticker, and one of them is usually a joke about the
+// other: a GME that is a share of GameStop and a GME that is worth a fifth of a cent. Offering
+// both in the same menu is how somebody launches against the wrong one. The busier of the two
+// wins, which on this chain has been the real asset every time.
+const byTicker = new Map();
+for (const a of candidates) {
+  const key = String(a.symbol ?? "").trim().toUpperCase();
+  const prev = byTicker.get(key);
+  if (!prev || (a.traded ?? 0) > (prev.traded ?? 0)) byTicker.set(key, a);
+}
+const unique = candidates.filter((a) => byTicker.get(String(a.symbol ?? "").trim().toUpperCase()) === a);
+
 const rows = [];
-for (const a of candidates.slice(0, MAX)) {
+for (const a of unique.slice(0, MAX)) {
+  if (!nameable(a.symbol)) continue;
   const open = units(OPEN_USD, a.usd);
   const bond = open * 10;
   const lock = units(LOCK_USD, a.usd);
