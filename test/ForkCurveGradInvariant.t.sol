@@ -142,6 +142,7 @@ contract ForkCurveGradInvariant is StdInvariant, Test {
         factory.setModules(address(router), address(staking), address(graduator));
         factory.setLaunchFee(0);
         uint256 configId = factory.addConfig(CurveConfig({
+            pairToken: address(0),
             totalSupply: 1_000_000_000e18, curveSupplyBps: 8000, startCap: 1 ether,
             graduationCap: 10 ether, liquidityBps: 9000, protocolFeeBps: 30, creatorFeeBps: 70,
             poolFee: 3000, tickSpacing: 60, enabled: true

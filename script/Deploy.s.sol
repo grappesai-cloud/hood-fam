@@ -74,6 +74,7 @@ contract Deploy is Script {
         //    ETH valuation, which is a raise of about 4.4 ETH.
         factory.addConfig(
             CurveConfig({
+                pairToken: address(0),
                 totalSupply: 1_000_000_000e18,
                 curveSupplyBps: 8000,
                 startCap: 1 ether,
@@ -90,6 +91,7 @@ contract Deploy is Script {
         // 1: the wide launch, for something that expects real size before it graduates.
         factory.addConfig(
             CurveConfig({
+                pairToken: address(0),
                 totalSupply: 1_000_000_000e18,
                 curveSupplyBps: 8000,
                 startCap: 2 ether,
@@ -106,6 +108,7 @@ contract Deploy is Script {
         // 2: priced in dollars, so the chart does not move with ETH.
         factory.addConfig(
             CurveConfig({
+                pairToken: USDG,
                 totalSupply: 1_000_000_000e18,
                 curveSupplyBps: 8000,
                 startCap: 5_000e6,

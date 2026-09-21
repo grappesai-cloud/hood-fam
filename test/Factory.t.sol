@@ -132,6 +132,35 @@ contract FactoryTest is BaseTest {
         factory.launch{value: LAUNCH_FEE + 1 ether}(p);
     }
 
+    /// @dev A preset's caps are numbers without a unit until the preset names one. Launching the
+    ///      dollar preset against ETH would open at five thousandths of an ETH rather than at five
+    ///      thousand dollars, and every screen on the way would have looked right.
+    function test_a_preset_cannot_be_launched_against_another_pair() public {
+        CurveConfig memory c = _config();
+        c.pairToken = address(usd);
+        c.startCap = 5_000e6;
+        c.graduationCap = 50_000e6;
+        vm.prank(owner);
+        uint256 usdConfig = factory.addConfig(c);
+
+        LaunchParams memory p = _params(_toBuyback());
+        p.configId = usdConfig;
+        p.pairToken = address(0); // the preset is the dollar's
+        p.symbol = "MIX";
+        vm.prank(creator);
+        vm.expectRevert(HoodFactory.PairMismatch.selector);
+        factory.launch{value: LAUNCH_FEE}(p);
+    }
+
+    /// @dev And a preset for an asset the pad does not take could never be launched at all.
+    function test_a_preset_for_an_unknown_pair_is_refused() public {
+        CurveConfig memory c = _config();
+        c.pairToken = makeAddr("some other token");
+        vm.prank(owner);
+        vm.expectRevert(HoodFactory.PairNotAllowed.selector);
+        factory.addConfig(c);
+    }
+
     /// @dev Otherwise a creator walks away believing their first buy is locked when there was none.
     function test_a_lock_with_no_first_buy_is_refused() public {
         LaunchParams memory p = _params(_toBuyback());
@@ -143,6 +172,8 @@ contract FactoryTest is BaseTest {
 
     function test_a_dollar_first_buy_locks_the_same_way() public {
         CurveConfig memory c = _config();
+        // A preset carries the asset its caps are written in, so a dollar preset says so.
+        c.pairToken = address(usd);
         c.startCap = 5_000e6;
         c.graduationCap = 50_000e6;
         vm.prank(owner);
@@ -311,6 +342,8 @@ contract FactoryTest is BaseTest {
 
     function test_a_launch_against_an_erc20_pair_trades_and_graduates() public {
         CurveConfig memory c = _config();
+        // A preset carries the asset its caps are written in, so a dollar preset says so.
+        c.pairToken = address(usd);
         c.startCap = 5_000e6; // dollars, six decimals
         c.graduationCap = 50_000e6;
         vm.prank(owner);

@@ -36,6 +36,7 @@ contract DeployLocal is Script {
         factory.setPair(address(0), true, 25 ether);
         factory.addConfig(
             CurveConfig({
+                pairToken: address(0),
                 totalSupply: 1_000_000_000e18,
                 curveSupplyBps: 8000,
                 startCap: 1 ether,

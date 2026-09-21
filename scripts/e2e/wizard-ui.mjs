@@ -109,6 +109,9 @@ try {
     NEXT_PUBLIC_SITE_URL: `http://127.0.0.1:${WEB_PORT}`,
     NEXT_PUBLIC_DEMO: "",
   };
+  // Pin the face. The brand file is generated, so whichever one a screenshot run left behind would
+  // otherwise decide what this rehearsal builds and photographs.
+  await run("node", ["scripts/brand.mjs", "hood"], { cwd: ROOT, env });
   const build = await run("npx", ["--no-install", "next", "build"], { cwd: WEB, env });
   check("the app builds with the fork's addresses", build.status === 0, build.status === 0 ? "" : build.out.slice(-400));
   server = spawn("npx", ["--no-install", "next", "start", "-p", String(WEB_PORT)], { cwd: WEB, env, stdio: "ignore" });
@@ -139,8 +142,18 @@ try {
     const button = [...document.querySelectorAll("button")].find((b) => /^connect$/i.test(b.textContent.trim()));
     button?.click();
   });
-  await sleep(2500);
-  check("the wallet is connected", /0x[0-9a-fA-F]{4}/.test(await page.evaluate(() => document.querySelector(".wallet-button")?.textContent ?? "")));
+  // The header fills in when the connection settles, which is a race against whatever else the
+  // page is fetching. Waited for rather than slept at, so a slower page is not a failure.
+  // Any header, any face: what matters is that the address is on screen somewhere in the top of
+  // the page, not which brand's markup put it there.
+  let connected = "";
+  for (let i = 0; i < 20; i++) {
+    connected = await page.evaluate(() => (document.querySelector("header") ?? document.body).innerText);
+    if (/0x[0-9a-fA-F]{4}\u2026/.test(connected) || /0x[0-9a-fA-F]{4}\.\.\./.test(connected)) break;
+    await sleep(500);
+  }
+  const address = connected.match(/0x[0-9a-fA-F]{4}(\u2026|\.\.\.)[0-9a-fA-F]{4}/)?.[0] ?? "";
+  check("the wallet is connected", address !== "", address);
 
   const ticker = `RUN${Math.floor(Math.random() * 900 + 100)}`;
   await page.evaluate((name, symbol) => {

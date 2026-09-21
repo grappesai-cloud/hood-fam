@@ -16,6 +16,8 @@ import { CurveSim } from "@/components/Sim";
 import { useBatch } from "@/lib/safe";
 
 interface CurvePreset {
+  /// What this preset's caps are written in, and the only pair it may be launched against.
+  pairToken: `0x${string}`;
   totalSupply: bigint; curveSupplyBps: number; startCap: bigint; graduationCap: bigint;
   liquidityBps: number; protocolFeeBps: number; creatorFeeBps: number; enabled: boolean;
 }
@@ -173,13 +175,11 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   });
   const needsApproval = !isNative && firstBuyWei > 0n && ((pairAllowance as bigint | undefined) ?? 0n) < firstBuyWei;
 
-  // Which presets belong to the chosen pair, by the same rule the list below draws them with.
-  const presetFits = (cfg?: CurvePreset) => {
-    if (!cfg?.enabled) return false;
-    if (pairUsd <= 0) return true;
-    const openUsd = (Number(cfg.startCap) / 10 ** pairDec) * pairUsd;
-    return openUsd >= 1_500 && openUsd <= 10_000;
-  };
+  // Which presets belong to the chosen pair. The preset names it, so this is a fact rather than
+  // the guess by dollar size it used to be, which let a preset written for one share appear under
+  // another asset that happened to cost about the same.
+  const presetFits = (cfg?: CurvePreset) =>
+    Boolean(cfg?.enabled) && cfg!.pairToken.toLowerCase() === form.pairToken.toLowerCase();
   const presetsForPair = ((configs ?? []) as { result?: CurvePreset }[]).filter((c) => presetFits(c.result)).length;
   const chosen = ((configs ?? []) as { result?: CurvePreset }[])[form.configId]?.result;
   const tokenDone = form.name.length > 0 && form.symbol.length > 0 && symbolFree !== false;
@@ -336,13 +336,8 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               {((configs ?? []) as { result?: CurvePreset }[]).map((c, i) => {
                 const cfg = c.result;
                 if (!cfg?.enabled) return null;
+                if (!presetFits(cfg)) return null;
                 const dec = pairDec;
-                // A preset's caps are in the pair's own units, so one written for ETH reads as
-                // nonsense against a share. Anything outside a sane opening valuation belongs to
-                // another pair, and hiding it beats letting somebody launch at a thousandth of
-                // what they meant.
-                const openUsd = (Number(cfg.startCap) / 10 ** dec) * pairUsd;
-                if (pairUsd > 0 && (openUsd < 1_500 || openUsd > 10_000)) return null;
                 return (
                   <Choice key={i} selected={form.configId === i} onClick={() => set("configId", i)}
                     title={`Starts at ${fmt(cfg.startCap, dec, 3)} ${pair}, graduates at ${fmt(cfg.graduationCap, dec, 3)} ${pair}`}

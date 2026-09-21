@@ -315,7 +315,7 @@ export async function checkWiring({ client, a, owner: ownerAddress, treasury: tr
     "function launchFee() view returns (uint256)", "function configCount() view returns (uint256)",
     "function pairAllowed(address) view returns (bool)", "function lockThreshold(address) view returns (uint256)",
     "function previewLaunchEconomics(uint256,address) view returns (bytes32)",
-    "function getConfig(uint256) view returns ((uint256,uint16,uint256,uint256,uint16,uint16,uint16,uint24,int24,bool))",
+    "function getConfig(uint256) view returns ((address,uint256,uint16,uint256,uint256,uint16,uint16,uint16,uint24,int24,bool))",
   ]);
   const get = (address, abi, fn, args = []) => client.readContract({ address, abi, functionName: fn, args });
 
@@ -421,18 +421,22 @@ export async function checkWiring({ client, a, owner: ownerAddress, treasury: tr
 
   const configs = [];
   for (let i = 0; i < configCount; i++) configs.push(await get(a.factory, factoryAbi, "getConfig", [BigInt(i)]));
+  // A preset now carries the asset its caps are written in, so every field below sits one place
+  // further along than it used to, and the pair itself is worth checking: a preset pointing at the
+  // wrong asset would open at a valuation nobody chose.
   const expected = [
-    { startCap: parseEther("1"), graduationCap: parseEther("10"), liquidityBps: 9000 },
-    { startCap: parseEther("2"), graduationCap: parseEther("40"), liquidityBps: 9500 },
-    { startCap: 5_000_000_000n, graduationCap: 50_000_000_000n, liquidityBps: 9000 },
+    { pair: zeroAddress, startCap: parseEther("1"), graduationCap: parseEther("10"), liquidityBps: 9000 },
+    { pair: zeroAddress, startCap: parseEther("2"), graduationCap: parseEther("40"), liquidityBps: 9500 },
+    { pair: USDG, startCap: 5_000_000_000n, graduationCap: 50_000_000_000n, liquidityBps: 9000 },
   ];
   for (let i = 0; i < Math.min(configCount, expected.length); i++) {
     const c = configs[i];
     check(`preset ${i} matches section 2 and is enabled`,
-      c[9] === true && c[2] === expected[i].startCap && c[3] === expected[i].graduationCap && c[4] === expected[i].liquidityBps,
-      `start ${c[2]} graduation ${c[3]} liquidity ${c[4]}bps`);
-    check(`preset ${i} prints a billion tokens with four fifths on the curve`, c[0] === 10n ** 27n && c[1] === 8000);
-    check(`preset ${i} splits the fee 30/70 between protocol and creator`, c[5] === 30 && c[6] === 70);
+      c[10] === true && c[3] === expected[i].startCap && c[4] === expected[i].graduationCap && c[5] === expected[i].liquidityBps,
+      `start ${c[3]} graduation ${c[4]} liquidity ${c[5]}bps`);
+    check(`preset ${i} is denominated in the pair it names`, same(c[0], expected[i].pair), c[0]);
+    check(`preset ${i} prints a billion tokens with four fifths on the curve`, c[1] === 10n ** 27n && c[2] === 8000);
+    check(`preset ${i} splits the fee 30/70 between protocol and creator`, c[6] === 30 && c[7] === 70);
   }
 
   check("the native pair is allowed", (await get(a.factory, factoryAbi, "pairAllowed", [zeroAddress])) === true);
@@ -457,7 +461,9 @@ export async function checkWiring({ client, a, owner: ownerAddress, treasury: tr
   const c0 = configs[0];
   const local = keccak256(encodeAbiParameters(
     parseAbiParameters("uint256, address, uint256, uint16, uint256, uint256, uint16, uint16, uint16, uint24, int24, uint256, address, address, address"),
-    [0n, zeroAddress, c0[0], c0[1], c0[2], c0[3], c0[4], c0[5], c0[6], c0[7], c0[8], launchFee,
+    // c0[0] is the preset's own pair; the hash already carries the pair the launch asked for, so
+    // the fields hashed here start one along.
+    [0n, zeroAddress, c0[1], c0[2], c0[3], c0[4], c0[5], c0[6], c0[7], c0[8], c0[9], launchFee,
       await get(a.factory, factoryAbi, "feeRouter"), await get(a.factory, factoryAbi, "staking"),
       await get(a.factory, factoryAbi, "graduationHandler")],
   ));

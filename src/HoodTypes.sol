@@ -34,6 +34,11 @@ enum Phase {
 /// @notice A launch preset. Presets are append-only: an existing config can be disabled for new
 ///         launches but never edited, so the economics of a live token cannot be changed under it.
 struct CurveConfig {
+    // What the caps below are denominated in, and therefore the only pair this preset may be
+    // launched against. Without it a preset is a pair of numbers with no unit: "starts at 3.5"
+    // reads as ETH, as NVDA and as a thousandth of a dollar, and a creator picking from a list
+    // would be picking a valuation a thousand times off without the form ever looking wrong.
+    address pairToken;
     uint256 totalSupply; // token wei minted at launch (18 decimals)
     uint16 curveSupplyBps; // share of the supply sold on the curve; the rest seeds the pool
     uint256 startCap; // fully diluted valuation in pair units at the first token sold

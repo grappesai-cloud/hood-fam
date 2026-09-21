@@ -114,6 +114,7 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
 
     error ConfigDisabled();
     error PairNotAllowed();
+    error PairMismatch();
     error BadEconomics();
     error BadFee();
     error BadSplit();
@@ -208,6 +209,8 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     ///         nothing can change under a token that already launched on it.
     function addConfig(CurveConfig calldata c) external onlyOwner returns (uint256 configId) {
         if (c.totalSupply == 0 || c.curveSupplyBps == 0 || c.curveSupplyBps >= BPS) revert BadConfig();
+        // A preset for an asset this pad does not take is a preset nobody can ever launch on.
+        if (!pairAllowed[c.pairToken]) revert PairNotAllowed();
         if (c.graduationCap <= c.startCap || c.startCap == 0) revert BadConfig();
         // The pool has to get the lion's share of the raise, or graduation is an exit.
         if (c.liquidityBps < 8000 || c.liquidityBps > BPS) revert BadConfig();
@@ -299,6 +302,10 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         uint256 launchFee_ = launchFee;
         if (msg.value < launchFee_) revert BadFee();
         if (!pairAllowed[p.pairToken]) revert PairNotAllowed();
+        // The preset's caps are in its own pair's units, so launching one against another asset
+        // would open at a valuation nobody chose. The contract refuses rather than leaving it to
+        // whichever app the creator happened to use.
+        if (p.pairToken != c.pairToken) revert PairMismatch();
         if (p.econ != bytes32(0) && p.econ != previewLaunchEconomics(p.configId, p.pairToken)) revert BadEconomics();
         // The four legs have to be the whole of the creator leg. All four at zero fails the same
         // check, because money booked with nowhere to go could never leave the router again.

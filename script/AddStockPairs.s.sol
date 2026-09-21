@@ -40,9 +40,9 @@ contract AddStockPairs is Script {
         _pair(factory, GME, 3_000e18, "GME");
         _pair(factory, SPY, 90e18, "SPY");
 
-        _preset(factory, "NVDA", 12e18, 120e18);
-        _preset(factory, "GME", 120e18, 1_200e18);
-        _preset(factory, "SPY", 3.5e18, 35e18);
+        _preset(factory, NVDA, "NVDA", 12e18, 120e18);
+        _preset(factory, GME, "GME", 120e18, 1_200e18);
+        _preset(factory, SPY, "SPY", 3.5e18, 35e18);
 
         vm.stopBroadcast();
 
@@ -58,9 +58,12 @@ contract AddStockPairs is Script {
         console.log("allowed:", name);
     }
 
-    function _preset(HoodFactory factory, string memory name, uint256 startCap, uint256 graduationCap) internal {
+    function _preset(HoodFactory factory, address pairToken, string memory name, uint256 startCap, uint256 graduationCap)
+        internal
+    {
         uint256 id = factory.addConfig(
             CurveConfig({
+                pairToken: pairToken,
                 totalSupply: 1_000_000_000e18,
                 curveSupplyBps: 8000,
                 startCap: startCap,

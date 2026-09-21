@@ -60,6 +60,7 @@ contract BaseTest is Test {
 
     function _config() internal pure returns (CurveConfig memory) {
         return CurveConfig({
+            pairToken: address(0),
             totalSupply: 1_000_000_000e18,
             curveSupplyBps: 8000,
             startCap: 1 ether, // fully diluted valuation at the first token

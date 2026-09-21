@@ -63,6 +63,7 @@ contract ForkV4Test is Test {
         factory.setLaunchFee(0.0005 ether);
         configId = factory.addConfig(
             CurveConfig({
+                pairToken: address(0),
                 totalSupply: 1_000_000_000e18,
                 curveSupplyBps: 8000,
                 startCap: 1 ether,
@@ -170,6 +171,7 @@ contract ForkV4Test is Test {
         factory.setPair(address(usd), true, 0);
         uint256 usdConfig = factory.addConfig(
             CurveConfig({
+                pairToken: address(0),
                 totalSupply: 1_000_000_000e18,
                 curveSupplyBps: 8000,
                 startCap: 5_000e6,

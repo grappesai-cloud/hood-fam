@@ -88,6 +88,8 @@ export const launchParamsSchema = z.object({
 export type LaunchParamsInput = z.input<typeof launchParamsSchema>;
 
 export interface CurveConfig {
+  /// The asset this preset's caps are written in, and the only pair it can be launched against.
+  pairToken: `0x${string}`;
   totalSupply: bigint;
   curveSupplyBps: number;
   startCap: bigint;

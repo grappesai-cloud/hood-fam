@@ -65,6 +65,7 @@ contract ForkLZTest is Test {
         factory.setLaunchFee(0.0005 ether);
         factory.addConfig(
             CurveConfig({
+                pairToken: address(0),
                 totalSupply: 1_000_000_000e18,
                 curveSupplyBps: 8000,
                 startCap: 1 ether,

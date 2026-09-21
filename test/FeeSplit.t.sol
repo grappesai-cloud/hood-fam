@@ -316,6 +316,8 @@ contract FeeSplitTest is BaseTest {
     ///      approve the curve and the curve has to pull, for both the buyback and the donation.
     function test_the_legs_work_when_the_pair_is_a_dollar() public {
         CurveConfig memory c = _config();
+        // A preset carries the asset its caps are written in, so a dollar preset says so.
+        c.pairToken = address(usd);
         c.startCap = 5_000e6;
         c.graduationCap = 50_000e6;
         vm.prank(owner);
