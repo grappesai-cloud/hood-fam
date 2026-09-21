@@ -49,6 +49,9 @@ export default {
   async headers() {
     return [
       { source: "/:path*", headers: SECURITY_HEADERS },
+      // Versioned brand art is immutable. Public assets otherwise default to max-age=0, which made
+      // the 3D hero arrive again on every navigation and look as if it were being painted in rows.
+      { source: "/ox/:asset*.webp", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
       // Safe{Wallet} fetches the Safe App manifest from its own origin before it will open the app.
       { source: "/manifest.json", headers: [{ key: "Access-Control-Allow-Origin", value: "*" }] },
     ];

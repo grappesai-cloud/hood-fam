@@ -95,7 +95,17 @@ export function Explore() {
         </div>
         <div className="ox-hero-visual" aria-label="ox.family glass logo">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/ox/ox-hero-transparent.png" alt="Green glossy OX logo" />
+          <img
+            src="/ox/ox-hero-green-v1-1200.webp"
+            srcSet="/ox/ox-hero-green-v1-1200.webp 1200w, /ox/ox-hero-green-v1.webp 1774w"
+            sizes="(max-width: 640px) 92vw, 54vw"
+            alt="Green glossy OX logo"
+            width={1774}
+            height={887}
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
+          />
         </div>
       </section>
 

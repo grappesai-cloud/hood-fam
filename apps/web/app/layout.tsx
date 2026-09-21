@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ReferralCatcher } from "@/components/Social";
 import "./globals.css";
 import "./brand.css";
 import { Providers } from "./providers";
@@ -29,8 +30,16 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" data-brand={brand.id}>
+      {brand.id === "ox" ? (
+        <head>
+          <link rel="preload" href="/ox/ox-hero-green-v1-1200.webp" as="image" type="image/webp" fetchPriority="high" />
+        </head>
+      ) : null}
       <body className="min-h-screen">
         <Providers>
+          {/* A referral link can point at any page, so the code is caught app-wide and kept until
+              there is a wallet to tie it to. It reads the query string and renders nothing. */}
+          <ReferralCatcher />
           <brand.Shell>{children}</brand.Shell>
         </Providers>
       </body>
