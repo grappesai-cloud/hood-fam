@@ -63,6 +63,11 @@ export async function ethUsdPrice(): Promise<number> {
 export interface PairAsset {
   symbol: string;
   decimals: number;
+  /// The company or fund behind a tokenised share, as the token itself names it. A ticker alone is
+  /// not an identification when five tokens on this chain answer to NVDA.
+  name?: string;
+  /// A share of a company rather than a currency, verified by the issuer's own code.
+  share?: boolean;
   /// The pool this asset trades against USDG in, and which side of it the asset sits on. A v3 pool
   /// answers `slot0()` at its own address; a v4 pool has no address at all, only an id inside the
   /// PoolManager, read through the StateView the graduator already uses. Both give the same
@@ -123,13 +128,22 @@ function discovered(): Record<string, PairAsset> {
   try {
     const file = new URL("../../../deploy/quotes.json", import.meta.url);
     const found = JSON.parse(readFileSync(file, "utf8")) as {
-      assets: { address: string; symbol: string; decimals: number; verdict: string; pool?: PairAsset["usdPool"] }[];
+      assets: {
+        address: string; symbol: string; name?: string; share?: boolean; decimals: number;
+        verdict: string; pool?: PairAsset["usdPool"];
+      }[];
     };
     for (const a of found.assets) {
       if (a.verdict !== "candidate" || !a.pool) continue;
       const key = a.address.toLowerCase();
-      if (BUILT_IN[key]) continue; // what was checked by hand wins over what was scanned
-      out[key] = { symbol: a.symbol, decimals: a.decimals, usdPool: a.pool };
+      if (BUILT_IN[key]) {
+        // What was checked by hand wins on the price source, but the scan is the only thing that
+        // knows the company behind the ticker, so that much is taken from it.
+        if (a.name) BUILT_IN[key]!.name = a.name;
+        if (a.share) BUILT_IN[key]!.share = true;
+        continue;
+      }
+      out[key] = { symbol: a.symbol, name: a.name, share: a.share, decimals: a.decimals, usdPool: a.pool };
     }
   } catch {
     // No file, or a file this build cannot read: the built in table is the whole answer, which is
