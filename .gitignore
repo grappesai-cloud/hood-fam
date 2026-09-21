@@ -7,6 +7,8 @@ broadcast/
 node_modules/
 dist/
 .next/
+# per brand build directories, written by scripts/brand-shots.mjs
+.next-*/
 *.tsbuildinfo
 
 # secrets and local overrides: nothing under here belongs in a repository
