@@ -10,6 +10,7 @@ import { SupportChatMount } from "@/components/SupportChatMount";
 import { shortAddress } from "@/lib/format";
 import { usePreferredConnector, useSafeAccount } from "@/lib/safe";
 import { Wordmark } from "./Wordmark";
+import { brand } from "@/brands";
 
 /// Klimb's chrome is a terminal's chrome: a rail down the left, the page beside it, nothing on top.
 ///
@@ -70,17 +71,9 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-/// The rail reads the same list the brand publishes, written out here rather than imported from
-/// `./index` so the chrome cannot pull the whole brand object into the client bundle.
-const ROUTES = [
-  { href: "/", label: "Market" },
-  { href: "/launch", label: "New listing" },
-  { href: "/portfolio", label: "Positions" },
-  { href: "/creator", label: "Issuer desk" },
-  { href: "/leaderboard", label: "Rankings" },
-  { href: "/airdrop", label: "Season payout" },
-  { href: "/bridge", label: "Bridge" },
-];
+/// The rail reads the brand's own list. It used to be a copy kept here, which drifted the moment
+/// the routes changed: the bridge was taken out of every brand and this rail still offered it.
+const ROUTES = brand.nav;
 
 /// The same wallet behaviour as the shared nav: the connector is chosen for the surroundings (the
 /// Safe when framed by Safe{Wallet}, the injected wallet in a browser, WalletConnect on a phone),
