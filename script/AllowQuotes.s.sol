@@ -41,13 +41,23 @@ contract AllowQuotes is Script {
             "the plan's columns are different lengths"
         );
 
-        // Every preset the factory already carries, read once. Asking the factory again for every
-        // asset in the plan is the same read repeated tens of thousands of times over a remote
-        // node, which turns a ten minute run into an afternoon.
+        // Which of the plan's assets already has its preset, worked out in one pass over what the
+        // factory carries. Asking the factory again inside the loop is the same read repeated tens
+        // of thousands of times over a remote node; holding the presets in memory and copying a
+        // struct per comparison is worse, because a copy is an allocation and two hundred assets
+        // against two hundred presets is twenty megabytes of them.
+        bool[] memory presetExists = new bool[](assets.length);
         uint256 existingCount = factory.configCount();
-        CurveConfig[] memory known = new CurveConfig[](existingCount + assets.length);
-        for (uint256 i; i < existingCount; i++) known[i] = factory.getConfig(i);
-        uint256 knownCount = existingCount;
+        for (uint256 i; i < existingCount; i++) {
+            CurveConfig memory c = factory.getConfig(i);
+            if (!c.enabled) continue;
+            for (uint256 j; j < assets.length; j++) {
+                if (c.pairToken == assets[j] && c.startCap == startCaps[j] && c.graduationCap == graduationCaps[j]) {
+                    presetExists[j] = true;
+                    break;
+                }
+            }
+        }
 
         vm.startBroadcast(pk);
         uint256 pairs;
@@ -58,7 +68,9 @@ contract AllowQuotes is Script {
                 factory.setPair(assets[i], true, thresholds[i]);
                 pairs++;
             }
-            if (curvePresets[i] && !_hasPreset(known, knownCount, assets[i], startCaps[i], graduationCaps[i])) {
+            // Each asset appears once in a plan, so a preset added here cannot collide with a
+            // later row: the flag above is the whole answer.
+            if (curvePresets[i] && !presetExists[i]) {
                 CurveConfig memory config = CurveConfig({
                     pairToken: assets[i],
                     totalSupply: 1_000_000_000e18,
@@ -73,7 +85,6 @@ contract AllowQuotes is Script {
                     enabled: true
                 });
                 factory.addConfig(config);
-                known[knownCount++] = config;
                 presets++;
             }
             if (!portal.quoteAllowed(assets[i])) {
@@ -105,19 +116,4 @@ contract AllowQuotes is Script {
         return vm.parseJsonUintArray(plan, key);
     }
 
-    function _hasPreset(
-        CurveConfig[] memory known,
-        uint256 count,
-        address pairToken,
-        uint256 startCap,
-        uint256 graduationCap
-    ) internal pure returns (bool) {
-        for (uint256 i; i < count; i++) {
-            CurveConfig memory c = known[i];
-            if (c.enabled && c.pairToken == pairToken && c.startCap == startCap && c.graduationCap == graduationCap) {
-                return true;
-            }
-        }
-        return false;
-    }
 }
