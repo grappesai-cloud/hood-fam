@@ -1,6 +1,7 @@
 import { formatUnits, parseUnits } from "viem";
 
-/// Lock lengths a launch's staking vault knows, and what they are worth.
+/// Lock lengths the vault knows, and what they are worth. The first buy locker takes the same
+/// four lengths minus the flexible one, so a creator and a holder read the same words.
 export const LOCK_TIERS = [
   { label: "flexible", seconds: 0, multiplier: 1 },
   { label: "7 days", seconds: 7 * 86_400, multiplier: 1.25 },

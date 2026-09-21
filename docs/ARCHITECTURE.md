@@ -36,13 +36,13 @@ own money on the first buy inside the same transaction, so a launch cannot be sn
 between the token appearing and the creator buying.
 
 **A creator can lock their own first buy.** `LaunchParams.firstBuyLock` is a duration in seconds
-and must be one of the staking vault's tiers (7, 30, 90 or 180 days) or the launch reverts, so an
-app and the vault can never disagree about what a lock is. When it is set, the tokens the first buy
-bought never pass through the creator's wallet: the factory stakes them in the creator's name. The
-position is theirs, it earns whatever the token's staking leg pays, and the vault will not let it
-out before the lock is over, so the one parcel nobody else could have bought yet cannot be sold
-into the people who buy next. It is the same tier and the same rule every other staker lives under,
-not a second lock mechanism. A lock with no first buy behind it reverts rather than doing nothing.
+and must be one of `HoodTokenLock`'s lengths (7, 30, 90 or 180 days) or the launch reverts, so an
+app and the contract can never disagree about what a lock is. When it is set, the tokens the first
+buy bought never pass through the creator's wallet: the factory hands them to the locker in the
+creator's name. They earn nothing there, and that is deliberate. Locking for money is the house
+coin's job; this lock exists to say one thing, which is that the one parcel nobody else could have
+bought yet cannot be sold into the people who buy next. Only the creator can take it out, and only
+once the time has passed. A lock with no first buy behind it reverts rather than doing nothing.
 
 **HoodDeployer** holds the bytecode of the token and of the curve and nothing else. It exists
 because a factory that inlines `new Token()` and `new Curve()` carries both creation codes in its
@@ -72,10 +72,21 @@ actually came out at, so the position is minted where the money says it belongs.
 destinations the creator chose at launch. It has no owner and no withdrawal. Flushing is
 permissionless.
 
-**HoodStaking** is one vault for every launch. Lock length sets the weight, from 1x flexible to
-2.5x for half a year. `stakeFor` locks tokens in somebody else's name: they earn from minute one
-and cannot sell before the lock ends. `claim` is permissionless and always pays the position's
-owner, so a keeper can push everybody's rewards and, when the keeper dies, anybody else can.
+**HoodStaking** is one vault holding one coin: the pad's own, named once by the owner through
+`setHouseToken` and never changeable. The `stakersBps` leg of every launch pays into it, so holding
+the house coin is a claim on the whole board rather than on a single token, and no launch can build
+a staking economy of its own. Lock length sets the weight, from 1x flexible to 2.5x for half a
+year. `stakeFor` locks the coin in somebody else's name: they earn from minute one and cannot sell
+before the lock ends. `claim` is permissionless and always pays the position's owner, so a keeper
+can push everybody's rewards and, when the keeper dies, anybody else can.
+
+Because launches pair against different assets, the vault keeps an accumulator per asset and every
+position carries a debt per asset, fixed when it opens so it can never reach back into what was
+paid before it existed. The asset list is capped, and only a pair the owner allowed can reach it.
+
+**HoodTokenLock** holds creators' first buys and nothing else: no owner, no rewards, no rescue, no
+way to shorten a lock. It is a separate contract precisely because the vault stopped accepting
+launched tokens.
 
 **HoodBridgeFactory** deploys the one lock box per token and owns it, so routes are opened through
 one contract with one owner instead of a loose key per token.
@@ -89,7 +100,7 @@ can pay its stakers, buy itself back, deepen its pool and keep a slice, all at o
 
 | leg | before graduation | after graduation |
 |---|---|---|
-| stakers | credited to lockers, by weight | same |
+| stakers | credited to the house coin's lockers, by weight | same |
 | buyback | buys off the curve, burns | swaps out of the pool with a floor, burns |
 | liquidity | added to the raise, so the pool opens deeper | donated to the pool through the PoolManager |
 | creator | paid to the fee recipient | same |
@@ -264,7 +275,7 @@ the user a hosted Relay link, which is the honest fallback rather than a broken 
 | thing | who can change it |
 |---|---|
 | a live token's curve, fees, supply, fee split | nobody, ever |
-| a locked first buy | nobody; the staking vault releases it to the creator when the tier is over |
+| a locked first buy | nobody; the locker releases it to the creator when the time is over |
 | a direct launch's taxes, allocations, ticks, window | nobody, ever |
 | graduated liquidity | nobody; there is no withdrawal function |
 | a launch's fee recipient | only the current recipient, in one step |

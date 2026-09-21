@@ -1,15 +1,13 @@
-/// 0x.fam's mark: the two characters every address on this chain opens with, and the block a
-/// terminal parks where the next character will land. The suffix is dimmed rather than lit, because
-/// on this front the accent belongs to whatever is live, never to the furniture.
-///
-/// Spans and a background colour, not an SVG or an image: the mark has to sit on a 44px header line
-/// next to 12px route text and still line up on the monospace grid, which it only does if it is
-/// actually text.
+/// The generated glass OX is used as the visual mark. The crop keeps the same source usable in the
+/// narrow sidebar while the full frame remains available to the home-page hero.
 export function Wordmark({ className }: { className?: string }) {
   return (
-    <span className={className}>
-      0x<span className="ox-caret" aria-hidden="true" />
-      <span className="ox-mark-tail">.fam</span>
+    <span className={`ox-wordmark ${className ?? ""}`.trim()}>
+      <span className="ox-wordmark-mark" aria-hidden="true">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/ox/ox-green-hero.png" alt="" />
+      </span>
+      <span className="ox-wordmark-name">ox<span>.family</span></span>
     </span>
   );
 }

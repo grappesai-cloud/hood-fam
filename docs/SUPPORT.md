@@ -135,14 +135,17 @@ board needs the indexer to reach that block. The page retries by itself. Give it
 browser, and the address is tied to your wallet, so only one of your own earlier launches can be in
 the way. The form skips used addresses on its own; if it still fails, refresh and try again.
 
-## Staking
+## Locking
 
-Staking is per token, on curve tokens whose fee split pays stakers. Locks: none (1x), 7 days
-(1.25x), 30 days (1.5x), 90 days (2x), 180 days (2.5x). Rewards come from the creator fee and are
-claimable at any time. You cannot withdraw before the lock ends. Somebody can stake in your name
-with a lock (a "sent stake"); you earn from the first minute and cannot sell before it unlocks. A
-creator can send their own first buy this way at launch, and then it is locked like any other
-position.
+There is one coin to lock here: the pad's own. Locking it pays you a share of the stakers leg of
+every launch that sends one, not of one token. No other token can be locked, by anyone, anywhere.
+Locks: none (1x), 7 days (1.25x), 30 days (1.5x), 90 days (2x), 180 days (2.5x). Rewards come from
+the creator fee of the launches that pay, arrive in whatever those launches trade against, and are
+claimable at any time. You cannot withdraw before the lock ends. Somebody can lock in your name (a
+"sent stake"); you earn from the first minute and cannot sell before it unlocks.
+
+A creator's locked first buy is a different thing: it sits in the locker, earns nothing, and comes
+back to the creator when the time is up. It is there to prove they are not selling into you.
 
 When a lock expires the position keeps earning at 1x; anyone can demote it, which is expected.
 

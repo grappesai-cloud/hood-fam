@@ -63,7 +63,7 @@ Names are the variables in `.env.example`; addresses are filled at deploy and pr
 |---|---|---|
 | `HOOD_FACTORY` | `HoodFactory` | Prints curve tokens. The registry for both machines (`getLaunch`), the copycat lock, the presets |
 | `HOOD_FEE_ROUTER` | `HoodFeeRouter` | Books a curve token's creator fee leg and spends it across its split |
-| `HOOD_STAKING` | `HoodStaking` | One staking vault for every token |
+| `HOOD_STAKING` | `HoodStaking` | One vault, holding the one coin this pad lets you lock |
 | `HOOD_GRADUATOR` | `UniswapV4Graduator` | Opens and holds a graduated curve token's pool; `positionOf(token)` returns the pool key |
 | `HOOD_BRIDGE_FACTORY` | `HoodBridgeFactory` | LayerZero lock boxes |
 | `HOOD_PORTAL` | `HoodPortal` | Prints direct launches. `getLaunch`, `graduationStatus`, `allLaunches`, `launchCount` |
@@ -98,7 +98,7 @@ rest is in `data`.
 
 The first two fire in the launch transaction, `Launched` first. `feeSplit` is
 `(stakersBps, buybackBps, liquidityBps, creatorBps)`, summing to 10,000 and fixed forever: the
-share of the creator fee leg that goes to stakers of the token, to buying it back and burning it,
+share of the creator fee leg that goes to whoever locked the house coin, to buying this token back and burning it,
 to deepening its liquidity, and to the fee recipient. A launch whose preset charges no creator fee
 never books anything to split, whatever the shares say.
 
@@ -323,7 +323,8 @@ The four-byte selector is what a revert carries. One sentence each.
 | `0xd500448a` | `QuoteNotAllowed()` | portal | The quote asset is not on the allow list (ETH and USDG). |
 | `0x917f1a53` | `BadFee()` | portal, factory | `msg.value` is below the launch fee, plus the first buy when it is in ETH. |
 | `0xbc4f33a3` | `BadSplit()` | factory | The four legs of `feeSplit` do not add up to 10,000, all four are zero included. |
-| `0x38f21151` | `BadLock()` | factory | `firstBuyLock` is not one of the staking tiers: 7, 30, 90 or 180 days, or zero for no lock. |
+| `0x75013283` | `NoHouseToken()` | factory, staking | The stakers leg promises a share before the pad's own coin has been named, or a stake was attempted before it exists. Read `HoodStaking.houseToken()`: zero means neither is possible yet. |
+| `0x38f21151` | `BadLock()` | factory | `firstBuyLock` is not one of the locker's lengths: 7, 30, 90 or 180 days, or zero for no lock. |
 | `0x3beb2222` | `NoFirstBuy()` | factory | `firstBuyLock` was asked for with nothing to lock: no ETH above the launch fee, or `firstBuy` at zero. |
 | `0xec4ebdaf` | `BadSupply()` | portal | Supply is zero. |
 | `0x3a25fc0d` | `BadPoolFee()` | portal | The pool fee carries the dynamic-fee flag or exceeds 100%. |
@@ -430,7 +431,7 @@ sum to 10,000 and are what to render as four percentages. On a direct token they
 which means the split does not apply rather than nothing is paid: that launch's tax is divided by
 its own splitter, and `alloc_*_bps` is where it goes.
 
-`first_buy_locked` is token wei of the creator's own first buy, locked in the staking vault in the
+`first_buy_locked` is token wei of the creator's own first buy, held by the locker in the
 launch transaction, and `first_buy_unlock_at` is when it opens. Zero and null mean the creator took
 their first buy in hand, so a "dev locked" badge is `first_buy_locked > 0`.
 

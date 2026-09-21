@@ -22,7 +22,8 @@ the pool taxing both sides in the quote asset. The tax splits four ways: the cre
 holders, and the liquidity itself. When the price crosses the bonding tick the launch is bonded, and
 that is a status rather than a migration, because the liquidity was real and locked the whole time.
 
-Both machines share one registry, one ticker lock, one staking vault, one points system and one app.
+Both machines share one registry, one ticker lock, one vault for the house coin, one points system
+and one app.
 
 ## The fee split: four roads, not a choice
 
@@ -31,7 +32,7 @@ bps and add up to 10,000, so one launch can do several of these at once.
 
 | Leg | What that share of the creator leg does |
 |---|---|
-| `stakersBps` | Pays the people who locked the token, weighted by size and by lock length. |
+| `stakersBps` | Pays the people who locked the house coin, weighted by size and by lock length. One room, fed by every launch on the pad. |
 | `buybackBps` | Buys the token back (off the curve, or out of the pool after graduation) and burns it. |
 | `liquidityBps` | Deepens the liquidity: added to the raise before graduation, donated to the pool after. |
 | `creatorBps` | Pays the creator fee recipient. Transferable in one step, by the current recipient only. |
@@ -48,15 +49,16 @@ floor (`flushBuyback`), because a permissionless buy with no floor is a gift to 
 ## The creator's first buy can be locked
 
 A curve launch can spend the creator's own money on the first buy inside the launch transaction, so
-nobody can snipe the gap. `firstBuyLock` locks what it bought: one of the staking vault's tiers (7,
-30, 90 or 180 days), and the tokens go into the vault in the creator's name instead of into their
-wallet. The position is theirs, it earns whatever the token's staking leg pays, and it cannot be
-sold into the people who buy next until the lock is over.
+nobody can snipe the gap. `firstBuyLock` locks what it bought: one of `HoodTokenLock`'s lengths (7,
+30, 90 or 180 days), and the tokens go into that contract in the creator's name instead of into
+their wallet. It earns nothing, which is the point: it is there to say that the person who bought
+ahead of everybody else cannot sell into the people who bought next until the lock is over. Only
+the creator can take it out, and only once the time has passed.
 
 ## What is in this repository
 
 ```
-src/                 the contracts: factory, token, curve, fee router, staking, graduator, bridge
+src/                 the contracts: factory, token, curve, fee router, staking, locker, graduator, bridge
 packages/sdk/        one TypeScript client over all of it, ABIs generated from the artifacts
 packages/mcp/        36 MCP tools: launch, quote, trade, stake, claim, bridge, keystore, signer, art, support
 apps/api/            the indexer, the REST API, points and ranks, the support desk (Fastify + Postgres)
@@ -116,7 +118,21 @@ A token that does more than the configured volume inside 24 hours locks its tick
 for 48 hours. A new launch cannot reuse either, and the ticker check is case-insensitive, so `bonk`
 does not get you around a lock on `BONK`. A quiet token never locks anything.
 
-## Staking
+## Locking, and the house coin
+
+One coin is lockable on this pad: its own. `HoodStaking` holds a single `houseToken`, named once by
+the owner and never again, and the `stakersBps` leg of EVERY launch pays whoever has that coin
+locked. A launch cannot invent a staking economy around itself, and a holder of the house coin is
+paid by the whole board rather than by one token.
+
+The coin is launched on the pad like anything else, so it does not exist at deployment: until the
+owner names it, the vault refuses every stake and the factory refuses any launch that promises a
+share to stakers. The coin's own launch therefore cannot point at stakers either, since at that
+moment there is nobody to point at.
+
+Rewards arrive in whatever each paying launch trades against, so the vault keeps one accumulator
+per asset and a position carries a debt per asset. `pendingAll` and `claim` walk that list; the
+number of assets is capped, and only an approved pair can ever reach the vault.
 
 | Lock | Weight |
 |---|---|
@@ -126,7 +142,7 @@ does not get you around a lock on `BONK`. A quiet token never locks anything.
 | 90 days | 2x |
 | 180 days | 2.5x |
 
-`stakeFor` is the send-a-stake: you can put tokens in somebody else's name, locked. They earn the
+`stakeFor` is the send-a-stake: you can put the house coin in somebody else's name, locked. They earn the
 fee stream from minute one and cannot sell before the lock ends. That is how a launch pays a caller
 or a partner without handing them an exit.
 

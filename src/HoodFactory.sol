@@ -16,6 +16,7 @@ import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
 import {IHoodCurve} from "./interfaces/IHoodCurve.sol";
 import {IHoodFactory} from "./interfaces/IHoodFactory.sol";
 import {IHoodStaking} from "./interfaces/IHoodStaking.sol";
+import {IHoodTokenLock} from "./interfaces/IHoodTokenLock.sol";
 
 /// @title HoodFactory
 /// @notice The launchpad. Prints a token, opens its curve, keeps the registry, and runs the
@@ -49,6 +50,9 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     address public treasury;
     address public feeRouter;
     address public staking;
+    /// @notice Where a creator's first buy is held. Not the staking vault: that one is for the
+    ///         house coin alone, and a launched token has no business in it.
+    address public firstBuyLocker;
     /// @notice Handler handed to new launches. Live curves keep the one they were born with.
     address public graduationHandler;
     /// @notice Charged on every launch, in native currency, paid to the treasury.
@@ -101,6 +105,7 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     event ConfigEnabled(uint256 indexed configId, bool enabled);
     event TickerLocked(address indexed token, bytes32 indexed symbolHash, uint64 until);
     event ModulesSet(address feeRouter, address staking, address graduationHandler);
+    event FirstBuyLockerSet(address locker);
     event PortalSet(address portal);
     event DirectLaunchRegistered(address indexed token, address indexed creator, address hook);
     event TreasurySet(address treasury);
@@ -113,6 +118,7 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     error BadFee();
     error BadSplit();
     error BadLock();
+    error NoHouseToken();
     error NoFirstBuy();
     error TickerLockedError();
     error ImageLockedError();
@@ -135,6 +141,12 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         pairAllowed[address(0)] = true;
     }
 
+    /// @dev Both `Ownable` and `IHoodFactory` declare it; the modules ask the factory who its owner
+    ///      is, so the interface has to carry it.
+    function owner() public view override(Ownable, IHoodFactory) returns (address) {
+        return Ownable.owner();
+    }
+
     // ---------------------------------------------------------------- admin
 
     /// @notice Wires the modules that have to know the factory address. Callable once.
@@ -147,6 +159,17 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         staking = staking_;
         graduationHandler = graduationHandler_;
         emit ModulesSet(feeRouter_, staking_, graduationHandler_);
+    }
+
+    /// @notice Names the contract that holds creators' first buys. Once.
+    /// @dev Separate from `setModules` so an existing deployment can be given one without being
+    ///      redeployed, and once-only because a launch that recorded a lock has to keep pointing at
+    ///      the contract actually holding those tokens.
+    function setFirstBuyLocker(address locker) external onlyOwner {
+        if (locker == address(0)) revert ZeroAddress();
+        if (firstBuyLocker != address(0)) revert ModulesAlreadySet();
+        firstBuyLocker = locker;
+        emit FirstBuyLockerSet(locker);
     }
 
     /// @notice Points new launches at a different graduation handler. Live curves are untouched.
@@ -282,6 +305,10 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         uint256 legs = uint256(p.feeSplit.stakersBps) + p.feeSplit.buybackBps + p.feeSplit.liquidityBps
             + p.feeSplit.creatorBps;
         if (legs != BPS) revert BadSplit();
+        // The stakers leg pays whoever locked the house coin. Until the owner has named that coin
+        // there is nobody to pay, and a launch that promised a share to stakers would be pointing
+        // at an empty room for the rest of its life. Refused rather than accrued into nothing.
+        if (p.feeSplit.stakersBps != 0 && IHoodStaking(staking).houseToken() == address(0)) revert NoHouseToken();
         if (p.feeSplit.creatorBps != 0 && p.creatorFeeRecipient == address(0)) revert ZeroAddress();
         _checkFirstBuyLock(p, msg.value - launchFee_);
 
@@ -297,12 +324,13 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         bought = _firstBuy(p, token, curve, msg.value - launchFee_);
     }
 
-    /// @dev A lock is one of the staking vault's tiers or nothing: asked in seconds of its own, the
-    ///      app, this factory and the vault would each round the same number their own way and the
-    ///      creator would be shown an unlock date the vault does not hold them to.
+    /// @dev A lock is one of the locker's lengths or nothing: asked in seconds of its own, the app,
+    ///      this factory and the locker would each round the same number their own way and the
+    ///      creator would be shown an unlock date the locker does not hold them to.
     function _checkFirstBuyLock(LaunchParams calldata p, uint256 nativeLeft) internal view {
         if (p.firstBuyLock == 0) return;
-        if (!IHoodStaking(staking).isTier(p.firstBuyLock)) revert BadLock();
+        address locker = firstBuyLocker;
+        if (locker == address(0) || !IHoodTokenLock(locker).isTier(p.firstBuyLock)) revert BadLock();
         // Locking nothing leaves a creator believing their first buy is locked when there was no
         // first buy at all, so it is refused rather than quietly ignored.
         if ((p.pairToken == address(0) ? nativeLeft : p.firstBuy) == 0) revert NoFirstBuy();
@@ -398,15 +426,14 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         if (to != msg.sender) _lockFirstBuy(token, bought, p.firstBuyLock);
     }
 
-    /// @dev The creator's first buy, held in the staking vault in their name instead of in their
-    ///      wallet. The position is theirs, it earns whatever this token's staking leg pays, and
-    ///      the vault will not let it out before the lock is over, so the tokens that were bought
-    ///      ahead of everyone else cannot be sold into the people who bought next. No new lock:
-    ///      it is the same tier, the same vault and the same rule every other staker lives under.
+    /// @dev The creator's first buy, held in the locker in their name instead of in their wallet.
+    ///      It earns nothing: the tokens are there to say one thing, which is that the person who
+    ///      bought ahead of everyone else cannot sell into the people who bought next. The locker
+    ///      will not let them out a second early, and nobody, including this factory, can.
     function _lockFirstBuy(address token, uint256 amount, uint64 lockDuration) internal {
-        address staking_ = staking;
-        IERC20(token).forceApprove(staking_, amount);
-        uint256 positionId = IHoodStaking(staking_).stakeFor(token, msg.sender, amount, lockDuration);
+        address locker = firstBuyLocker;
+        IERC20(token).forceApprove(locker, amount);
+        uint256 positionId = IHoodTokenLock(locker).lockFor(token, msg.sender, amount, lockDuration);
         uint64 unlockAt = uint64(block.timestamp) + lockDuration;
         Launch storage l = _launches[token];
         l.firstBuyLocked = amount;

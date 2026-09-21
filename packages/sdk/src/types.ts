@@ -15,7 +15,9 @@ export interface FeeSplit {
 }
 
 export const FEE_LEG_LABEL: Record<FeeLeg, string> = {
-  stakers: "Stakers take it",
+  // Not "stakers of this token": there is one vault on the pad and it holds one coin, so this leg
+  // pays the people who locked that coin, whatever launch the fee came from.
+  stakers: "The coin holders take it",
   buyback: "Buy back and burn",
   liquidity: "Deepen the liquidity",
   creator: "The creator keeps it",
@@ -69,12 +71,14 @@ export const launchParamsSchema = z.object({
     liquidityBps: z.number().int().min(0).max(BPS),
     creatorBps: z.number().int().min(0).max(BPS),
   }).refine(splitAddsUp, { message: "the four legs must add up to 10,000" })
-    .default({ stakersBps: BPS, buybackBps: 0, liquidityBps: 0, creatorBps: 0 }),
+    // Half back into the pool, half to the creator: a default that launches on a pad whose house
+    // coin has not been named yet, which the whole-fee-to-stakers default could not.
+    .default({ stakersBps: 0, buybackBps: 0, liquidityBps: 5_000, creatorBps: 5_000 }),
   creatorFeeRecipient: addressSchema.optional(),
   /// Pair units spent on the creator's own first buy, inside the launch transaction.
   firstBuy: z.union([z.string(), z.bigint()]).default("0"),
-  /// Seconds the creator's own first buy is locked in the staking vault. Zero is no lock, and any
-  /// other value must be one of the vault's tiers (7, 30, 90 or 180 days) or the launch reverts.
+  /// Seconds the creator's own first buy is held by the locker, earning nothing. Zero is no lock,
+  /// and any other value must be one of its lengths (7, 30, 90 or 180 days) or the launch reverts.
   firstBuyLock: z.union([z.number(), z.bigint()]).default(0),
   salt: z.string().optional(),
   /// Economics hash read with previewLaunchEconomics. Zero skips the check.
@@ -137,10 +141,13 @@ export interface CurveState {
 
 export interface StakePosition {
   id: bigint;
+  /// The house coin: one vault, one token, so this is the same address for every position.
   token: `0x${string}`;
   owner: `0x${string}`;
   amount: bigint;
   unlockAt: number;
   weightBps: number;
-  pending: bigint;
+  /// What this position can claim, per reward asset. A vault fed by launches paired against
+  /// different things owes in more than one currency, and a single number could not say which.
+  pending: { asset: `0x${string}`; amount: bigint }[];
 }

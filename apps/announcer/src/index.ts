@@ -39,13 +39,32 @@ interface Token {
   graduated_at: string | null;
   volume_usd: string | number;
   volume_total: string;
-  fee_model: number;
+  split_stakers_bps: number;
+  split_buyback_bps: number;
+  split_liquidity_bps: number;
+  split_creator_bps: number;
   creator: string;
 }
 
 interface State { launchedThrough: string; graduatedThrough: string }
 
-const FEE_MODEL = ["stakers take the fee", "the fee buys and burns", "the fee deepens the pool", "the creator keeps the fee", "no creator fee"];
+/// Where a launch's fee goes, in the words the site uses. A launch divides it between these four
+/// rather than picking one, so the line names the legs that actually take something.
+const FEE_LEGS: [keyof Token, string][] = [
+  ["split_stakers_bps", "the coin holders"],
+  ["split_buyback_bps", "a buy back and burn"],
+  ["split_liquidity_bps", "the liquidity"],
+  ["split_creator_bps", "the creator"],
+];
+
+function feeLine(t: Token): string {
+  const legs = FEE_LEGS
+    .map(([key, label]) => ({ bps: Number(t[key] ?? 0), label }))
+    .filter((l) => l.bps > 0)
+    .sort((a, b) => b.bps - a.bps)
+    .map((l) => `${Math.round(l.bps / 100)}% to ${l.label}`);
+  return legs.length > 0 ? legs.join(", ") : "its own fee rule";
+}
 
 const iso = (d: Date) => d.toISOString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -108,7 +127,7 @@ function launchLine(t: Token): string {
     : "on a bonding curve";
   return [
     `${t.name} ($${t.symbol}) just launched on hood.fam.`,
-    `${machine}, ${FEE_MODEL[t.fee_model] ?? "its own fee rule"}.`,
+    `${machine}, ${feeLine(t)}.`,
     `${SITE}/token/${t.token}`,
   ].join("\n");
 }

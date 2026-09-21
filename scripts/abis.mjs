@@ -11,6 +11,7 @@ const wanted = [
   "HoodToken",
   "HoodFeeRouter",
   "HoodStaking",
+  "HoodTokenLock",
   "UniswapV4Graduator",
   "HoodBridgeFactory",
   "HoodOFTAdapter",

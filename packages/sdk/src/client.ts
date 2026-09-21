@@ -213,19 +213,28 @@ export function createHoodClient({ publicClient, walletClient, addresses }: Hood
   }
 
   async function getStakePosition(id: bigint): Promise<StakePosition> {
-    const [pos, pending] = await Promise.all([
-      publicClient.readContract({ address: addresses.staking, abi: hoodStakingAbi, functionName: "positions", args: [id] }) as Promise<[Address, Address, bigint, bigint, number, bigint]>,
-      publicClient.readContract({ address: addresses.staking, abi: hoodStakingAbi, functionName: "pending", args: [id] }) as Promise<bigint>,
+    const [pos, all, house] = await Promise.all([
+      publicClient.readContract({ address: addresses.staking, abi: hoodStakingAbi, functionName: "positions", args: [id] }) as Promise<[Address, bigint, bigint, number]>,
+      publicClient.readContract({ address: addresses.staking, abi: hoodStakingAbi, functionName: "pendingAll", args: [id] }) as Promise<[readonly Address[], readonly bigint[]]>,
+      houseToken(),
     ]);
     return {
       id,
-      token: pos[0],
-      owner: pos[1],
-      amount: pos[2],
-      unlockAt: Number(pos[3]),
-      weightBps: Number(pos[4]),
-      pending,
+      token: house,
+      owner: pos[0],
+      amount: pos[1],
+      unlockAt: Number(pos[2]),
+      weightBps: Number(pos[3]),
+      pending: all[0].map((asset, i) => ({ asset, amount: all[1][i]! })),
     };
+  }
+
+  /// The one coin this pad's vault accepts. Zero while the owner has not named it yet, which is
+  /// also the only state in which a launch cannot point its fee at stakers.
+  async function houseToken(): Promise<Address> {
+    return publicClient.readContract({
+      address: addresses.staking, abi: hoodStakingAbi, functionName: "houseToken",
+    }) as Promise<Address>;
   }
 
   async function weightFor(lockSeconds: number): Promise<number> {
@@ -342,11 +351,15 @@ export function createHoodClient({ publicClient, walletClient, addresses }: Hood
       address: curve, abi: hoodCurveAbi, functionName: "quoteBuy", args: [pairIn],
     }) as Promise<readonly [bigint, bigint, bigint]>;
 
-  async function stake(token: Address, amount: bigint, lockSeconds: number, beneficiary?: Address) {
+  /// Locks the house coin. There is only one lockable token on the pad, so this reads it off the
+  /// vault rather than taking it as an argument: a caller cannot lock the wrong thing by accident.
+  async function stake(amount: bigint, lockSeconds: number, beneficiary?: Address) {
+    const token = await houseToken();
+    if (token === zeroAddress) throw new Error("the house coin has not been named yet: nothing can be locked");
     await ensureAllowance(token, addresses.staking, amount);
     return beneficiary
-      ? write(addresses.staking, hoodStakingAbi, "stakeFor", [token, beneficiary, amount, BigInt(lockSeconds)])
-      : write(addresses.staking, hoodStakingAbi, "stake", [token, amount, BigInt(lockSeconds)]);
+      ? write(addresses.staking, hoodStakingAbi, "stakeFor", [beneficiary, amount, BigInt(lockSeconds)])
+      : write(addresses.staking, hoodStakingAbi, "stake", [amount, BigInt(lockSeconds)]);
   }
 
   const claim = (id: bigint) => write(addresses.staking, hoodStakingAbi, "claim", [id]);
@@ -433,7 +446,7 @@ export function createHoodClient({ publicClient, walletClient, addresses }: Hood
     // internals into every consumer's declaration file. Keep your own reference to them.
     // reads
     configCount, getConfig, listConfigs, getLaunch, getCurveState, quoteBuy, quoteBuyExactOut, quoteSell,
-    previewLaunchEconomics, isSymbolAvailable, creatorFees, tokenMeta, balanceOf, getStakePosition, weightFor,
+    previewLaunchEconomics, isSymbolAvailable, creatorFees, tokenMeta, balanceOf, getStakePosition, weightFor, houseToken,
     // writes
     launch, launchResult, buy, buyExactOut, sell, donate, finalize, claimProtocol, protocolClaimable, quoteCurveBuy,
     stake, claim, unstake, demote, flush, flushBuyback, collect, transferCreatorFeeRecipient, ensureAllowance,

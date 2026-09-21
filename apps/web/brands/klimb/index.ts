@@ -20,6 +20,7 @@ export const brand: Brand = {
     { href: "/portfolio", label: "Positions" },
     { href: "/creator", label: "Issuer desk" },
     { href: "/leaderboard", label: "Rankings" },
+    { href: "/lock", label: "The vault" },
     { href: "/airdrop", label: "Season payout" },
   ],
   copy: {

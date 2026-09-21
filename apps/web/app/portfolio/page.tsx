@@ -94,7 +94,7 @@ function PortfolioInner() {
       <div className="portfolio-sections">
         <section className="panel portfolio-section p-5">
           <div className="panel-head"><span className="n">02 / LOCKED</span><h2>Locked positions</h2><span className="hatch" aria-hidden="true" /></div>
-          {data.stakes.length === 0 ? <p className="empty-inline">Nothing locked. Locking a token pays you its trading fee for as long as you keep it locked.</p> : (
+          {data.stakes.length === 0 ? <p className="empty-inline">Nothing locked. Locking the pad's own coin pays you a share of the fee of every launch that sends one, for as long as you keep it locked.</p> : (
             <div className="rows">
               {data.stakes.map((st) => (
                 <Link key={st.position_id} href={`/token/${st.token}`} className="row">

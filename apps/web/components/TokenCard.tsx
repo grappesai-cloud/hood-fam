@@ -28,7 +28,7 @@ export function TokenCard({ t, spotlight, flag }: { t: TokenRow; spotlight?: boo
       <div className="token-art">
         <Artwork src={imageUrl(t.image)} symbol={t.symbol} size={520} rounded="rounded-none" />
         <span className="token-art-badge">{flag ?? tag}</span>
-        {devLocked && <span className="token-locked" title="The creator's first buy is locked in the staking vault">dev locked</span>}
+        {devLocked && <span className="token-locked" title="The creator's first buy is held by the locker and cannot be sold until it comes free">dev locked</span>}
         <span className="token-age">{ago(t.launched_at)}</span>
       </div>
 

@@ -13,72 +13,78 @@ import { SupportChatMount } from "@/components/SupportChatMount";
 import { brand } from "@/brands";
 import { Wordmark } from "./Wordmark";
 
-/// 0x.fam's chrome: one line of header, the page, one line of footer.
-///
-/// Everything a market terminal puts on screen is either data or a way of reaching data, so the
-/// chrome takes a single 44px band and gives the rest of the window to the table. The routes are
-/// written as paths because that is what the reader of this front already types; the chain and the
-/// wallet sit on the right, where a trading screen keeps its session state.
-///
-/// The nav comes from `brand.nav` rather than a list of its own, so the routes this brand offers
-/// are stated once, in `index.ts`. That import cycles back through `brands/` exactly as the shared
-/// Nav does for hood; it is read at render time, long after both modules have evaluated.
+const ICONS: Record<string, string> = {
+  "/": "⌂",
+  "/launch": "+",
+  "/portfolio": "◫",
+  "/leaderboard": "↗",
+  "/lock": "◇",
+  "/airdrop": "✦",
+  "/bridge": "⇄",
+};
+
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
 
   return (
-    <>
-      <header className="ox-top">
-        <Link href="/" className="ox-brand" aria-label={`${brand.name} home`}><Wordmark /></Link>
-        <nav className="ox-routes" aria-label="Main navigation">
-          {brand.nav.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className={path === l.href ? "ox-route active" : "ox-route"}
-              aria-current={path === l.href ? "page" : undefined}
-            >
-              {l.label}
-            </Link>
-          ))}
+    <div className="ox-app-shell">
+      <aside className="ox-sidebar">
+        <Link href="/" className="ox-brand-link" aria-label={`${brand.name} home`}>
+          <Wordmark />
+        </Link>
+
+        <nav className="ox-nav" aria-label="Main navigation">
+          {brand.nav.map((item) => {
+            const active = item.href === "/" ? path === "/" : path.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={active ? "ox-nav-link active" : "ox-nav-link"}
+                aria-current={active ? "page" : undefined}
+              >
+                <span className="ox-nav-icon" aria-hidden="true">{ICONS[item.href] ?? "·"}</span>
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
-        <div className="ox-session">
-          {/* The chain is stated, not decorated: a reader who is about to sign something wants the
-              id, not a logo. The dot is the only thing here that claims to be live. */}
-          <span className="ox-net"><i aria-hidden="true" />robinhood:{robinhood.id}</span>
+
+        <div className="ox-sidebar-bottom">
+          <div className="ox-chain-status">
+            <i aria-hidden="true" />
+            <span><b>Robinhood Chain</b><small>Network {robinhood.id}</small></span>
+          </div>
           <Wallet />
+          <p className="ox-side-note">Trade carefully. Tokens can lose all value.</p>
         </div>
-      </header>
+      </aside>
 
-      <SafeStrip />
-      <DemoBanner />
-
-      <main className="site-main">{children}</main>
-
-      <footer className="ox-foot">
-        <span className="ox-foot-mark"><Wordmark /></span>
-        <p>
-          Tokens are risky and most launches go to zero. Transactions go through your wallet and
-          cannot be reversed. Nothing here is financial advice. {brand.copy.footnote} Check the
-          address before you sign.
-        </p>
-        <nav className="ox-foot-links" aria-label="Footer">
-          <Link href="/analytics">/analytics</Link>
-          <Link href="/airdrop">/drop</Link>
-          <Link href="/terms">/terms</Link>
-          <Link href="/privacy">/privacy</Link>
-        </nav>
-      </footer>
+      <div className="ox-content-column">
+        <header className="ox-mobile-head">
+          <Link href="/" aria-label={`${brand.name} home`}><Wordmark /></Link>
+          <Wallet compact />
+        </header>
+        <SafeStrip />
+        <DemoBanner />
+        <main className="site-main ox-main">{children}</main>
+        <footer className="ox-footer">
+          <Wordmark />
+          <p>Community tokens are volatile and may lose all value. Verify the contract address before trading. {brand.copy.footnote}</p>
+          <nav aria-label="Legal">
+            <Link href="/analytics">Analytics</Link>
+            <Link href="/terms">Terms</Link>
+            <Link href="/privacy">Privacy</Link>
+          </nav>
+        </footer>
+      </div>
 
       <SupportChatMount />
-    </>
+    </div>
   );
 }
 
-/// The session control, built on the same hooks the shared Nav uses so a Safe behaves identically
-/// here: inside Safe{Wallet} the connected account is a multisig, and saying `Safe 2/3` is the only
-/// warning a signer gets that their click will be queued for other people rather than sent.
-function Wallet() {
+function Wallet({ compact = false }: { compact?: boolean }) {
   const { address, isConnected } = useAccount();
   const { connect, isPending } = useConnect();
   const { disconnect } = useDisconnect();
@@ -87,18 +93,20 @@ function Wallet() {
 
   if (isConnected && address) {
     return (
-      <button className="btn btn-ghost ox-wallet" onClick={() => disconnect()} title="Disconnect this wallet">
-        {safe ? `Safe ${safe.threshold}/${safe.owners.length} ` : ""}{shortAddress(address)}
+      <button className="ox-wallet" onClick={() => disconnect()} title="Disconnect wallet">
+        <span className="ox-wallet-dot" aria-hidden="true" />
+        {safe && !compact ? `Safe ${safe.threshold}/${safe.owners.length} · ` : ""}{shortAddress(address)}
       </button>
     );
   }
+
   return (
     <button
-      className="btn ox-wallet"
+      className="ox-wallet ox-wallet-connect"
       disabled={isPending || !connector}
       onClick={() => connector && connect({ connector })}
     >
-      {isPending ? "connecting" : "connect"}
+      {isPending ? "Connecting…" : compact ? "Connect" : "Connect wallet"}
     </button>
   );
 }

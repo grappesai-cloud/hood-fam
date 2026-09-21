@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {CurveConfig, FeeSplit, Launch, LaunchParams} from "../HoodTypes.sol";
 
 interface IHoodFactory {
+    function owner() external view returns (address);
     function treasury() external view returns (address);
     function feeRouter() external view returns (address);
     function staking() external view returns (address);

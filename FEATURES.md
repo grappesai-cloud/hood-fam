@@ -7,7 +7,7 @@ into a v4 pool behind one shared hook with a 99% exponentially decaying snipe ta
 quote assets, which is the shape our curve machine covers). Argus contributed the whole idea of
 skipping the curve: supply as liquidity above the opening price, a tax hook on the pool, a decaying
 snipe surcharge, a revenue split across four destinations and holder dividends. Printr contributed
-the curve machine, the fee models we turned into one split, time-weighted staking, the ticker lock,
+the curve machine, the fee models we turned into one split, time-weighted locking of the house coin, the ticker lock,
 the omnichain leg
 and the agent surface.
 
@@ -73,7 +73,7 @@ on every flush, so a launch can do several of these at once.
 
 | Feature | Status | Note |
 |---|---|---|
-| Proof-of-belief staking | in | The `stakersBps` leg. |
+| Proof-of-belief locking | in | The `stakersBps` leg, paid to whoever locked the house coin. One vault, one coin, fed by every launch. |
 | Buyback and burn | in | The `buybackBps` leg. Off the curve before graduation, out of the real pool after, with a floor. |
 | LP compounding | in | The `liquidityBps` leg. Into the raise before graduation, donated through the PoolManager after. |
 | Creator keep | in | The `creatorBps` leg. Transferable in one step by the current recipient only. |
@@ -86,7 +86,7 @@ on every flush, so a launch can do several of these at once.
 |---|---|---|
 | Time-weighted multipliers 1x to 2.5x | in | none / 7d / 30d / 90d / 180d. |
 | Send a Stake | in | `stakeFor`, and it is in the app behind one disclosure. |
-| Creator's first buy, locked | in | `LaunchParams.firstBuyLock`, one of the staking tiers; the tokens are staked in the creator's name instead of sent to their wallet. |
+| Creator's first buy, locked | in | `LaunchParams.firstBuyLock`, one of the locker's lengths; the tokens go to `HoodTokenLock` in the creator's name instead of to their wallet, and earn nothing. |
 | Positions and claims | in | In the app, in the SDK, in the MCP server, and claimable by anybody on the owner's behalf. |
 
 ## 5. Bonding curve flexibility

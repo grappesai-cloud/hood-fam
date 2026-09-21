@@ -14,16 +14,12 @@ import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
 contract FeeSplitTest is BaseTest {
     // ---------------------------------------------------------------- one road at a time
 
-    function test_staking_rewards_go_to_the_people_who_locked() public {
+    /// @dev Alice locks the house coin and never touches the launch below. She is paid by it
+    ///      anyway, which is the whole of the change: the room belongs to the pad, not to a token.
+    function test_staking_rewards_go_to_the_people_who_locked_the_house_coin() public {
+        uint256 id = _lockHouse(alice, 1 ether, 30 days);
+
         (address token, HoodCurve curve) = _launch(_toStakers());
-
-        _buy(curve, alice, 1 ether);
-        uint256 amount = IERC20(token).balanceOf(alice);
-        vm.startPrank(alice);
-        IERC20(token).approve(address(staking), amount);
-        uint256 id = staking.stake(token, amount, 30 days);
-        vm.stopPrank();
-
         _buy(curve, bob, 1 ether);
         uint256 booked = router.accrued(token);
         assertGt(booked, 0);
@@ -31,7 +27,7 @@ contract FeeSplitTest is BaseTest {
         router.flush(token);
         assertEq(router.accrued(token), 0);
         // the accumulator keeps a wei of dust; everything else reaches the staker
-        assertApproxEqAbs(staking.pending(id), booked, 2);
+        assertApproxEqAbs(staking.pending(id, address(0)), booked, 2);
 
         uint256 before = alice.balance;
         staking.claim(id); // anybody can push the payout

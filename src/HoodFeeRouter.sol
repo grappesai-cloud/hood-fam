@@ -104,7 +104,12 @@ contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
 
         if (toStakers != 0) {
             PairTransfer.pushAndCall(
-                l.pairToken, address(staking), toStakers, abi.encodeCall(IHoodStaking.notifyReward, (token, toStakers))
+                l.pairToken,
+                address(staking),
+                toStakers,
+                // The vault is keyed by the asset now, not by the launch: whoever locked the house
+                // coin is paid out of every launch, and this one pays in whatever it trades against.
+                abi.encodeCall(IHoodStaking.notifyReward, (l.pairToken, toStakers))
             );
         }
         uint256 burned;

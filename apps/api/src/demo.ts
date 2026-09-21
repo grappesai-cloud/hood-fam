@@ -46,6 +46,8 @@ const FEE_BPS = 100n;
 /// Where staked tokens sit while they are locked: on chain the staking contract holds them, so the
 /// wallet's ERC20 balance drops. The demo keeps that true, or a portfolio would count them twice.
 const STAKING = "0x57a4e0000000000000000000000000000000d3ec" as const;
+/// Where a creator's locked first buy sits. Not the vault: the vault is the house coin's.
+const LOCKER = "0x10c4e0000000000000000000000000000000d3ec" as const;
 
 export interface SeedOptions {
   /// Clear every table this writes to first. Without it, a database that already holds launches is
@@ -116,9 +118,11 @@ interface Spec {
   machine: Machine;
   /// Where the creator leg of the trading fee goes, picked at launch and fixed forever.
   split: Split;
-  /// Days the creator's own first buy is locked in the staking vault, 0 for kept in hand. Only a
-  /// tier, because the vault only knows tiers: 7, 30, 90 or 180 days.
+  /// Days the creator's own first buy is held by the locker, 0 for kept in hand. Only a tier,
+  /// because the locker only knows tiers: 7, 30, 90 or 180 days.
   firstBuyLockDays: number;
+  /// The pad's own coin: the one token the vault accepts, and so the only one anybody locks.
+  house?: true;
   arc: Arc;
   /// Days before now that it launched.
   age: number;
@@ -132,6 +136,10 @@ interface Spec {
 }
 
 const SPECS: Spec[] = [
+  // The house coin comes first because everything else's stakers leg pays the people holding it.
+  // It cannot point its own fee at them: when it launched there was no vault to point at yet.
+  { name: "House Coin", symbol: "HOUSE", description: "The pad's own coin. Lock it and every launch on the board pays you a share of its fee.",
+    machine: "curve", split: { stakers: 0, buyback: 5_000, liquidity: 5_000, creator: 0 }, firstBuyLockDays: 0, house: true, arc: "climbing", age: 21, trades: 210, startEth: 9, bond: 44, creator: 0 },
   { name: "Green Candle Club", symbol: "GREEN", description: "A club with one rule and no treasurer. Fees go to whoever locks the token.",
     machine: "curve", split: { stakers: 10_000, buyback: 0, liquidity: 0, creator: 0 }, firstBuyLockDays: 30, arc: "graduated", age: 19, trades: 120, startEth: 6.5, bond: 42, creator: 3 },
   { name: "Night Shift", symbol: "NIGHT", description: "For the hours when the desk is empty and the chain is not.",
@@ -505,36 +513,28 @@ export async function seedDemo(options: SeedOptions = {}): Promise<SeedSummary> 
     }
   }
 
-  // Locks. Only on launches whose split pays stakers, because locking anything else earns a
-  // wallet nothing and nobody would.
+  // Locks. There is one coin to lock, and locking it is what earns the stakers leg of every
+  // launch on the board.
   let positionId = 1;
   let stakes = 0;
 
-  // The creator's own first buy, locked in the vault in the launch transaction. It is a position
-  // like any other, under the same tier and the same vault, which is the whole point of it: the
-  // tokens bought ahead of everybody else cannot be sold into the people who bought next.
-  const TIER_WEIGHT: Record<number, number> = { 7: 12_500, 30: 15_000, 90: 20_000, 180: 25_000 };
+  // The creator's own first buy, held by the locker from the launch transaction onwards. It earns
+  // nothing and it is not a position: it is there to say that the tokens bought ahead of everybody
+  // else cannot be sold into the people who bought next.
   for (const b of built.filter((x) => x.spec.firstBuyLockDays > 0)) {
-    await pool.query(
-      `insert into stakes (position_id, token, owner, amount, unlock_at, weight_bps, active, claimed, created_at)
-       values ($1,$2,$3,$4,$5,$6,true,0,$7)`,
-      [positionId, b.token, b.creator, b.firstBuy.toString(),
-       new Date(b.launchedAt.getTime() + b.spec.firstBuyLockDays * DAY),
-       TIER_WEIGHT[b.spec.firstBuyLockDays] ?? 10_000, b.launchedAt],
-    );
     await pool.query(`update balances set balance = balance - $3 where token = $1 and address = $2`,
       [b.token, b.creator, b.firstBuy.toString()]);
     await pool.query(
       `insert into balances (token, address, balance) values ($1,$2,$3)
        on conflict (token, address) do update set balance = balances.balance + excluded.balance`,
-      [b.token, STAKING, b.firstBuy.toString()]);
-    positionId++;
-    stakes++;
+      [b.token, LOCKER, b.firstBuy.toString()]);
   }
 
-  for (const b of built.filter((x) => x.spec.split.stakers > 0)) {
+  // Locks, and there is only one thing to lock. Everybody in this list holds the house coin; what
+  // they earn comes from the whole board, not from the coin itself.
+  for (const b of built.filter((x) => x.spec.house)) {
     const holders = [...b.balances.entries()].filter(([, v]) => v > ONE * 1000n);
-    for (const [owner, balance] of holders.slice(0, 6)) {
+    for (const [owner, balance] of holders.slice(0, 10)) {
       if (rand() < 0.35) continue;
       const weightBps = pick(rand, [10_000, 12_500, 15_000, 20_000, 25_000]);
       const lockDays = { 10000: 0, 12500: 7, 15000: 30, 20000: 90, 25000: 180 }[weightBps] ?? 0;

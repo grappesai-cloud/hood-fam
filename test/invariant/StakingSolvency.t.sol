@@ -47,30 +47,36 @@ contract StakeHandler is Test {
         lock = uint64(bound(lock, 0, 365 days));
         vm.startPrank(a);
         token.approve(address(staking), amount);
-        try staking.stake(launch, amount, lock) returns (uint256 id) { ids.push(id); } catch {}
+        try staking.stake(amount, lock) returns (uint256 id) { ids.push(id); } catch {}
         vm.stopPrank();
     }
 
     function claim(uint256 idSeed) public {
         if (ids.length == 0) return;
         uint256 id = ids[idSeed % ids.length];
-        try staking.claim(id) returns (uint256 amt) { totalClaimed += amt; } catch {}
+        (address ownerOf,,,) = staking.positions(id);
+        if (ownerOf == address(0)) return;
+        // Measured at the receiver, because a claim now pays every asset a position has earned and
+        // no longer reports one number back.
+        uint256 before = ownerOf.balance;
+        try staking.claim(id) { totalClaimed += ownerOf.balance - before; } catch {}
     }
 
     function unstake(uint256 idSeed) public {
         if (ids.length == 0) return;
         uint256 id = ids[idSeed % ids.length];
-        (, address ownerOf,, uint64 unlockAt,,) = staking.positions(id);
+        (address ownerOf,, uint64 unlockAt,) = staking.positions(id);
         if (ownerOf == address(0)) return;
         if (block.timestamp < unlockAt) vm.warp(unlockAt);
+        uint256 before = ownerOf.balance;
         vm.prank(ownerOf);
-        try staking.unstake(id) returns (uint256, uint256 rewards) { totalClaimed += rewards; } catch {}
+        try staking.unstake(id) returns (uint256) { totalClaimed += ownerOf.balance - before; } catch {}
     }
 
     function demote(uint256 idSeed) public {
         if (ids.length == 0) return;
         uint256 id = ids[idSeed % ids.length];
-        (, address ownerOf,, uint64 unlockAt,,) = staking.positions(id);
+        (address ownerOf,, uint64 unlockAt,) = staking.positions(id);
         if (ownerOf == address(0)) return;
         if (block.timestamp < unlockAt) vm.warp(unlockAt);
         try staking.demote(id) {} catch {}
@@ -79,7 +85,7 @@ contract StakeHandler is Test {
     function reward(uint256 amount) public {
         amount = bound(amount, 1, 10 ether);
         vm.deal(address(this), amount);
-        try staking.notifyReward{value: amount}(launch, amount) { totalNotified += amount; } catch {}
+        try staking.notifyReward{value: amount}(address(0), amount) { totalNotified += amount; } catch {}
     }
 
     function warp(uint256 dt) public {
@@ -136,10 +142,14 @@ contract StakingSolvencyInvariant is StdInvariant, Test {
 
         LaunchParams memory p;
         p.name = "Stk"; p.symbol = "STK"; p.pairToken = address(0); p.configId = configId;
-        p.feeSplit = FeeSplit({stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0}); p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
+        // The coin of the house cannot point its own fee at a room that does not exist yet, so it
+        // launches paying its creator and becomes the room a moment later.
+        p.feeSplit = FeeSplit({stakersBps: 0, buybackBps: 0, liquidityBps: 0, creatorBps: 10_000}); p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
         vm.prank(creator);
         (token, , ) = factory.launch(p);
         curve = HoodCurve(payable(factory.getLaunch(token).curve));
+        vm.prank(owner);
+        staking.setHouseToken(token);
 
         handler = new StakeHandler(staking, token, token);
 
@@ -178,7 +188,7 @@ contract StakingSolvencyInvariant is StdInvariant, Test {
         uint256 pendingSum;
         uint256 n = handler.idCount();
         for (uint256 i; i < n; ++i) {
-            pendingSum += staking.pending(handler.idAt(i));
+            pendingSum += staking.pending(handler.idAt(i), address(0));
         }
         // The dust is bounded by one wei per position that has settled against the accumulator.
         assertLe(handler.totalClaimed() + pendingSum, handler.totalNotified() + n + 1, "claimable exceeds notified beyond dust");
@@ -193,6 +203,6 @@ contract StakingSolvencyInvariant is StdInvariant, Test {
     /// @notice Staked principal booked equals the token the vault actually holds. Principal never
     ///         leaks: unstake returns exactly what was put in.
     function invariant_stakedMatchesBalance() public view {
-        assertEq(IERC20(token).balanceOf(address(staking)), staking.staked(token), "staked bookkeeping drifted from balance");
+        assertEq(IERC20(token).balanceOf(address(staking)), staking.staked(), "staked bookkeeping drifted from balance");
     }
 }

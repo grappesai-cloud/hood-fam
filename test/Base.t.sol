@@ -2,12 +2,14 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {HoodFactory} from "../src/HoodFactory.sol";
 import {HoodDeployer} from "../src/HoodDeployer.sol";
 import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
+import {HoodTokenLock} from "../src/HoodTokenLock.sol";
 import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
 import {MockGraduator, MockUSD} from "./mocks/Mocks.sol";
 
@@ -16,6 +18,7 @@ contract BaseTest is Test {
     HoodFactory internal factory;
     HoodStaking internal staking;
     HoodFeeRouter internal router;
+    HoodTokenLock internal locker;
     MockGraduator internal graduator;
     MockUSD internal usd;
 
@@ -24,6 +27,9 @@ contract BaseTest is Test {
     address internal creator = makeAddr("creator");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
+
+    address internal house;
+    HoodCurve internal houseCurve;
 
     uint256 internal configId;
     uint256 internal constant LAUNCH_FEE = 0.0005 ether;
@@ -34,11 +40,13 @@ contract BaseTest is Test {
         bytecode.initialize(address(factory));
         staking = new HoodStaking(address(factory));
         router = new HoodFeeRouter(address(factory), address(staking));
+        locker = new HoodTokenLock();
         graduator = new MockGraduator(address(factory));
         usd = new MockUSD();
 
         vm.startPrank(owner);
         factory.setModules(address(router), address(staking), address(graduator));
+        factory.setFirstBuyLocker(address(locker));
         factory.setLaunchFee(LAUNCH_FEE);
         configId = factory.addConfig(_config());
         factory.setPair(address(0), true, 100 ether); // lock a ticker after 100 ETH in 24h
@@ -124,10 +132,40 @@ contract BaseTest is Test {
         internal
         returns (address token, HoodCurve curve)
     {
+        // A stakers leg needs somewhere for the money to land, and the factory refuses one before
+        // the house coin exists. The rig provides it the way a real deployment would: by launching
+        // the coin first, once.
+        if (split.stakersBps != 0) _house();
         p.feeSplit = split;
         vm.prank(creator);
         (address t, address c,) = factory.launch{value: value}(p);
         return (t, HoodCurve(payable(c)));
+    }
+
+    /// @notice The house coin: the one token the vault accepts, launched on the pad like any other.
+    /// @dev It cannot point its own fee at stakers, because at the moment it launches there is no
+    ///      house coin yet. Everything launched after it can.
+    function _house() internal returns (address token, HoodCurve curve) {
+        if (house != address(0)) return (house, houseCurve);
+        LaunchParams memory p = _params(_toBuyback());
+        p.name = "House Coin";
+        p.symbol = "HOUSE";
+        p.salt = bytes32(uint256(7777));
+        (token, curve) = _launch(_toBuyback(), p, LAUNCH_FEE);
+        vm.prank(owner);
+        staking.setHouseToken(token);
+        house = token;
+        houseCurve = curve;
+    }
+
+    /// @notice Buys the house coin and locks it, which is now the only way to earn a stakers leg.
+    function _lockHouse(address who, uint256 spend, uint64 lock) internal returns (uint256 id) {
+        (address token, HoodCurve curve) = _house();
+        uint256 got = _buy(curve, who, spend);
+        vm.startPrank(who);
+        IERC20(token).approve(address(staking), got);
+        id = staking.stake(got, lock);
+        vm.stopPrank();
     }
 
     function _buy(HoodCurve curve, address who, uint256 amount) internal returns (uint256) {

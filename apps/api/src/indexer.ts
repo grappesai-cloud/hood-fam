@@ -54,7 +54,7 @@ const events = {
   donated: parseAbiItem("event Donated(address indexed from, uint256 amount)"),
   staked: parseAbiItem("event Staked(uint256 indexed id, address indexed token, address indexed owner, uint256 amount, uint64 unlockAt, uint32 weightBps)"),
   unstaked: parseAbiItem("event Unstaked(uint256 indexed id, uint256 amount)"),
-  claimed: parseAbiItem("event Claimed(uint256 indexed id, address indexed to, uint256 amount)"),
+  claimed: parseAbiItem("event Claimed(uint256 indexed id, address indexed to, address indexed asset, uint256 amount)"),
   demoted: parseAbiItem("event Demoted(uint256 indexed id, uint32 weightBps)"),
   accrued: parseAbiItem("event Accrued(address indexed token, uint256 amount)"),
   flushed: parseAbiItem(
@@ -704,7 +704,21 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
       break;
     case "Claimed":
       if (address === STAKING) {
-        await pool.query(`update stakes set claimed = claimed + $2 where position_id = $1`, [Number(l.args.id), (l.args.amount as bigint).toString()]);
+        // One vault takes fees from launches paired against different things, so a claim has an
+        // asset now. `claimed` stays the running total in the chain's own currency, which is what
+        // the app shows; `claimed_by_asset` carries the rest, including it, without pretending a
+        // stablecoin and an ether are the same number.
+        const asset = (l.args.asset as string).toLowerCase();
+        const paid = (l.args.amount as bigint).toString();
+        await pool.query(
+          `update stakes
+              set claimed = claimed + case when $3 = $4 then $2::numeric else 0 end,
+                  claimed_by_asset = jsonb_set(
+                    claimed_by_asset, array[$3],
+                    to_jsonb((coalesce(claimed_by_asset ->> $3, '0')::numeric + $2::numeric)::text), true)
+            where position_id = $1`,
+          [Number(l.args.id), paid, asset, zeroAddress],
+        );
       }
       break;
     case "Demoted":

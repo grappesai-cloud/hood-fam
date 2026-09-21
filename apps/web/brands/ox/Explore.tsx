@@ -5,22 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type TokenRow } from "@/lib/api";
 import { useLive } from "@/lib/live";
-import { ago, compact, launchProgress, machineLabel, pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
-import { brand } from "@/brands";
-import { GraduationRace } from "@/components/GraduationRace";
-
-/// The front of 0x.fam: no hero, no artwork, no card. A launch is a row, and the page is the list
-/// of rows, because everything a reader of addresses wants to compare is a number and numbers only
-/// compare when they are stacked in a column.
-///
-/// The queries are the ones the default board runs, keyed the same way, so this front shares its
-/// cache with the rest of the app instead of doubling the load on the indexer.
+import { ago, compact, imageUrl, launchProgress, pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
+import { Artwork } from "@/components/Artwork";
 
 const SORTS = [
-  { key: "new", label: "new", query: "sort=new" },
-  { key: "volume", label: "volume", query: "sort=volume" },
-  { key: "graduating", label: "graduating", query: "sort=progress&status=graduating" },
-  { key: "graduated", label: "graduated", query: "sort=graduated&status=graduated" },
+  { key: "new", label: "New", query: "sort=new" },
+  { key: "volume", label: "Trending", query: "sort=volume" },
+  { key: "graduating", label: "Graduating", query: "sort=progress&status=graduating" },
+  { key: "graduated", label: "Graduated", query: "sort=graduated&status=graduated" },
 ] as const;
 
 type SortKey = (typeof SORTS)[number]["key"];
@@ -28,11 +20,9 @@ type SortKey = (typeof SORTS)[number]["key"];
 export function Explore() {
   const [sort, setSort] = useState<SortKey>("new");
   const [q, setQ] = useState("");
-  const query = SORTS.find((s) => s.key === sort)?.query ?? "sort=new";
+  const search = useRef<HTMLInputElement>(null);
+  const query = SORTS.find((item) => item.key === sort)?.query ?? "sort=new";
 
-  // A launch or a trade anywhere on the chain changes what this board is showing, so the board
-  // is told rather than asked: the stream refreshes these same queries, and the timers stay as the
-  // fallback for a reader whose stream never connected.
   useLive();
 
   const stats = useQuery({
@@ -43,208 +33,186 @@ export function Explore() {
     queryKey: ["tokens", sort, q],
     queryFn: () => api<{ tokens: TokenRow[] }>(`/tokens?${query}&limit=60${q ? `&q=${encodeURIComponent(q)}` : ""}`),
   });
+  const trending = useQuery({
+    queryKey: ["ox-trending"],
+    queryFn: () => api<{ tokens: TokenRow[] }>("/tokens?sort=volume&limit=5"),
+    refetchInterval: 30_000,
+  });
 
-  // Slash is the filter key on every terminal and every trading screen, so it is the filter key
-  // here. Guarded against firing while the reader is already typing somewhere.
-  const filter = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
-      const el = document.activeElement;
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
-      e.preventDefault();
-      filter.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) return;
+      event.preventDefault();
+      search.current?.focus();
     };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const rows = tokens.data?.tokens ?? [];
 
   return (
-    <div className="ox-board">
-      {/* The race to the pool is the loop this place runs on, so it sits where a reader lands. */}
-      <GraduationRace />
-      <div className="ox-head">
-        <h1>launches</h1>
-        <p>every token printed on this chain, one line each, in the order the index reports them.</p>
-      </div>
+    <div className="ox-home">
+      <section className="ox-hero">
+        <div className="ox-hero-copy">
+          <div className="ox-live-pill"><i aria-hidden="true" /> Live on Robinhood Chain</div>
+          <h1>Launch a token.<br /><em>Find its family.</em></h1>
+          <p>
+            Create and trade community tokens from the first buy to the open market. Every launch
+            starts on a transparent curve and graduates automatically into permanently locked liquidity.
+          </p>
+          <div className="ox-hero-actions">
+            <Link className="ox-primary-action" href="/launch"><span>＋</span>Create token</Link>
+            <a className="ox-secondary-action" href="#how-it-works">How it works <span>↓</span></a>
+          </div>
+          <div className="ox-trust-line">
+            <span>✓ No presale</span><span>✓ Non-custodial</span><span>✓ Locked liquidity</span>
+          </div>
+        </div>
+        <div className="ox-hero-visual" aria-label="ox.family glass logo">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/ox/ox-green-hero.png" alt="Green glass OX logo" />
+          <div className="ox-hero-orbit ox-orbit-one" />
+          <div className="ox-hero-orbit ox-orbit-two" />
+        </div>
+      </section>
 
-      <dl className="ox-stats" aria-label="Platform activity">
-        <Stat label="launches" value={stats.data?.launches ?? "--"} />
-        <Stat label="graduated" value={stats.data?.graduated ?? "--"} />
-        <Stat label="vol 24h" value={stats.data ? compact(BigInt(stats.data.volume_24h || "0")) : "--"} />
-        <Stat label="traders" value={stats.data?.traders ?? "--"} />
-      </dl>
+      <section className="ox-market-strip" aria-label="Platform activity">
+        <MarketStat label="Tokens launched" value={stats.data?.launches ?? "—"} />
+        <MarketStat label="Graduated" value={stats.data?.graduated ?? "—"} />
+        <MarketStat label="24h volume" value={stats.data ? `${compact(BigInt(stats.data.volume_24h || "0"))} ETH` : "—"} hot />
+        <MarketStat label="Active traders" value={stats.data?.traders ?? "—"} />
+      </section>
 
-      <div className="ox-cmd">
-        <div className="ox-cmd-field">
-          <span aria-hidden="true">&gt;</span>
-          <input
-            ref={filter}
-            aria-label="Filter launches by name, ticker or address"
-            placeholder="filter by name, ticker or address"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              // Escape is the way out of a filter on a keyboard-first screen: it clears first, and
-              // gives the page back its slash key on the second press.
-              if (e.key !== "Escape") return;
-              if (q) setQ("");
-              else e.currentTarget.blur();
-            }}
+      {trending.data?.tokens.length ? (
+        <section className="ox-trending-section" aria-labelledby="trending-title">
+          <div className="ox-section-heading compact">
+            <div><span className="ox-heading-kicker">Happening now</span><h2 id="trending-title">Trending on ox</h2></div>
+            <button type="button" onClick={() => setSort("volume")}>View all <span>→</span></button>
+          </div>
+          <div className="ox-trending-row">
+            {trending.data.tokens.map((token, index) => <TrendingCard key={token.token} token={token} rank={index + 1} />)}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="ox-how" id="how-it-works" aria-labelledby="how-title">
+        <div className="ox-how-intro">
+          <span className="ox-heading-kicker">One continuous market</span>
+          <h2 id="how-title">From idea to<br />locked liquidity.</h2>
+          <p>No manual migration and no liquidity switch to miss. Your token stays the same while its market grows up.</p>
+        </div>
+        <ol className="ox-steps">
+          <li><b>01</b><span><strong>Create</strong><small>Choose the name, ticker, image and fee split.</small></span></li>
+          <li><b>02</b><span><strong>Trade the curve</strong><small>Buy and sell from block one at a transparent price.</small></span></li>
+          <li><b>03</b><span><strong>Graduate</strong><small>The curve fills and creates the market automatically.</small></span></li>
+          <li><b>04</b><span><strong>Open market</strong><small>Liquidity is locked and trading continues in the pool.</small></span></li>
+        </ol>
+      </section>
+
+      <section className="ox-discover" aria-labelledby="discover-title">
+        <div className="ox-section-heading">
+          <div><span className="ox-heading-kicker">Explore the family</span><h2 id="discover-title">Discover tokens</h2></div>
+          <p>Watch launches move from their first trade to graduation.</p>
+        </div>
+
+        <div className="ox-discover-controls">
+          <label className="ox-search">
+            <span aria-hidden="true">⌕</span>
+            <input
+              ref={search}
+              value={q}
+              onChange={(event) => setQ(event.target.value)}
+              placeholder="Search by name, ticker or address"
+              aria-label="Search tokens"
+            />
+            <kbd>/</kbd>
+          </label>
+          <div className="ox-sort-tabs" role="tablist" aria-label="Sort tokens">
+            {SORTS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                role="tab"
+                aria-selected={sort === item.key}
+                className={sort === item.key ? "active" : ""}
+                onClick={() => setSort(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {tokens.isError ? (
+          <State title="Market feed unavailable" body="The indexer is reconnecting. Your assets and every on-chain market remain unchanged." />
+        ) : tokens.isLoading ? (
+          <div className="ox-token-grid" aria-label="Loading tokens">
+            {Array.from({ length: 8 }, (_, index) => <div className="ox-token-skeleton" key={index} />)}
+          </div>
+        ) : rows.length ? (
+          <div className="ox-token-grid">{rows.map((token) => <Token key={token.token} token={token} />)}</div>
+        ) : (
+          <State
+            title={q ? "No tokens found" : "No launches here yet"}
+            body={q ? `Nothing matches “${q}”. Try a ticker or paste the token address.` : "Be the first member of this part of the family."}
+            action={!q ? <Link className="ox-primary-action" href="/launch">Create the first token</Link> : undefined}
           />
-          <kbd aria-hidden="true">/</kbd>
-        </div>
-        <Link className="btn ox-deploy" href="/launch">{brand.copy.create}</Link>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function MarketStat({ label, value, hot = false }: { label: string; value: string; hot?: boolean }) {
+  return <div className={hot ? "ox-market-stat hot" : "ox-market-stat"}><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function TrendingCard({ token, rank }: { token: TokenRow; rank: number }) {
+  const decimals = pairDecimals(token.pair_token);
+  const unit = pairSymbol(token.pair_token);
+  const cap = (BigInt(token.price || "0") * BigInt(token.total_supply || "0")) / 10n ** 18n;
+  return (
+    <Link href={`/token/${token.token}`} className="ox-trending-card">
+      <span className="ox-rank">{String(rank).padStart(2, "0")}</span>
+      <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={48} rounded="rounded-full" />
+      <span className="ox-trending-name"><strong>{token.name}</strong><small>${token.symbol}</small></span>
+      <span className="ox-trending-cap"><strong>{compact(cap, decimals)}</strong><small>{unit} MC</small></span>
+    </Link>
+  );
+}
+
+function Token({ token }: { token: TokenRow }) {
+  const decimals = pairDecimals(token.pair_token);
+  const unit = pairSymbol(token.pair_token);
+  const cap = (BigInt(token.price || "0") * BigInt(token.total_supply || "0")) / 10n ** 18n;
+  const progress = token.mode === "direct" || token.status === "graduated" ? 1 : launchProgress(token);
+  const done = progress >= 1;
+  const status = token.mode === "direct" ? "Open market" : done ? "Graduated" : "Bonding curve";
+
+  return (
+    <Link href={`/token/${token.token}`} className="ox-token-card">
+      <div className="ox-token-art">
+        <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={180} rounded="rounded-none" />
+        <span className={done ? "ox-status done" : "ox-status"}>{status}</span>
+        <span className="ox-age">{ago(token.launched_at)} ago</span>
       </div>
-
-      <div className="ox-toolbar">
-        <div className="ox-tabs" role="tablist" aria-label="Sort launches">
-          {SORTS.map((s) => (
-            <button
-              key={s.key}
-              role="tab"
-              type="button"
-              aria-selected={sort === s.key}
-              className="ox-tab"
-              onClick={() => setSort(s.key)}
-            >
-              {s.label}
-            </button>
-          ))}
+      <div className="ox-token-body">
+        <div className="ox-token-title"><span><strong>{token.name}</strong><small>${token.symbol}</small></span><b>↗</b></div>
+        <p>{token.description || "A community token launched on Robinhood Chain."}</p>
+        <div className="ox-token-numbers">
+          <span><small>Market cap</small><strong>{compact(cap, decimals)} {unit}</strong></span>
+          <span><small>24h volume</small><strong>{compact(BigInt(token.volume_24h || "0"), decimals)} {unit}</strong></span>
         </div>
-        <span className="ox-count">{tokens.data ? `${rows.length} rows` : "reading index"}</span>
+        <div className="ox-progress-label"><span>{done ? "Liquidity pool live" : "Graduation progress"}</span><b>{Math.round(progress * 100)}%</b></div>
+        <div className={done ? "ox-progress done" : "ox-progress"}><i style={{ width: `${Math.min(100, progress * 100)}%` }} /></div>
+        <div className="ox-token-foot"><span>{shortAddress(token.token)}</span><b>Trade token →</b></div>
       </div>
-
-      {tokens.isError ? (
-        <Void
-          head="feed down"
-          body="The indexer is not answering, so there is nothing to print. Nothing on chain has changed and no position moved."
-        />
-      ) : tokens.isLoading ? (
-        <Table busy>
-          {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
-            <tr className="ox-skel" key={i}>
-              {COLUMNS.map((c) => <td key={c.label} className={c.cls}><span /></td>)}
-            </tr>
-          ))}
-        </Table>
-      ) : rows.length ? (
-        <Table>{rows.map((t, i) => <Row key={t.token} t={t} n={i + 1} />)}</Table>
-      ) : q ? (
-        <Void head="0 rows" body={`Nothing in the index matches "${q}". Tickers are short; try fewer characters, or paste the address.`} />
-      ) : (
-        <Void
-          head="0 rows"
-          body="This sort is empty. The first token that lands in a block shows up on this line."
-          action={<Link className="btn" href="/launch">{brand.copy.create}</Link>}
-        />
-      )}
-
-      <p className="ox-keys">
-        <kbd>/</kbd> filter <span aria-hidden="true">//</span> <kbd>esc</kbd> clear <span aria-hidden="true">//</span>
-        {" "}<kbd>tab</kbd> walk the rows
-      </p>
-    </div>
+    </Link>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
-  );
-}
-
-/// The columns are declared once and the header, the rows and the loading skeleton all read from
-/// the same list, so a column that drops out on a narrow window drops out of all three together
-/// rather than leaving the skeleton one cell wider than the table it is standing in for.
-const COLUMNS = [
-  { label: "#", cls: "ox-c-n" },
-  { label: "ticker", cls: "" },
-  { label: "name", cls: "ox-c-name" },
-  { label: "mcap", cls: "ox-c-num" },
-  { label: "vol 24h", cls: "ox-c-num ox-c-vol" },
-  { label: "progress", cls: "ox-c-prog" },
-  { label: "age", cls: "ox-c-num" },
-  { label: "machine", cls: "ox-c-machine" },
-  { label: "address", cls: "ox-c-addr" },
-] as const;
-
-function Table({ children, busy }: { children: React.ReactNode; busy?: boolean }) {
-  return (
-    <div className="ox-tablewrap">
-      <table className="ox-table" aria-busy={busy || undefined}>
-        <thead>
-          <tr>
-            {COLUMNS.map((c) => <th scope="col" key={c.label} className={c.cls || undefined}>{c.label}</th>)}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  );
-}
-
-function Row({ t, n }: { t: TokenRow; n: number }) {
-  const decimals = pairDecimals(t.pair_token);
-  const unit = pairSymbol(t.pair_token);
-  // The same arithmetic the card and the tape use. Two places on one screen quoting different caps
-  // for one token is worse than quoting none.
-  const mcap = (BigInt(t.price || "0") * BigInt(t.total_supply || "0")) / 10n ** 18n;
-  // A launch with nowhere left to go reads full, so a graduated token is not drawn as a stalled one.
-  const done = t.status === "graduated" || (t.mode === "direct" && t.bonded);
-  const progress = done ? 1 : launchProgress(t);
-  const pct = Math.round(progress * 100);
-  const engine = t.mode === "direct" ? "pool" : "curve";
-  const state = machineLabel(t).replace("on the ", "").replace(/\s+/g, "-");
-
-  return (
-    <tr className={done ? "ox-row done" : "ox-row"}>
-      <td className="ox-c-n">{n}</td>
-      <td>
-        {/* The link is one cell wide but its overlay covers the row, so the whole line is a target
-            for a pointer while the keyboard still lands on a single named link per launch. */}
-        <Link className="ox-rowlink" href={`/token/${t.token}`}>{t.symbol}</Link>
-      </td>
-      <td className="ox-c-name ox-name">{t.name}</td>
-      <td className="ox-c-num">{compact(mcap, decimals)}<small> {unit}</small></td>
-      <td className="ox-c-num ox-c-vol">{compact(BigInt(t.volume_24h || "0"), decimals)}<small> {unit}</small></td>
-      <td className="ox-c-prog">
-        <span className="ox-bar" aria-hidden="true">
-          <span className="on">{"▓".repeat(cells(progress))}</span>
-          <span className="off">{"░".repeat(10 - cells(progress))}</span>
-        </span>
-        <span className="ox-pct">{pct}%</span>
-      </td>
-      <td className="ox-c-num ox-age">{ago(t.launched_at)}</td>
-      <td className="ox-c-machine">
-        {engine}
-        {state !== engine ? <span className="ox-state"> {state}</span> : null}
-      </td>
-      <td className="ox-c-addr ox-addr">{shortAddress(t.token)}</td>
-    </tr>
-  );
-}
-
-/// Ten cells, so the bar reads as tenths and every row's bar is the same width in a monospace
-/// column. Anything above zero keeps at least one filled cell, because a launch that has taken
-/// money should not be drawn as empty.
-function cells(progress: number) {
-  const p = Math.max(0, Math.min(1, progress));
-  if (p === 0) return 0;
-  return Math.min(10, Math.max(1, Math.round(p * 10)));
-}
-
-function Void({ head, body, action }: { head: string; body: string; action?: React.ReactNode }) {
-  return (
-    <div className="ox-void" role="status">
-      <p className="ox-void-head">{head}</p>
-      <p>{body}</p>
-      {action}
-    </div>
-  );
+function State({ title, body, action }: { title: string; body: string; action?: React.ReactNode }) {
+  return <div className="ox-state"><span>OX</span><h3>{title}</h3><p>{body}</p>{action}</div>;
 }

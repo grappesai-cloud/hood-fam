@@ -182,7 +182,7 @@ export function SupportChat() {
               <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-[13px] leading-relaxed">
                 {messages.length === 0 && (
                   <div className="space-y-2">
-                    <p className="dim">Ask about a launch, a trade, fees, staking, points or the bridge. Paste a transaction hash and I will read it.</p>
+                    <p className="dim">Ask about a launch, a trade, fees, locking, points or the bridge. Paste a transaction hash and I will read it.</p>
                     {enabled && STARTERS.map((s) => (
                       <button key={s} onClick={() => send(s)} className="block w-full rounded-lg border border-[var(--color-line)] px-3 py-2 text-left hover:border-[var(--color-lime)]">
                         {s}

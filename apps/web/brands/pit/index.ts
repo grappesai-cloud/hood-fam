@@ -21,6 +21,7 @@ export const brand: Brand = {
     { href: "/portfolio", label: "Book" },
     { href: "/creator", label: "Desk" },
     { href: "/leaderboard", label: "Standings" },
+    { href: "/lock", label: "Hold" },
     { href: "/airdrop", label: "The cut" },
   ],
   copy: {

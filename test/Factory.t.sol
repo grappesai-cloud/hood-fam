@@ -7,6 +7,7 @@ import {BaseTest} from "./Base.t.sol";
 import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodFactory} from "../src/HoodFactory.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
+import {HoodTokenLock} from "../src/HoodTokenLock.sol";
 import {CurveConfig, FeeSplit, Launch, LaunchParams} from "../src/HoodTypes.sol";
 
 contract FactoryTest is BaseTest {
@@ -67,9 +68,10 @@ contract FactoryTest is BaseTest {
 
     /// @dev The first buy is the one parcel of tokens nobody else could have bought yet. Locked,
     ///      it belongs to the creator, it earns from minute one, and it cannot be sold into the
-    ///      people who buy next. The lock is the staking vault's, not a second mechanism.
+    ///      people who buy next. It is held by the locker and earns nothing: locking for money is
+    ///      the house coin's job, and a creator's own token has no room in that vault.
     function test_a_creator_can_lock_their_own_first_buy() public {
-        LaunchParams memory p = _params(_toStakers());
+        LaunchParams memory p = _params(_toBuyback());
         p.firstBuyLock = 30 days;
 
         vm.prank(creator);
@@ -78,42 +80,52 @@ contract FactoryTest is BaseTest {
         assertGt(bought, 0);
         assertEq(IERC20(token).balanceOf(creator), 0, "nothing lands in the creator's wallet");
 
-        (address posToken, address posOwner, uint128 amount, uint64 unlockAt,,) = staking.positions(1);
-        assertEq(posToken, token);
-        assertEq(posOwner, creator, "the position is the creator's, not the factory's");
+        (address lockToken, address lockOwner, uint128 amount, uint64 unlockAt) = locker.locks(1);
+        assertEq(lockToken, token);
+        assertEq(lockOwner, creator, "the lock is the creator's, not the factory's");
         assertEq(amount, bought);
         assertEq(unlockAt, uint64(block.timestamp) + 30 days);
+        assertEq(IERC20(token).balanceOf(address(locker)), bought, "and the tokens are really there");
 
         Launch memory l = factory.getLaunch(token);
         assertEq(l.firstBuyLocked, bought, "and the row says so, without reading a log");
         assertEq(l.firstBuyUnlockAt, unlockAt);
 
         vm.prank(creator);
-        vm.expectRevert(HoodStaking.StillLocked.selector);
-        staking.unstake(1);
+        vm.expectRevert(HoodTokenLock.StillLocked.selector);
+        locker.withdraw(1);
 
         vm.warp(block.timestamp + 30 days);
         vm.prank(creator);
-        staking.unstake(1);
+        locker.withdraw(1);
         assertEq(IERC20(token).balanceOf(creator), bought, "and then it is theirs to do as they like");
     }
 
-    function test_a_locked_first_buy_earns_what_the_staking_leg_pays() public {
+    /// @dev A locked first buy is a statement, not a yield: the tokens sit still and earn nothing.
+    ///      What the launch's stakers leg pays goes to whoever locked the house coin, which is a
+    ///      different room and, usually, different people.
+    function test_a_locked_first_buy_earns_nothing_itself() public {
+        uint256 housePosition = _lockHouse(alice, 1 ether, 30 days);
+
         LaunchParams memory p = _params(_toStakers());
         p.firstBuyLock = 7 days;
+        p.symbol = "LOCKED";
+        p.salt = bytes32(uint256(31));
 
         vm.prank(creator);
         (address token, address curveAddr,) = factory.launch{value: LAUNCH_FEE + 1 ether}(p);
 
-        _buy(HoodCurve(payable(curveAddr)), alice, 1 ether);
+        _buy(HoodCurve(payable(curveAddr)), bob, 1 ether);
         router.flush(token);
-        assertGt(staking.pending(1), 0);
+
+        assertEq(IERC20(token).balanceOf(address(staking)), 0, "the launch's token never enters the vault");
+        assertGt(staking.pending(housePosition, address(0)), 0, "the house coin's room is paid instead");
     }
 
-    /// @dev A lock is one of the vault's tiers or it is nothing, so the app, the factory and the
-    ///      vault cannot each mean something different by the same number of seconds.
+    /// @dev A lock is one of the locker's lengths or it is nothing, so the app, the factory and the
+    ///      locker cannot each mean something different by the same number of seconds.
     function test_a_lock_that_is_not_a_tier_is_refused() public {
-        LaunchParams memory p = _params(_toStakers());
+        LaunchParams memory p = _params(_toBuyback());
         p.firstBuyLock = 10 days;
         vm.prank(creator);
         vm.expectRevert(HoodFactory.BadLock.selector);
@@ -122,7 +134,7 @@ contract FactoryTest is BaseTest {
 
     /// @dev Otherwise a creator walks away believing their first buy is locked when there was none.
     function test_a_lock_with_no_first_buy_is_refused() public {
-        LaunchParams memory p = _params(_toStakers());
+        LaunchParams memory p = _params(_toBuyback());
         p.firstBuyLock = 30 days;
         vm.prank(creator);
         vm.expectRevert(HoodFactory.NoFirstBuy.selector);
@@ -136,7 +148,7 @@ contract FactoryTest is BaseTest {
         vm.prank(owner);
         uint256 usdConfig = factory.addConfig(c);
 
-        LaunchParams memory p = _params(_toStakers());
+        LaunchParams memory p = _params(_toBuyback());
         p.pairToken = address(usd);
         p.configId = usdConfig;
         p.symbol = "USDLOCK";
@@ -152,8 +164,8 @@ contract FactoryTest is BaseTest {
 
         assertGt(bought, 0);
         assertEq(IERC20(token).balanceOf(creator), 0);
-        (, address posOwner, uint128 amount, uint64 unlockAt,,) = staking.positions(1);
-        assertEq(posOwner, creator);
+        (, address lockOwner, uint128 amount, uint64 unlockAt) = locker.locks(1);
+        assertEq(lockOwner, creator);
         assertEq(amount, bought);
         assertEq(unlockAt, uint64(block.timestamp) + 90 days);
     }

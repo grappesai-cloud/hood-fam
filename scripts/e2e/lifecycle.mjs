@@ -370,6 +370,17 @@ export async function checkWiring({ client, a, owner: ownerAddress, treasury: tr
   check("feeRouter.staking points at the staking contract", same(await get(a.feeRouter, routerAbi, "staking"), a.staking));
   check("staking.factory points back at the factory", same(await get(a.staking, routerAbi, "factory"), a.factory));
 
+  // The two things the house coin model adds: somewhere for a creator's first buy to sit, and the
+  // coin itself. The coin is launched on the pad, so a fresh deployment has none yet; that is a
+  // state worth printing rather than failing on.
+  const lockerAbi = parseAbi(["function firstBuyLocker() view returns (address)", "function houseToken() view returns (address)"]);
+  const firstBuyLocker = await get(a.factory, lockerAbi, "firstBuyLocker");
+  check("factory.firstBuyLocker holds creators' first buys", firstBuyLocker !== zeroAddress, firstBuyLocker);
+  const houseNamed = await get(a.staking, lockerAbi, "houseToken");
+  console.log(houseNamed === zeroAddress
+    ? "  ..   the house coin is not named yet: launch it, then owner calls staking.setHouseToken(coin)"
+    : `  ok   the vault's house coin is ${houseNamed}`);
+
   const gradAbi = parseAbi([
     "function factory() view returns (address)", "function poolManager() view returns (address)",
     "function positionManager() view returns (address)", "function universalRouter() view returns (address)",
@@ -464,6 +475,18 @@ async function curveMachine(a) {
   const addresses = { factory: a.factory, feeRouter: a.feeRouter, staking: a.staking, graduator: a.graduator, bridgeFactory: a.bridge };
   const hood = (w) => createHoodClient({ publicClient, walletClient: w.client, addresses });
 
+  // The pad's own coin comes first. Nothing can promise a share to stakers before it exists, so
+  // this is the order a real deployment has to follow too: launch the coin, name it, then the rest
+  // of the board can point fees at the people holding it.
+  const { hash: houseHash } = await hood(creator).launch({
+    name: "House Coin", symbol: "HOUSE", description: "the pad's own coin",
+    feeSplit: { stakersBps: 0, buybackBps: 0, liquidityBps: 5_000, creatorBps: 5_000 },
+  });
+  const { token: houseToken, curve: houseCurve } = await hood(creator).launchResult(houseHash);
+  await send(owner, a.staking, hoodStakingAbi, "setHouseToken", [houseToken]);
+  check("the vault takes the house coin and only the house coin",
+    same(await read(a.staking, hoodStakingAbi, "houseToken", []), houseToken), houseToken);
+
   const treasuryBefore = await balanceOf(zeroAddress, treasury.address);
   const firstBuy = parseEther("0.2");
   const { hash } = await hood(creator).launch({
@@ -530,15 +553,18 @@ async function curveMachine(a) {
   // ---- staking: stake, flush into the model, claim, unstake
   const weight7 = await hood(bob).weightFor(7 * 86400);
   check("a seven day lock is worth 1.25x", weight7 === 12500, String(weight7));
-  const bobBag = await balanceOf(token, bob.address);
+  // Bob buys the house coin and locks that. He is paid by RFAM's fee without ever holding RFAM,
+  // which is the whole point of one room for the whole board.
+  await wait(await hood(bob).buy(houseCurve, parseEther("0.3")));
+  const bobBag = await balanceOf(houseToken, bob.address);
   const stakeAmount = bobBag / 2n;
-  const stakeReceipt = await wait(await hood(bob).stake(token, stakeAmount, 7 * 86400));
+  const stakeReceipt = await wait(await hood(bob).stake(stakeAmount, 7 * 86400));
   const stakedLog = stakeReceipt.logs.find((l) => same(l.address, a.staking));
   const positionId = BigInt(stakedLog.topics[1]);
   const position = await hood(bob).getStakePosition(positionId);
   check("the stake is recorded against the staker, locked and weighted",
     same(position.owner, bob.address) && position.amount === stakeAmount && position.weightBps === 12500,
-    `position ${positionId}, ${formatEther(stakeAmount)} RFAM`);
+    `position ${positionId}, ${formatEther(stakeAmount)} HOUSE`);
 
   const stakingBefore = await balanceOf(zeroAddress, a.staking);
   const creatorFeeBefore = await balanceOf(zeroAddress, creator.address);
@@ -555,9 +581,14 @@ async function curveMachine(a) {
     toStakers === (accrued * 5_000n) / 10_000n, `${formatEther(toStakers)} of ${formatEther(accrued)} ETH`);
   check("the creator's quarter reached the fee recipient",
     toCreator > 0n && toCreator <= (accrued * 2_500n) / 10_000n + 1n, `${formatEther(toCreator)} ETH`);
+  // The router also holds the house coin's own book by now, so "empty" is the wrong test: what
+  // must be true is that nothing of THIS flush stayed behind, which is the balance being exactly
+  // what is still booked for everything else.
+  const houseBooked = await read(a.feeRouter, hoodFeeRouterAbi, "accrued", [houseToken]);
   check("nothing of the flush was left behind",
-    (await balanceOf(zeroAddress, a.feeRouter)) === 0n, "the router holds nothing for this token");
-  const pending = await read(a.staking, hoodStakingAbi, "pending", [positionId]);
+    (await balanceOf(zeroAddress, a.feeRouter)) === houseBooked,
+    `the router holds ${formatEther(houseBooked)} ETH, all of it the house coin's book`);
+  const pending = await read(a.staking, hoodStakingAbi, "pending", [positionId, zeroAddress]);
   check("the staker can claim the fee that just arrived", pending > 0n, `${formatEther(pending)} ETH pending`);
 
   const bobEthBefore = await balanceOf(zeroAddress, bob.address);
@@ -566,7 +597,7 @@ async function curveMachine(a) {
   const claimed = (await balanceOf(zeroAddress, bob.address)) - bobEthBefore + claimGas;
   check("the claim paid the staker in the pair asset", claimed === pending, `${formatEther(claimed)} ETH`);
   check("nothing is left pending right after a claim",
-    (await read(a.staking, hoodStakingAbi, "pending", [positionId])) === 0n);
+    (await read(a.staking, hoodStakingAbi, "pending", [positionId, zeroAddress])) === 0n);
 
   let lockHeld = false;
   try {
@@ -629,12 +660,12 @@ async function curveMachine(a) {
   const collected = await read(a.feeRouter, hoodFeeRouterAbi, "accrued", [token]);
   check("a permissionless collect brought the pool fee back into the fee model", collected > 0n, `${formatEther(collected)} ETH`);
 
-  const pendingAfter = await read(a.staking, hoodStakingAbi, "pending", [positionId]);
+  const pendingAfter = await read(a.staking, hoodStakingAbi, "pending", [positionId, zeroAddress]);
   await send(keeper, a.feeRouter, hoodFeeRouterAbi, "flush", [token]);
   check("flushing the collected fee pays the stakers again",
-    (await read(a.staking, hoodStakingAbi, "pending", [positionId])) > pendingAfter);
+    (await read(a.staking, hoodStakingAbi, "pending", [positionId, zeroAddress])) > pendingAfter);
 
-  return { token, curve, positionId, stakeAmount, holders: [creator, alice, bob, carol] };
+  return { token, curve, positionId, stakeAmount, houseToken, holders: [creator, alice, bob, carol] };
 }
 
 // ================================================================ 6. the direct machine
@@ -815,10 +846,11 @@ async function directMachine(a) {
 async function lockExpiry(a, curve) {
   step("7. the seven day lock runs out");
   await warp(7 * 86400 + 60);
-  const before = await balanceOf(curve.token, bob.address);
+  // What comes back is the house coin: it is the only thing the vault ever held for him.
+  const before = await balanceOf(curve.houseToken, bob.address);
   await send(bob, a.staking, hoodStakingAbi, "unstake", [curve.positionId]);
   check("the stake came back once the lock ran out",
-    (await balanceOf(curve.token, bob.address)) - before === curve.stakeAmount, `${formatEther(curve.stakeAmount)} RFAM`);
+    (await balanceOf(curve.houseToken, bob.address)) - before === curve.stakeAmount, `${formatEther(curve.stakeAmount)} HOUSE`);
 }
 
 // ================================================================ 4 and 8. the indexer and the read api
@@ -935,8 +967,9 @@ async function checkApi(a, curve, direct) {
     directRow.body.buy_tax_bps === 500 && directRow.body.sell_tax_bps === 500 && directRow.body.snipe_tax_bps === 5000);
 
   const stats = await api("/stats");
-  check("the api counts both launches and one graduation",
-    Number(stats.body.launches) === 2 && Number(stats.body.graduated) >= 1,
+  // Three: the house coin, the curve launch and the direct one.
+  check("the api counts all three launches and one graduation",
+    Number(stats.body.launches) === 3 && Number(stats.body.graduated) >= 1,
     `${stats.body.launches} launches, ${stats.body.graduated} graduated`);
 
   // ---- points, which is the number the season drop is paid against

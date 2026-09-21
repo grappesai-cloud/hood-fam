@@ -163,6 +163,7 @@ contract SafeTest is BaseTest, SafeRig {
     }
 
     function test_aSafeSellsAndStakesWithOneSignatureRoundEach() public {
+        (address houseToken, HoodCurve houseCurve_) = _house();
         (address token, HoodCurve curve) = _launch(_toStakers());
         (ISafe team, uint256[] memory keys) = _newSafe("team", 3, 2);
         uint256[] memory two = _first(keys, 2);
@@ -182,19 +183,21 @@ contract SafeTest is BaseTest, SafeRig {
         assertEq(IERC20(token).balanceOf(address(team)), held - toSell);
         assertGt(address(team).balance, ethBefore);
 
-        // Approve and lock for 30 days, the same way.
-        uint256 toStake = IERC20(token).balanceOf(address(team));
+        // Buy the house coin, approve it and lock it for 30 days: locking is the house coin's job
+        // now, so the Safe holds a launch on one side and a position in the room on the other.
+        _call(team, address(houseCurve_), 1 ether, abi.encodeCall(HoodCurve.buy, (1 ether, 0, address(team))), two);
+        uint256 toStake = IERC20(houseToken).balanceOf(address(team));
         uint256 id = staking.nextPositionId();
         SafeLib.Call[] memory lock = new SafeLib.Call[](2);
-        lock[0] = SafeLib.Call(token, 0, abi.encodeCall(IERC20.approve, (address(staking), toStake)));
-        lock[1] = SafeLib.Call(address(staking), 0, abi.encodeCall(HoodStaking.stake, (token, toStake, 30 days)));
+        lock[0] = SafeLib.Call(houseToken, 0, abi.encodeCall(IERC20.approve, (address(staking), toStake)));
+        lock[1] = SafeLib.Call(address(staking), 0, abi.encodeCall(HoodStaking.stake, (toStake, 30 days)));
         _batch(team, lock, two);
-        assertEq(IERC20(token).balanceOf(address(team)), 0);
+        assertEq(IERC20(houseToken).balanceOf(address(team)), 0);
 
         // The fee stream reaches the Safe's position, and a stranger can push it to the Safe.
         _buy(curve, alice, 2 ether);
         router.flush(token);
-        assertGt(staking.pending(id), 0);
+        assertGt(staking.pending(id, address(0)), 0);
         ethBefore = address(team).balance;
         vm.prank(makeAddr("keeper"));
         staking.claim(id);

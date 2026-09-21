@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { encodeFunctionData, parseEther, maxUint256, type Address } from "viem";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import Link from "next/link";
+import { encodeFunctionData, erc20Abi, formatUnits, parseEther, maxUint256, zeroAddress, type Address } from "viem";
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { hoodStakingAbi } from "@hood/sdk";
 import { addresses } from "@/lib/config";
 import { api } from "@/lib/api";
-import { fmt, LOCK_TIERS, timeUntil } from "@/lib/format";
+import { fmt, LOCK_TIERS, pairSymbol, timeUntil } from "@/lib/format";
 import { useBatch } from "@/lib/safe";
 
-const erc20 = [
+const approveAbi = [
   { type: "function", name: "allowance", stateMutability: "view", inputs: [{ type: "address" }, { type: "address" }], outputs: [{ type: "uint256" }] },
   { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] },
 ] as const;
@@ -20,8 +21,13 @@ interface StakeRow {
   unlock_at: string; weight_bps: number; active: boolean; claimed: string; symbol: string;
 }
 
-/// Proof of belief. Lock longer, take a bigger slice of the same fee stream.
-export function StakePanel({ token, symbol, paysStakers: earns }: { token: Address; symbol: string; paysStakers: boolean }) {
+/// The room.
+///
+/// One coin is lockable on this pad: the house coin. Locking it takes a share of the stakers leg
+/// of EVERY launch, so this panel is about the board as a whole rather than about whichever token
+/// happens to be on screen. Longer lock, bigger share, and the share is paid in whatever the
+/// launches that paid were trading against, which is why a position can owe in two currencies.
+export function StakePanel() {
   const { address } = useAccount();
   const [amount, setAmount] = useState("");
   const [lock, setLock] = useState(0);
@@ -33,30 +39,39 @@ export function StakePanel({ token, symbol, paysStakers: earns }: { token: Addre
   const { canBatch, batch } = useBatch();
   const queryClient = useQueryClient();
   useEffect(() => {
-    // the transaction landed: every number on this page is stale until it is read again
     if (receipt.isSuccess) void queryClient.invalidateQueries();
   }, [receipt.isSuccess, queryClient]);
 
-  const { data: allowance } = useReadContract({
-    address: token, abi: erc20, functionName: "allowance",
-    args: [address ?? "0x0000000000000000000000000000000000000000", addresses.staking],
-    query: { enabled: Boolean(address) },
+  const { data: house } = useReadContract({
+    address: addresses.staking, abi: hoodStakingAbi, functionName: "houseToken",
   });
+  const token = (house as Address | undefined) ?? zeroAddress;
+  const named = token !== zeroAddress;
+
+  const { data: coin } = useReadContracts({
+    contracts: [
+      { address: token, abi: erc20Abi, functionName: "symbol" },
+      { address: token, abi: erc20Abi, functionName: "balanceOf", args: [address ?? zeroAddress] },
+      { address: token, abi: approveAbi, functionName: "allowance", args: [address ?? zeroAddress, addresses.staking] },
+      { address: addresses.staking, abi: hoodStakingAbi, functionName: "staked" },
+    ] as never,
+    query: { enabled: named },
+  });
+  const c = (coin ?? []) as { result?: unknown }[];
+  const symbol = (c[0]?.result as string | undefined) ?? "";
+  const balance = (c[1]?.result as bigint | undefined) ?? 0n;
+  const allowance = (c[2]?.result as bigint | undefined) ?? 0n;
+  const lockedTotal = (c[3]?.result as bigint | undefined) ?? 0n;
 
   const positions = useQuery({
     queryKey: ["stakes", address],
     queryFn: () => api<{ positions: StakeRow[] }>(`/stakes/${address}`),
     enabled: Boolean(address),
   });
+  const mine = (positions.data?.positions ?? []).filter((p) => p.active);
 
-  // `?.positions.filter` would take the whole page down with a client side exception if the API
-  // ever answered without the array, which is one field away at any time. A list that is missing
-  // reads as a list that is empty.
-  const mine = (positions.data?.positions ?? []).filter(
-    (p) => p.token.toLowerCase() === token.toLowerCase() && p.active,
-  );
   const wei = (() => { try { return parseEther(amount || "0"); } catch { return 0n; } })();
-  const needsApproval = (allowance as bigint | undefined ?? 0n) < wei;
+  const needsApproval = allowance < wei;
 
   async function stake() {
     setError(undefined);
@@ -67,41 +82,62 @@ export function StakePanel({ token, symbol, paysStakers: earns }: { token: Addre
   }
 
   async function stakeInner() {
-    if (!address) return;
+    if (!address || !named) return;
     if (needsApproval) {
       // One transaction for a wallet that batches: approve, then lock. See TradeBox.
       if (canBatch) {
         const lockData = beneficiary
-          ? encodeFunctionData({ abi: hoodStakingAbi, functionName: "stakeFor", args: [token, beneficiary as Address, wei, BigInt(lock)] })
-          : encodeFunctionData({ abi: hoodStakingAbi, functionName: "stake", args: [token, wei, BigInt(lock)] });
+          ? encodeFunctionData({ abi: hoodStakingAbi, functionName: "stakeFor", args: [beneficiary as Address, wei, BigInt(lock)] })
+          : encodeFunctionData({ abi: hoodStakingAbi, functionName: "stake", args: [wei, BigInt(lock)] });
         const id = await batch([
-          { to: token, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [addresses.staking, maxUint256] }) },
+          { to: token, data: encodeFunctionData({ abi: approveAbi, functionName: "approve", args: [addresses.staking, maxUint256] }) },
           { to: addresses.staking, data: lockData },
         ]);
         if (id) return setHash(id);
       }
-      return setHash(await writeContractAsync({ address: token, abi: erc20, functionName: "approve", args: [addresses.staking, maxUint256] }));
+      return setHash(await writeContractAsync({ address: token, abi: approveAbi, functionName: "approve", args: [addresses.staking, maxUint256] }));
     }
     setHash(await writeContractAsync(
       beneficiary
-        ? { address: addresses.staking, abi: hoodStakingAbi, functionName: "stakeFor", args: [token, beneficiary as Address, wei, BigInt(lock)] }
-        : { address: addresses.staking, abi: hoodStakingAbi, functionName: "stake", args: [token, wei, BigInt(lock)] },
+        ? { address: addresses.staking, abi: hoodStakingAbi, functionName: "stakeFor", args: [beneficiary as Address, wei, BigInt(lock)] }
+        : { address: addresses.staking, abi: hoodStakingAbi, functionName: "stake", args: [wei, BigInt(lock)] },
     ));
+  }
+
+  // Before the coin has been named there is nothing to lock and nothing to promise. Say that,
+  // rather than showing a form that every wallet would bounce.
+  if (!named) {
+    return (
+      <div className="panel space-y-2 p-4">
+        <h3 className="font-semibold">The room is not open yet</h3>
+        <p className="text-xs dim">
+          Locking here is one coin: the pad&apos;s own. It has not been named on chain yet, so
+          nothing can be locked and no launch can point its fee at this room.
+        </p>
+      </div>
+    );
   }
 
   return (
     <div className="panel space-y-3 p-4">
       <div>
-        <h3 className="font-semibold">Stake {symbol}</h3>
+        <h3 className="font-semibold">Lock {symbol}</h3>
         <p className="text-xs dim">
-          {earns
-            ? "Part of this token's trading fee goes to whoever locks it. Longer lock, bigger share."
-            : "This token sends none of its fee to stakers, but locking still works and the vault is shared."}
+          Every launch on the board that pays stakers pays this room. Longer lock, bigger share.
         </p>
+      </div>
+
+      <div className="flex items-center justify-between text-xs">
+        <span className="dim">locked by everyone</span>
+        <span className="mono">{fmt(lockedTotal)} {symbol}</span>
       </div>
 
       <input className="input mono" placeholder="0.0" inputMode="decimal"
         value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} />
+      <div className="flex items-center justify-between text-xs">
+        <span className="dim">you hold {fmt(balance)} {symbol}</span>
+        <button className="underline" onClick={() => setAmount(formatUnits(balance, 18))}>max</button>
+      </div>
 
       <div className="flex flex-wrap gap-2">
         {LOCK_TIERS.map((t) => (
@@ -130,7 +166,7 @@ export function StakePanel({ token, symbol, paysStakers: earns }: { token: Addre
         <div className="space-y-2 pt-2">
           <h4 className="text-xs dim">your positions</h4>
           {mine.map((p) => (
-            <Position key={p.position_id} p={p} setHash={setHash} />
+            <Position key={p.position_id} p={p} symbol={symbol} setHash={setHash} />
           ))}
         </div>
       )}
@@ -138,24 +174,50 @@ export function StakePanel({ token, symbol, paysStakers: earns }: { token: Addre
   );
 }
 
-function Position({ p, setHash }: { p: StakeRow; setHash: (h: `0x${string}`) => void }) {
+/// A pointer, for every token that is not the house coin: this is not where locking happens.
+export function LockElsewhere({ token }: { token: Address }) {
+  const { data: house } = useReadContract({
+    address: addresses.staking, abi: hoodStakingAbi, functionName: "houseToken",
+  });
+  const houseToken = (house as Address | undefined) ?? zeroAddress;
+  if (houseToken === zeroAddress || houseToken.toLowerCase() === token.toLowerCase()) return null;
+  return (
+    <div className="panel space-y-2 p-4">
+      <h3 className="font-semibold">Locking is one coin</h3>
+      <p className="text-xs dim">
+        This token cannot be locked, and neither can any other launch. The stakers leg of the fee
+        here is paid to whoever locked the pad&apos;s own coin, which is the one room every launch
+        on the board pays into.
+      </p>
+      <Link className="btn btn-ghost w-full text-xs" href="/lock">go to the room</Link>
+    </div>
+  );
+}
+
+function Position({ p, symbol, setHash }: { p: StakeRow; symbol: string; setHash: (h: `0x${string}`) => void }) {
   const { writeContractAsync } = useWriteContract();
   const unlocked = new Date(p.unlock_at).getTime() <= Date.now();
+  // Two launches paired against different things pay in different currencies, so what a position
+  // is owed is a list, not a number.
   const { data: pending } = useReadContract({
-    address: addresses.staking, abi: hoodStakingAbi, functionName: "pending",
+    address: addresses.staking, abi: hoodStakingAbi, functionName: "pendingAll",
     args: [BigInt(p.position_id)], query: { refetchInterval: 10_000 },
   });
+  const [assets, amounts] = (pending as [readonly Address[], readonly bigint[]] | undefined) ?? [[], []];
+  const owed = assets.map((asset, i) => ({ asset, amount: amounts[i] ?? 0n })).filter((x) => x.amount > 0n);
 
   return (
     <div className="flex items-center gap-2 rounded-lg border border-[var(--color-line)] p-2 text-xs">
       <div className="flex-1">
-        <div className="mono">{fmt(BigInt(p.amount))} {p.symbol}</div>
+        <div className="mono">{fmt(BigInt(p.amount))} {symbol || p.symbol}</div>
         <div className="dim">
           {p.weight_bps / 10_000}x · {unlocked ? "unlocked" : `locked ${timeUntil(new Date(p.unlock_at).getTime() / 1000)}`}
         </div>
       </div>
       <div className="mono text-right">
-        <div>{fmt((pending as bigint | undefined) ?? 0n, 18, 6)}</div>
+        {owed.length === 0 ? <div>0</div> : owed.map((o) => (
+          <div key={o.asset}>{fmt(o.amount, o.asset === zeroAddress ? 18 : 6, 6)} {pairSymbol(o.asset)}</div>
+        ))}
         <div className="dim">claimable</div>
       </div>
       <button className="btn btn-ghost !px-2 !py-1 text-xs"

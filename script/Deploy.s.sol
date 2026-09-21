@@ -7,6 +7,7 @@ import {HoodFactory} from "../src/HoodFactory.sol";
 import {HoodDeployer} from "../src/HoodDeployer.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
+import {HoodTokenLock} from "../src/HoodTokenLock.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
 import {HoodBridgeFactory} from "../src/omnichain/HoodBridgeFactory.sol";
 import {HoodPortal} from "../src/direct/HoodPortal.sol";
@@ -54,6 +55,7 @@ contract Deploy is Script {
         bytecode.initialize(address(factory));
         HoodStaking staking = new HoodStaking(address(factory));
         HoodFeeRouter feeRouter = new HoodFeeRouter(address(factory), address(staking));
+        HoodTokenLock firstBuyLocker = new HoodTokenLock();
         UniswapV4Graduator graduator = new UniswapV4Graduator(
             address(factory), POOL_MANAGER, POSITION_MANAGER, UNIVERSAL_ROUTER, PERMIT2, STATE_VIEW
         );
@@ -61,6 +63,7 @@ contract Deploy is Script {
         HoodBridgeFactory bridge = new HoodBridgeFactory(deployer, address(factory), LZ_ENDPOINT);
 
         factory.setModules(address(feeRouter), address(staking), address(graduator));
+        factory.setFirstBuyLocker(address(firstBuyLocker));
         factory.setLaunchFee(0.0005 ether);
 
         // Native pair. A ticker locks after this much volume inside 24 hours.
@@ -138,6 +141,7 @@ contract Deploy is Script {
             // All three are Ownable2Step: nothing moves until the owner calls acceptOwnership().
             // From a Safe that is one batch: `npm run safe -- accept` builds it.
             console.log("PENDING: owner must call acceptOwnership() on factory, bridge and portal");
+            console.log("PENDING: the house coin is unset; launch it, then owner calls staking.setHouseToken(coin)");
             if (SafeLib.looksLikeSafe(owner)) console.log("         one Safe batch: npm run safe -- accept");
         }
 
@@ -146,6 +150,7 @@ contract Deploy is Script {
         console.log("factory   ", address(factory));
         console.log("deployer  ", address(bytecode));
         console.log("staking   ", address(staking));
+        console.log("firstBuyLock", address(firstBuyLocker));
         console.log("feeRouter ", address(feeRouter));
         console.log("graduator ", address(graduator));
         console.log("bridge    ", address(bridge));

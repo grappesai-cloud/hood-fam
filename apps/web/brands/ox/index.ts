@@ -3,37 +3,29 @@ import { Shell } from "./Shell";
 import { Explore } from "./Explore";
 import { Wordmark } from "./Wordmark";
 
-/// The second face: a market terminal that happens to be a launchpad.
-///
-/// Same chain, same contracts, same indexer. What this front assumes is a different reader: one who
-/// already parses addresses, wants sixty launches on one screen rather than eight pictures, and
-/// reaches for the keyboard before the mouse. So there is no hero, no artwork and no card. There is
-/// a header line, a table, and a footer line.
-///
-/// The words are lower case on purpose. A terminal does not capitalise its own commands, and the
-/// routes are written as paths because that is what this reader would have typed anyway.
 export const brand: Brand = {
   id: "ox",
-  name: "0x.fam",
-  host: "0x.grappes.dev",
-  tagline: "Addresses, not adjectives.",
+  name: "ox.family",
+  host: "ox.family",
+  tagline: "Launch on the curve. Graduate to the market.",
   description:
-    "Every launch on Robinhood Chain as one line of data: cap, volume, progress to the pool, age and address.",
+    "Create and trade community tokens on Robinhood Chain. Fair curves, automatic graduation and permanently locked liquidity.",
   Wordmark,
   nav: [
-    { href: "/", label: "/explore" },
-    { href: "/launch", label: "/create" },
-    { href: "/portfolio", label: "/portfolio" },
-    { href: "/creator", label: "/creator" },
-    { href: "/leaderboard", label: "/board" },
-    { href: "/airdrop", label: "/drop" },
+    { href: "/", label: "Discover" },
+    { href: "/launch", label: "Create token" },
+    { href: "/portfolio", label: "Portfolio" },
+    { href: "/leaderboard", label: "Leaderboard" },
+    { href: "/lock", label: "Lock" },
+    { href: "/airdrop", label: "Season drop" },
+    { href: "/bridge", label: "Bridge" },
   ],
   copy: {
-    create: "deploy token",
-    heroAction: "Deploy a token. Read the tape.",
-    board: "Tape",
-    drop: "Season split",
-    footnote: "0x.fam holds no funds and gives no financial advice.",
+    create: "Create token",
+    heroAction: "Launch a token on Robinhood Chain",
+    board: "Discover",
+    drop: "Season drop",
+    footnote: "ox.family never takes custody of your funds.",
   },
   Shell,
   Explore,

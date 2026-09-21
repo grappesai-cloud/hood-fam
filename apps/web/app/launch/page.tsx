@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isAddress, parseEther, parseUnits, zeroAddress, type Address } from "viem";
 import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { hoodFactoryAbi, BPS, FEE_LEG_LABEL, LOCK_TIERS } from "@hood/sdk";
+import { hoodFactoryAbi, hoodStakingAbi, BPS, FEE_LEG_LABEL, LOCK_TIERS } from "@hood/sdk";
 import { addresses } from "@/lib/config";
 import { fmt } from "@/lib/format";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
@@ -20,13 +20,13 @@ interface CurvePreset {
 /// The four places the creator leg can go, and what each one means to a buyer reading the page. A
 /// launch splits between them rather than picking one, so these are labels on sliders, not options.
 const LEG_COPY = [
-  { key: "stakers" as const, title: FEE_LEG_LABEL.stakers, body: "Everyone who locks the token earns it, more for a longer lock." },
+  { key: "stakers" as const, title: FEE_LEG_LABEL.stakers, body: "Everyone who locked the pad's own coin earns it, from every launch that pays this way, more for a longer lock." },
   { key: "buyback" as const, title: FEE_LEG_LABEL.buyback, body: "It buys the token back and destroys it. Supply only goes down." },
   { key: "liquidity" as const, title: FEE_LEG_LABEL.liquidity, body: "It deepens the pool the token graduates into." },
   { key: "creator" as const, title: FEE_LEG_LABEL.creator, body: "It pays the address you name below. Transferable later, by that address only." },
 ];
 
-/// Lock tiers come from the staking vault, because that is where a locked first buy actually sits.
+/// Lock lengths come from the locker, because that is where a locked first buy actually sits.
 /// The factory refuses anything that is not one of them, so the form offers exactly those.
 const LOCKS = [{ label: "no lock", seconds: 0 }, ...LOCK_TIERS.filter((t) => t.seconds > 0).map((t) => ({ label: t.label, seconds: t.seconds }))];
 
@@ -106,6 +106,22 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     })) as never,
     query: { enabled: Boolean(configCount) },
   });
+  // The one coin the vault accepts. Zero means nobody can be paid as a staker yet, and the
+  // factory refuses a launch that promises them anything.
+  const { data: houseToken } = useReadContract({
+    address: addresses.staking, abi: hoodStakingAbi, functionName: "houseToken",
+  });
+  const canPayStakers = typeof houseToken === "string" && houseToken !== zeroAddress;
+  useEffect(() => {
+    // The default is the whole fee to stakers. Before the coin exists that default cannot launch,
+    // so it moves to the next most useful thing once, without stepping on a creator who has
+    // already touched the sliders.
+    if (houseToken === undefined || canPayStakers) return;
+    setForm((f) => (f.stakers === 100 && f.buyback === 0 && f.liquidity === 0 && f.creator === 0
+      ? { ...f, stakers: 0, buyback: 50, liquidity: 50 }
+      : f));
+  }, [houseToken, canPayStakers]);
+
   const { data: launchFee } = useReadContract({
     address: addresses.factory, abi: hoodFactoryAbi, functionName: "launchFee",
   });
@@ -144,6 +160,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : !form.name ? "Step 2 needs a name."
     : !form.symbol ? "Step 2 needs a ticker."
     : symbolFree === false ? "That ticker is locked by a launch that is trading right now."
+    : form.stakers > 0 && !canPayStakers ? "Step 3 cannot pay stakers yet: the pad's own coin has not been named on chain."
     : splitTotal !== 100 ? `Step 3 has to add up to 100%. It is at ${splitTotal}%.`
     : !recipientOk ? "Step 3 needs a valid address for the fee, or none at all."
     : form.creator > 0 && !recipient ? "Step 3 pays the creator leg to an address, and there is none."
@@ -223,8 +240,13 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           <Step n={3} title="Where the trading fee goes" purpose="Every trade pays a fee. You decide once, here, how it is divided. This is the promise a buyer can check on chain, and nobody can change it afterwards, including us." done={splitTotal === 100 && recipientOk}>
             <div className="grid gap-3">
               {LEG_COPY.map((leg) => (
-                <Slider key={leg.key} label={`${leg.title} ${form[leg.key]}%`} hint={leg.body}
-                  min={0} max={100} step={5} value={form[leg.key]} onChange={(v) => set(leg.key, v)} />
+                <Slider key={leg.key}
+                  label={`${leg.title} ${form[leg.key]}%`}
+                  hint={leg.key === "stakers" && !canPayStakers
+                    ? "Not yet: the pad's own coin has not been named on chain, so there is nobody locked to pay."
+                    : leg.body}
+                  min={0} max={leg.key === "stakers" && !canPayStakers ? 0 : 100} step={5}
+                  value={form[leg.key]} onChange={(v) => set(leg.key, v)} />
               ))}
             </div>
             <p className={splitTotal === 100 ? "text-xs dim" : "text-xs text-[var(--color-red)]"}>

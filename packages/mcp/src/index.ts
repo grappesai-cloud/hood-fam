@@ -236,7 +236,7 @@ server.registerTool(
       buybackBps: z.number().int().min(0).max(BPS).default(0),
       liquidityBps: z.number().int().min(0).max(BPS).default(0),
       creatorBps: z.number().int().min(0).max(BPS).default(0),
-      firstBuyLock: z.number().int().min(0).default(0).describe("seconds the creator's own first buy is locked in the staking vault: 0, or one of 7, 30, 90, 180 days"),
+      firstBuyLock: z.number().int().min(0).default(0).describe("seconds the creator's own first buy is held by the locker, earning nothing: 0, or one of 7, 30, 90, 180 days"),
       configId: z.number().default(0),
       pairToken: addr.default(zeroAddress),
       firstBuy: z.string().default("0").describe("pair units for the creator's own first buy"),
@@ -293,7 +293,7 @@ server.registerTool(
       buybackBps: z.number().int().min(0).max(BPS).default(0),
       liquidityBps: z.number().int().min(0).max(BPS).default(0),
       creatorBps: z.number().int().min(0).max(BPS).default(0),
-      firstBuyLock: z.number().int().min(0).default(0).describe("seconds the creator's own first buy is locked in the staking vault: 0, or one of 7, 30, 90, 180 days"),
+      firstBuyLock: z.number().int().min(0).default(0).describe("seconds the creator's own first buy is held by the locker, earning nothing: 0, or one of 7, 30, 90, 180 days"),
       configId: z.number().default(0),
       pairToken: addr.default(zeroAddress),
       creatorFeeRecipient: addr.optional(),
@@ -426,19 +426,19 @@ server.registerTool(
 server.registerTool(
   "hood_stake",
   {
-    description: "Locks a token for the fee stream. Longer locks take a bigger share. Optionally locks it for somebody else (send a stake).",
+    description: "Locks the pad's own coin, which is the only lockable token here, and takes a share of the stakers leg of every launch. Longer locks take a bigger share. Optionally locks it for somebody else (send a stake).",
     inputSchema: {
-      token: addr, amount: z.string(),
+      amount: z.string(),
       lockDays: z.number().default(0).describe("0, 7, 30, 90 or 180"),
       beneficiary: addr.optional(), confirm: z.boolean().optional(),
     },
   },
-  async ({ token, amount, lockDays, beneficiary, confirm }) => {
+  async ({ amount, lockDays, beneficiary, confirm }) => {
     try {
       ctx.requireSigner();
       ctx.requireConfirm(confirm, "hood_stake");
-      const hash = await ctx.client.stake(token as Address, parseEther(amount), lockDays * 86_400, beneficiary as Address | undefined);
-      return ok({ hash, tiers: LOCK_TIERS });
+      const hash = await ctx.client.stake(parseEther(amount), lockDays * 86_400, beneficiary as Address | undefined);
+      return ok({ hash, tiers: LOCK_TIERS, coin: await ctx.client.houseToken() });
     } catch (e) { return fail(e); }
   },
 );
@@ -446,7 +446,7 @@ server.registerTool(
 server.registerTool(
   "hood_get_staking_positions",
   {
-    description: "Staking positions and what they can claim. Reads the indexer when HOOD_API is set.",
+    description: "Positions in the pad's vault and what each can claim, per reward asset. Reads the indexer when HOOD_API is set.",
     inputSchema: { owner: addr.optional(), ids: z.array(z.string()).optional() },
   },
   async ({ owner, ids }) => {

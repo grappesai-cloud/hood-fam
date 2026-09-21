@@ -6,30 +6,40 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import {Launch, LaunchMode} from "./HoodTypes.sol";
 import {PairTransfer} from "./libraries/PairTransfer.sol";
 import {IHoodFactory} from "./interfaces/IHoodFactory.sol";
 import {IHoodStaking} from "./interfaces/IHoodStaking.sol";
 
 /// @title HoodStaking
-/// @notice Proof of belief: holders lock a launched token and take the creator fee stream, weighted
-///         by how much they locked and for how long.
-/// @dev One contract serves every launch, keyed by token, so a launch costs no extra deployment.
-///      Rewards are paid in that launch's pair asset. Nothing here has an owner, nothing expires
-///      and no principal can be moved by anyone but the position holder after the lock.
+/// @notice One vault, one coin. Locking the house coin is what earns the stakers leg of the fee
+///         on EVERY launch on this pad, not just one of them.
+/// @dev This used to be a vault per launch: you locked token X and took the share of X's own fee
+///      that X's creator had pointed at stakers. That made every launch its own little economy and
+///      gave the pad itself nothing to hold. Now there is a single coin, set once by the owner, and
+///      every launch that points fees at stakers points them here. A holder of the house coin earns
+///      from the whole board; a launch pays the people who believe in the place it launched on.
+///
+///      What that costs, and how it is paid for: one vault takes rewards in more than one asset,
+///      because launches pair against the chain's own currency and against the stablecoin. So the
+///      accumulator is per asset rather than per token, and a position carries a debt per asset.
+///      The asset list is bounded (`MAX_REWARD_ASSETS`) since every loop here walks it, and the
+///      pair list is the owner's to begin with: only an approved pair can ever reach this contract.
+///
+///      Nothing here can be upgraded, no principal can be moved by anyone but its owner after the
+///      lock, and the one owner-only switch (`setHouseToken`) can be thrown exactly once.
 contract HoodStaking is IHoodStaking, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 internal constant ACC_PRECISION = 1e27;
     uint256 internal constant BPS = 10_000;
+    /// @notice How many different assets may ever pay this vault. Every claim walks this list.
+    uint256 internal constant MAX_REWARD_ASSETS = 8;
 
     struct Position {
-        address token;
         address owner;
         uint128 amount;
         uint64 unlockAt;
         uint32 weightBps;
-        uint256 rewardDebt;
     }
 
     struct Tier {
@@ -39,29 +49,40 @@ contract HoodStaking is IHoodStaking, ReentrancyGuard {
 
     IHoodFactory public immutable factory;
 
+    /// @notice The only token this vault accepts. Zero until the owner names it, once.
+    address public houseToken;
+
     /// @notice Lock lengths and what they are worth, longest first. Fixed at deployment.
     Tier[5] public tiers;
 
     mapping(uint256 id => Position) public positions;
-    mapping(address token => uint256) public totalWeight;
-    mapping(address token => uint256) public accRewardPerWeight;
-    /// @notice Rewards that arrived while nobody was staking. Credited to the first staker's peers.
-    mapping(address token => uint256) public orphanRewards;
-    mapping(address token => uint256) public staked;
-    /// @dev Pair wei this contract knows about, per asset.
+    /// @dev What a position has already been credited with, per reward asset.
+    mapping(uint256 id => mapping(address asset => uint256)) public rewardDebt;
+
+    uint256 public totalWeight;
+    uint256 public staked;
+
+    mapping(address asset => uint256) public accRewardPerWeight;
+    /// @notice Rewards that arrived while nobody was locked. Credited to the first staker.
+    mapping(address asset => uint256) public orphanRewards;
+    /// @dev Wei of each asset this contract knows it owes.
     mapping(address asset => uint256) public accounted;
+
+    /// @notice Every asset that has ever paid this vault.
+    address[] public rewardAssets;
+    mapping(address asset => bool) public isRewardAsset;
 
     uint256 public nextPositionId = 1;
 
+    event HouseTokenSet(address indexed token);
     event Staked(
         uint256 indexed id, address indexed token, address indexed owner, uint256 amount, uint64 unlockAt, uint32 weightBps
     );
     event Unstaked(uint256 indexed id, uint256 amount);
-    event Claimed(uint256 indexed id, address indexed to, uint256 amount);
+    event Claimed(uint256 indexed id, address indexed to, address indexed asset, uint256 amount);
     event Demoted(uint256 indexed id, uint32 weightBps);
-    event RewardNotified(address indexed token, uint256 amount);
+    event RewardNotified(address indexed asset, uint256 amount);
 
-    error UnknownToken();
     error FundsNotReceived();
     error ZeroAmount();
     error StillLocked();
@@ -69,7 +90,9 @@ contract HoodStaking is IHoodStaking, ReentrancyGuard {
     error NoPosition();
     error LockTooLong();
     error AmountTooLarge();
-    error NotACurveLaunch();
+    error NoHouseToken();
+    error HouseTokenAlreadySet();
+    error TooManyRewardAssets();
 
     constructor(address factory_) {
         factory = IHoodFactory(factory_);
@@ -82,6 +105,19 @@ contract HoodStaking is IHoodStaking, ReentrancyGuard {
     }
 
     receive() external payable {}
+
+    // ---------------------------------------------------------------- the coin
+
+    /// @notice Names the house coin. Once, by the factory's owner, and never again.
+    /// @dev The pad's own coin is launched on the pad, so its address cannot be known at deployment.
+    ///      One shot: a vault whose coin can be swapped is a vault that can be emptied by decree.
+    function setHouseToken(address token) external {
+        if (msg.sender != factory.owner()) revert NotOwner();
+        if (houseToken != address(0)) revert HouseTokenAlreadySet();
+        if (token == address(0)) revert NoHouseToken();
+        houseToken = token;
+        emit HouseTokenSet(token);
+    }
 
     // ---------------------------------------------------------------- views
 
@@ -104,80 +140,79 @@ contract HoodStaking is IHoodStaking, ReentrancyGuard {
         return false;
     }
 
-    /// @notice Rewards a position can claim right now.
-    function pending(uint256 id) public view returns (uint256) {
+    function rewardAssetCount() external view returns (uint256) {
+        return rewardAssets.length;
+    }
+
+    /// @notice What a position can claim right now, in one asset.
+    function pending(uint256 id, address asset) public view returns (uint256) {
         Position memory p = positions[id];
         if (p.owner == address(0)) return 0;
         uint256 weight = Math.mulDiv(p.amount, p.weightBps, BPS);
-        uint256 total = Math.mulDiv(weight, accRewardPerWeight[p.token], ACC_PRECISION);
-        return total > p.rewardDebt ? total - p.rewardDebt : 0;
+        uint256 total = Math.mulDiv(weight, accRewardPerWeight[asset], ACC_PRECISION);
+        uint256 debt = rewardDebt[id][asset];
+        return total > debt ? total - debt : 0;
     }
 
-    function rewardAsset(address token) public view returns (address) {
-        return factory.getLaunch(token).pairToken;
+    /// @notice What a position can claim right now, in every asset that has ever paid.
+    function pendingAll(uint256 id) external view returns (address[] memory assets, uint256[] memory amounts) {
+        assets = rewardAssets;
+        amounts = new uint256[](assets.length);
+        for (uint256 i; i < assets.length; ++i) {
+            amounts[i] = pending(id, assets[i]);
+        }
     }
 
     // ---------------------------------------------------------------- rewards in
 
     /// @inheritdoc IHoodStaking
-    function notifyReward(address token, uint256 amount) external payable {
-        Launch memory l = factory.getLaunch(token);
-        if (!l.exists) revert UnknownToken();
+    function notifyReward(address asset, uint256 amount) external payable {
         if (amount == 0) revert ZeroAmount();
 
-        if (l.pairToken == address(0)) {
+        if (asset == address(0)) {
             if (msg.value != amount) revert FundsNotReceived();
         } else {
             if (msg.value != 0) revert FundsNotReceived();
-            if (IERC20(l.pairToken).balanceOf(address(this)) < accounted[l.pairToken] + amount) {
-                revert FundsNotReceived();
-            }
+            if (IERC20(asset).balanceOf(address(this)) < accounted[asset] + amount) revert FundsNotReceived();
         }
-        accounted[l.pairToken] += amount;
+        accounted[asset] += amount;
+        _register(asset);
 
-        uint256 weight = totalWeight[token];
+        uint256 weight = totalWeight;
         if (weight == 0) {
-            orphanRewards[token] += amount;
+            orphanRewards[asset] += amount;
         } else {
-            accRewardPerWeight[token] += Math.mulDiv(amount, ACC_PRECISION, weight);
+            accRewardPerWeight[asset] += Math.mulDiv(amount, ACC_PRECISION, weight);
         }
-        emit RewardNotified(token, amount);
+        emit RewardNotified(asset, amount);
+    }
+
+    function _register(address asset) internal {
+        if (isRewardAsset[asset]) return;
+        if (rewardAssets.length >= MAX_REWARD_ASSETS) revert TooManyRewardAssets();
+        isRewardAsset[asset] = true;
+        rewardAssets.push(asset);
     }
 
     // ---------------------------------------------------------------- staking
 
-    /// @notice Locks `amount` of `token` for `lockDuration` and earns the fee stream.
-    function stake(address token, uint256 amount, uint64 lockDuration) external returns (uint256 id) {
-        return _stake(token, msg.sender, amount, lockDuration);
+    /// @notice Locks `amount` of the house coin for `lockDuration` and earns every launch's stream.
+    function stake(uint256 amount, uint64 lockDuration) external returns (uint256 id) {
+        return _stake(msg.sender, amount, lockDuration);
     }
 
-    /// @notice Send a stake: locks tokens on somebody else's behalf. They earn, they cannot sell
-    ///         before the lock ends, and the sender keeps nothing.
-    /// @dev This is how a launch pays a caller or a partner without handing them an exit.
-    function stakeFor(address token, address beneficiary, uint256 amount, uint64 lockDuration)
-        external
-        returns (uint256 id)
-    {
+    /// @inheritdoc IHoodStaking
+    function stakeFor(address beneficiary, uint256 amount, uint64 lockDuration) external returns (uint256 id) {
         if (beneficiary == address(0)) revert NotOwner();
-        return _stake(token, beneficiary, amount, lockDuration);
+        return _stake(beneficiary, amount, lockDuration);
     }
 
-    function _stake(address token, address owner, uint256 amount, uint64 lockDuration)
-        internal
-        nonReentrant
-        returns (uint256 id)
-    {
+    function _stake(address owner, uint256 amount, uint64 lockDuration) internal nonReentrant returns (uint256 id) {
+        address token = houseToken;
+        if (token == address(0)) revert NoHouseToken();
         if (amount == 0) revert ZeroAmount();
         if (amount > type(uint128).max) revert AmountTooLarge();
         if (lockDuration > 365 days) revert LockTooLong();
-        Launch memory l = factory.getLaunch(token);
-        if (!l.exists) revert UnknownToken();
-        // A direct launch pays its holders where they stand, out of the splitter, by balance. Tokens
-        // locked here would stop being a holder as far as that accumulator is concerned: the share
-        // would be booked to this contract, which has no way to pass it on and no way to return it.
-        // Nothing routes a direct launch's fees here either, so the position would earn nothing and
-        // cost its owner the dividends they already had.
-        if (l.mode != LaunchMode.Curve) revert NotACurveLaunch();
 
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
@@ -185,52 +220,56 @@ contract HoodStaking is IHoodStaking, ReentrancyGuard {
         uint256 weight = Math.mulDiv(amount, weightBps, BPS);
 
         id = nextPositionId++;
-        positions[id] = Position({
-            token: token,
-            owner: owner,
-            amount: uint128(amount),
-            unlockAt: uint64(block.timestamp) + lockDuration,
-            weightBps: weightBps,
-            rewardDebt: Math.mulDiv(weight, accRewardPerWeight[token], ACC_PRECISION)
-        });
-        totalWeight[token] += weight;
-        staked[token] += amount;
+        positions[id] =
+            Position({owner: owner, amount: uint128(amount), unlockAt: uint64(block.timestamp) + lockDuration, weightBps: weightBps});
+        // The debt is fixed against every stream as it stands now, so a position never reaches back
+        // into what was paid out before it existed.
+        uint256 assets = rewardAssets.length;
+        for (uint256 i; i < assets; ++i) {
+            address asset = rewardAssets[i];
+            rewardDebt[id][asset] = Math.mulDiv(weight, accRewardPerWeight[asset], ACC_PRECISION);
+        }
 
-        // Anything that arrived while nobody was staking is credited AFTER this position's debt is
+        totalWeight += weight;
+        staked += amount;
+
+        // Anything that arrived while nobody was locked is credited AFTER this position's debt is
         // fixed, so the first staker to show up is the one who receives it.
-        uint256 orphan = orphanRewards[token];
-        if (orphan != 0) {
-            orphanRewards[token] = 0;
-            accRewardPerWeight[token] += Math.mulDiv(orphan, ACC_PRECISION, totalWeight[token]);
+        for (uint256 i; i < assets; ++i) {
+            address asset = rewardAssets[i];
+            uint256 orphan = orphanRewards[asset];
+            if (orphan != 0) {
+                orphanRewards[asset] = 0;
+                accRewardPerWeight[asset] += Math.mulDiv(orphan, ACC_PRECISION, totalWeight);
+            }
         }
 
         emit Staked(id, token, owner, amount, uint64(block.timestamp) + lockDuration, weightBps);
     }
 
-    /// @notice Permissionless. Pays a position's rewards to its owner.
+    /// @notice Permissionless. Pays a position's rewards to its owner, in every asset it has earned.
     /// @dev Push, not pull: a keeper can pay every staker, and if the keeper stops, anybody can.
-    function claim(uint256 id) public nonReentrant returns (uint256 amount) {
+    function claim(uint256 id) public nonReentrant {
         Position storage p = positions[id];
         if (p.owner == address(0)) revert NoPosition();
-        amount = _settle(id, p);
+        _settle(id, p);
     }
 
     /// @notice Returns the principal once the lock is over, with the rewards.
-    function unstake(uint256 id) external nonReentrant returns (uint256 amount, uint256 rewards) {
+    function unstake(uint256 id) external nonReentrant returns (uint256 amount) {
         Position storage p = positions[id];
         if (p.owner != msg.sender) revert NotOwner();
         if (block.timestamp < p.unlockAt) revert StillLocked();
 
-        rewards = _settle(id, p);
+        _settle(id, p);
         amount = p.amount;
-        address token = p.token;
         address owner = p.owner;
 
-        totalWeight[token] -= Math.mulDiv(amount, p.weightBps, BPS);
-        staked[token] -= amount;
+        totalWeight -= Math.mulDiv(amount, p.weightBps, BPS);
+        staked -= amount;
         delete positions[id];
 
-        IERC20(token).safeTransfer(owner, amount);
+        IERC20(houseToken).safeTransfer(owner, amount);
         emit Unstaked(id, amount);
     }
 
@@ -246,22 +285,28 @@ contract HoodStaking is IHoodStaking, ReentrancyGuard {
         _settle(id, p);
         uint256 oldWeight = Math.mulDiv(p.amount, p.weightBps, BPS);
         uint256 newWeight = Math.mulDiv(p.amount, base, BPS);
-        totalWeight[p.token] = totalWeight[p.token] - oldWeight + newWeight;
+        totalWeight = totalWeight - oldWeight + newWeight;
         p.weightBps = base;
-        p.rewardDebt = Math.mulDiv(newWeight, accRewardPerWeight[p.token], ACC_PRECISION);
+        for (uint256 i; i < rewardAssets.length; ++i) {
+            address asset = rewardAssets[i];
+            rewardDebt[id][asset] = Math.mulDiv(newWeight, accRewardPerWeight[asset], ACC_PRECISION);
+        }
         emit Demoted(id, base);
     }
 
-    function _settle(uint256 id, Position storage p) internal returns (uint256 amount) {
+    function _settle(uint256 id, Position storage p) internal {
         uint256 weight = Math.mulDiv(p.amount, p.weightBps, BPS);
-        uint256 total = Math.mulDiv(weight, accRewardPerWeight[p.token], ACC_PRECISION);
-        amount = total > p.rewardDebt ? total - p.rewardDebt : 0;
-        p.rewardDebt = total;
-        if (amount != 0) {
-            address asset = factory.getLaunch(p.token).pairToken;
+        uint256 assets = rewardAssets.length;
+        for (uint256 i; i < assets; ++i) {
+            address asset = rewardAssets[i];
+            uint256 total = Math.mulDiv(weight, accRewardPerWeight[asset], ACC_PRECISION);
+            uint256 debt = rewardDebt[id][asset];
+            if (total <= debt) continue;
+            uint256 amount = total - debt;
+            rewardDebt[id][asset] = total;
             accounted[asset] -= amount;
             PairTransfer.push(asset, p.owner, amount);
-            emit Claimed(id, p.owner, amount);
+            emit Claimed(id, p.owner, asset, amount);
         }
     }
 }

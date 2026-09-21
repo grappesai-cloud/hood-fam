@@ -70,7 +70,7 @@ its holders while they hold.
 On every curve trade the fee splits in two. The protocol leg (30 bps) goes to the treasury. The
 creator leg goes to `HoodFeeRouter`, which holds it until anyone flushes it and then spends it
 across four destinations the creator fixed at launch. They are bps and they add up to 10,000, so a
-launch pays its stakers, buys itself back, deepens its pool and keeps a slice in whatever
+launch pays the house coin's lockers, buys itself back, deepens its pool and keeps a slice in whatever
 proportion it chose:
 
 | Leg | Before graduation | After graduation |
@@ -103,12 +103,21 @@ Nothing has to call in to announce money. A `sweep` looks at what the contract h
 is already spoken for, and splits the difference, so a swap tax, a fee harvest and a stranger's
 donation all behave identically.
 
-## Staking
+## Locking the house coin
 
-One vault serves every launch. Lock length sets the weight, from 1x flexible to 2.5x for half a
-year. `stakeFor` locks tokens in someone else's name: they earn from the first minute and cannot
-sell before the lock ends. `claim` is permissionless and always pays the position's owner, so a
-keeper can push everyone's rewards and, if the keeper dies, anyone else can.
+There is one coin to lock on this pad: the pad's own. One vault holds it, the owner names it once
+and can never change it, and the stakers leg of every launch pays into that one room. A holder is
+therefore paid by the whole board rather than by whichever token they happened to lock, and no
+launch can promise a staking economy of its own.
+
+Lock length sets the weight, from 1x flexible to 2.5x for half a year. `stakeFor` locks the coin in
+someone else's name: they earn from the first minute and cannot sell before the lock ends. `claim`
+is permissionless and always pays the position's owner, so a keeper can push everyone's rewards
+and, if the keeper dies, anyone else can. Rewards arrive in whatever the paying launch traded
+against, so what a position is owed is a list of assets rather than a single number.
+
+A creator's locked first buy is not in this vault. It sits in a separate contract that pays nothing
+and releases nothing early: it is a statement about the creator, not a yield.
 
 ## Points
 

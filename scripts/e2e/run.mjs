@@ -29,7 +29,7 @@ const [creator, alice, bob] = clients;
 const wait = (hash) => publicClient.waitForTransactionReceipt({ hash });
 
 const specs = [
-  { name: "Hood Fam", symbol: "FAM", feeSplit: { stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0 }, description: "the fam takes the fee" },
+  { name: "Hood Fam", symbol: "FAM", feeSplit: { stakersBps: 0, buybackBps: 5_000, liquidityBps: 5_000, creatorBps: 0 }, description: "the fee buys it back and deepens the pool" },
   { name: "Burn Baby", symbol: "BURN", feeSplit: { stakersBps: 0, buybackBps: 10_000, liquidityBps: 0, creatorBps: 0 }, description: "every fee burns supply" },
   { name: "Deep Pool", symbol: "DEEP", feeSplit: { stakersBps: 0, buybackBps: 0, liquidityBps: 10_000, creatorBps: 0 }, description: "fees deepen the pool" },
 ];

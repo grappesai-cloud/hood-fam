@@ -127,7 +127,9 @@ contract CurveSolvencyInvariant is StdInvariant, Test {
         p.symbol = "INV";
         p.pairToken = address(0);
         p.configId = configId;
-        p.feeSplit = FeeSplit({stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0});
+        // What the curve books for the creator leg is what this rig is about; where that leg goes
+        // afterwards is the router's business, so it points somewhere that needs no house coin.
+        p.feeSplit = FeeSplit({stakersBps: 0, buybackBps: 0, liquidityBps: 0, creatorBps: 10_000});
         p.creatorFeeRecipient = creator;
         p.salt = bytes32(uint256(1));
         vm.prank(creator);

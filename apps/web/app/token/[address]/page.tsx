@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, useReadContract, useWriteContract } from "wagmi";
 import { encodeAbiParameters, keccak256, zeroAddress, type Address } from "viem";
-import { hoodCurveAbi, hoodFeeRouterAbi, uniswapV4GraduatorAbi } from "@hood/sdk";
+import { hoodCurveAbi, hoodFeeRouterAbi, hoodStakingAbi, uniswapV4GraduatorAbi } from "@hood/sdk";
 import { api, type TokenDetail } from "@/lib/api";
 import { addresses, directAddresses, EXPLORER } from "@/lib/config";
 import { useLive } from "@/lib/live";
@@ -25,8 +25,8 @@ const Chart = dynamic(() => import("@/components/Chart").then((m) => m.Chart), {
   ssr: false,
   loading: () => <div className="h-[320px] w-full animate-pulse rounded-xl bg-[var(--color-ink)]" />,
 });
-import { StakePanel } from "@/components/StakePanel";
-import { ago, compact, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, paysStakers, safeUrl, splitOf, screenerLinks, shortAddress, splitLabel, telegramUrl, twitterUrl } from "@/lib/format";
+import { LockElsewhere, StakePanel } from "@/components/StakePanel";
+import { ago, compact, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, safeUrl, splitOf, screenerLinks, shortAddress, splitLabel, telegramUrl, twitterUrl } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
 import { FeeFlow } from "@/components/FeeFlow";
 
@@ -72,6 +72,12 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
 
   const { writeContractAsync } = useWriteContract();
 
+  // The one coin this pad's vault accepts. Read from the vault rather than configured, because it
+  // is named once on chain and the app should never disagree with it.
+  const { data: houseToken } = useReadContract({
+    address: addresses.staking, abi: hoodStakingAbi, functionName: "houseToken",
+  });
+
   // a graduated curve token trades its pool; the key is whatever the graduator opened
   const { data: position } = useReadContract({
     address: addresses.graduator, abi: uniswapV4GraduatorAbi, functionName: "positionOf",
@@ -94,6 +100,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
   const burned = BigInt(data.burned || "0");
   const isCreator = me?.toLowerCase() === data.creator.toLowerCase();
   const isDirect = data.mode === "direct";
+  const isHouse = typeof houseToken === "string" && houseToken.toLowerCase() === data.token.toLowerCase();
   const graduated = data.status === "graduated";
   // a direct launch's pool is on the row; a graduated curve token's is whatever key the graduator opened
   const poolId = isDirect ? data.pool_id : graduatedKey ? poolIdOf(graduatedKey) : null;
@@ -297,13 +304,10 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
           </button>
         )}
 
-        {/* Only the curve machine has a fee stream to lock into. A direct launch pays its holders
-            where they stand, out of the splitter and by balance, so tokens locked here would stop
-            being a holder as far as that accumulator is concerned. The contract refuses it; the app
-            should not offer it in the first place. */}
-        {!isDirect && (
-          <StakePanel token={data.token as Address} symbol={data.symbol} paysStakers={paysStakers(data)} />
-        )}
+        {/* There is one coin to lock on this pad and it is not, as a rule, the one on screen. On
+            the house coin's own page this is the room itself; everywhere else it is a sentence
+            saying where the room is and that nothing here can be locked. */}
+        {isHouse ? <StakePanel /> : <LockElsewhere token={data.token as Address} />}
 
         {isCreator && (
           <div className="panel p-4 text-sm">

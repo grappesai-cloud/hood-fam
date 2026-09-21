@@ -110,6 +110,7 @@ It prints six lines. Keep them; everything else is configured from them.
 factory     0x...
 deployer    0x...   # the bytecode holder, not a wallet
 staking     0x...
+firstBuyLock 0x...  # where creators' locked first buys sit
 feeRouter   0x...
 graduator   0x...
 bridge      0x...
@@ -128,6 +129,31 @@ forge verify-contract <address> src/HoodFactory.sol:HoodFactory \
   --chain 4663 --verifier blockscout \
   --verifier-url https://robinhoodchain.blockscout.com/api
 ```
+
+## 1a. The house coin
+
+One coin is lockable on this pad, and until it exists nobody can be paid as a staker: the vault
+refuses every stake and the factory refuses any launch whose split promises the stakers leg
+anything. That is deliberate, and it fixes the order:
+
+1. Launch the coin on the pad, like any other launch, with a split that does **not** pay stakers
+   (at that moment there is nobody to pay). The wizard does this for you: with no coin named, the
+   stakers slider is held at zero and says why.
+2. Name it, once, from the owner:
+
+```bash
+cast send $HOOD_STAKING "setHouseToken(address)" $HOUSE_COIN \
+  --rpc-url robinhood --private-key $PRIVATE_KEY
+# or, when the owner is a Safe: npm run safe -- call staking setHouseToken <coin>
+```
+
+`setHouseToken` reverts on a second call, for anyone including the owner: a vault whose coin can be
+swapped is a vault that can be emptied by decree. Check it took with
+`cast call $HOOD_STAKING "houseToken()(address)"`, and `lifecycle.mjs --wiring-only` prints it on
+every run.
+
+From then on every launch can point its stakers leg at that room. The coin's own launch cannot,
+and never will be able to, because its split was fixed before the room existed.
 
 ## 2. Presets and pairs
 
