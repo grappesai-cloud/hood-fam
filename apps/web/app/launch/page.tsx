@@ -29,16 +29,19 @@ const LEG_COPY = [
 /// The factory refuses anything that is not one of them, so the form offers exactly those.
 const LOCKS = [{ label: "no lock", seconds: 0 }, ...LOCK_TIERS.filter((t) => t.seconds > 0).map((t) => ({ label: t.label, seconds: t.seconds }))];
 
+/// Two machines, and the second one is the one people arrive looking for and do not find, because
+/// "straight to the pool" does not tell them it is where the tax, the snipe surcharge, the opening
+/// window and the four way split live. So each card now names what it gives you, not only its shape.
 const MACHINES = {
   curve: {
     title: "Bonding curve",
-    body: "Buyers trade against a rising curve. When it sells out, the raise and the rest of the supply move into a Uniswap pool that is locked forever.",
+    body: "Buyers trade against a rising price. When it sells out, the raise and the rest of the supply move into a Uniswap pool that is locked forever. You set where the trading fee goes and can lock your own first buy.",
     meta: "the pump.fun shape",
   },
   direct: {
-    title: "Straight to the pool",
-    body: "The whole supply opens in a real Uniswap pool from the first block, above your opening price. No curve, no migration, and every trade pays a tax you set.",
-    meta: "liquidity from block one",
+    title: "Straight to the pool, with your own rules",
+    body: "The whole supply opens in a real Uniswap pool from the first block. You set the buy and sell tax, a surcharge that punishes the first bots and decays in seconds, how long wallets are capped, and how the tax splits between you, a buyback, dividends and the liquidity. No curve, no migration.",
+    meta: "custom tax, anti-snipe, four way split",
   },
 } as const;
 

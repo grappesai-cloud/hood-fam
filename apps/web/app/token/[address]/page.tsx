@@ -132,6 +132,16 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
               {twitterUrl(data.twitter) && <a className="hover:text-[var(--color-lime)]" href={twitterUrl(data.twitter)!} target="_blank" rel="noreferrer noopener">x</a>}
               {telegramUrl(data.telegram) && <a className="hover:text-[var(--color-lime)]" href={telegramUrl(data.telegram)!} target="_blank" rel="noreferrer noopener">telegram</a>}
               <span>printed {ago(data.launched_at)} ago by <Link className="hover:text-[var(--color-lime)]" href={`/portfolio?address=${data.creator}`}>{shortAddress(data.creator)}</Link></span>
+              {BigInt(data.first_buy_locked || "0") > 0n && (
+                <span className="token-locked-line">
+                  dev locked
+                  {data.first_buy_unlock_at
+                    ? new Date(data.first_buy_unlock_at).getTime() > Date.now()
+                      ? ` until ${new Date(data.first_buy_unlock_at).toLocaleDateString()}`
+                      : " (expired)"
+                    : ""}
+                </span>
+              )}
             </div>
           </div>
           <div className="token-hero-cap text-right">

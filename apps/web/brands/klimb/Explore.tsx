@@ -7,6 +7,7 @@ import { api, type TokenRow } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { Artwork } from "@/components/Artwork";
 import { ago, compact, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol } from "@/lib/format";
+import { GraduationRace } from "@/components/GraduationRace";
 
 /// The same four readings of the same market the board has always offered, asked of the indexer in
 /// exactly the same words, so two faces of this launchpad can never disagree about what is new or
@@ -61,6 +62,8 @@ export default function Explore() {
 
   return (
     <div className="kl-board">
+      {/* The race to the pool is the loop this place runs on, so it sits where a reader lands. */}
+      <GraduationRace />
       <header className="kl-board-head">
         <h1>Market</h1>
         <p>Every launch on chain 4663, one row each, climbing towards the pool it graduates into.</p>

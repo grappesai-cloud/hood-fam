@@ -22,7 +22,6 @@ export const brand: Brand = {
     { href: "/creator", label: "Desk" },
     { href: "/leaderboard", label: "Standings" },
     { href: "/airdrop", label: "The cut" },
-    { href: "/bridge", label: "Bridge" },
   ],
   copy: {
     create: "Print a ticker",

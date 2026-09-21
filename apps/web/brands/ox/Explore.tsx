@@ -7,6 +7,7 @@ import { api, type TokenRow } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { ago, compact, launchProgress, machineLabel, pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
 import { brand } from "@/brands";
+import { GraduationRace } from "@/components/GraduationRace";
 
 /// The front of 0x.fam: no hero, no artwork, no card. A launch is a row, and the page is the list
 /// of rows, because everything a reader of addresses wants to compare is a number and numbers only
@@ -62,6 +63,8 @@ export function Explore() {
 
   return (
     <div className="ox-board">
+      {/* The race to the pool is the loop this place runs on, so it sits where a reader lands. */}
+      <GraduationRace />
       <div className="ox-head">
         <h1>launches</h1>
         <p>every token printed on this chain, one line each, in the order the index reports them.</p>

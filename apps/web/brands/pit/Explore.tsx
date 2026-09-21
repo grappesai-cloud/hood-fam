@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, type TokenRow } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { ago, compact, launchProgress, machineLabel, pairDecimals, pairSymbol } from "@/lib/format";
+import { GraduationRace } from "@/components/GraduationRace";
 
 const SORTS = [
   { key: "new", label: "Just printed", query: "sort=new" },
@@ -58,6 +59,8 @@ export default function Explore() {
 
   return (
     <div className="pit-board">
+      {/* The race to the pool is the loop this place runs on, so it sits where a reader lands. */}
+      <GraduationRace />
       <div className="pit-stats" aria-label="Floor totals">
         <Stat label="Launches" value={stats.data?.launches ?? "--"} />
         <Stat label="Rung out" value={stats.data?.graduated ?? "--"} />

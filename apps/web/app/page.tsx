@@ -10,6 +10,7 @@ import { Empty } from "@/components/Empty";
 import { Ticker } from "@/components/Ticker";
 import { compact, imageUrl, launchProgress, pairDecimals, pairSymbol } from "@/lib/format";
 import { brand } from "@/brands";
+import { GraduationRace } from "@/components/GraduationRace";
 
 const SORTS = [
   { key: "new", label: "Newest", query: "sort=new" },
@@ -75,6 +76,8 @@ function Board() {
 
   return (
     <div className="home-shell">
+      {/* The race to the pool is the loop this place runs on, so it sits where a reader lands. */}
+      <GraduationRace />
       <section className="hero" aria-labelledby="explore-title">
         <div className="hero-copy">
           <span className="eyebrow">Live on Robinhood Chain</span>

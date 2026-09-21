@@ -18,12 +18,17 @@ export function TokenCard({ t, spotlight, flag }: { t: TokenRow; spotlight?: boo
   // The gauge reads full for a launch with nowhere left to go, so a graduated token and a direct one
   // are not drawn as though they had stalled at zero.
   const fill = direct || graduated ? 1 : progress;
+  // The one fact a buyer most wants and can least check by eye: whether the creator's own first buy
+  // is locked in the vault, and until when. It is on chain, so the card can simply say it.
+  const devLocked = BigInt(t.first_buy_locked || "0") > 0n
+    && (!t.first_buy_unlock_at || new Date(t.first_buy_unlock_at).getTime() > Date.now());
 
   return (
     <Link href={`/token/${t.token}`} className={spotlight ? "token-card spot spotlight" : "token-card spot"}>
       <div className="token-art">
         <Artwork src={imageUrl(t.image)} symbol={t.symbol} size={520} rounded="rounded-none" />
         <span className="token-art-badge">{flag ?? tag}</span>
+        {devLocked && <span className="token-locked" title="The creator's first buy is locked in the staking vault">dev locked</span>}
         <span className="token-age">{ago(t.launched_at)}</span>
       </div>
 

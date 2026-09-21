@@ -7,6 +7,7 @@ import { api, type TokenRow } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { Artwork } from "@/components/Artwork";
 import { ago, compact, imageUrl, launchProgress, pairDecimals, pairSymbol } from "@/lib/format";
+import { GraduationRace } from "@/components/GraduationRace";
 
 /// The shelves, worded as a customer would ask for them. The queries underneath are the ones the
 /// default board sends, so the shop is the same market seen from the other side of the counter.
@@ -50,6 +51,8 @@ export function Explore() {
 
   return (
     <div className="bd-explore">
+      {/* The race to the pool is the loop this place runs on, so it sits where a reader lands. */}
+      <GraduationRace />
       <section className="bd-lede">
         <h1>What is on the shelf</h1>
         <p>

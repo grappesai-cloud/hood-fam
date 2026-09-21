@@ -24,7 +24,6 @@ export const brand: Brand = {
     { href: "/creator", label: "Your counter" },
     { href: "/leaderboard", label: "Selling best" },
     { href: "/airdrop", label: "The share out" },
-    { href: "/bridge", label: "Bring money over" },
   ],
   copy: {
     create: "Open a coin",

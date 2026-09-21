@@ -27,7 +27,6 @@ export const brand: Brand = {
     { href: "/creator", label: "/creator" },
     { href: "/leaderboard", label: "/board" },
     { href: "/airdrop", label: "/drop" },
-    { href: "/bridge", label: "/bridge" },
   ],
   copy: {
     create: "deploy token",

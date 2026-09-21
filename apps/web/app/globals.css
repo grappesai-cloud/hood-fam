@@ -1050,3 +1050,20 @@ a.race-lead:hover .race-go { color: var(--color-lime); }
 @media (prefers-reduced-motion: reduce) {
   .holder-dot circle, .race-go, .sound-toggle { transition: none; }
 }
+
+/* A launch whose creator locked their own first buy says so on the card and on its page. It is a
+   fact from the chain, not a claim, so it reads as a label rather than a marketing badge. */
+.token-locked, .token-locked-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--color-lime);
+  border-radius: 999px;
+  color: var(--color-lime);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: color-mix(in oklab, var(--color-lime) 12%, transparent);
+}
+.token-art .token-locked { position: absolute; left: 0.6rem; bottom: 0.6rem; }
