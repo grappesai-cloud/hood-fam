@@ -34,6 +34,7 @@ const CONTRACTS = {
   buyback: "src/direct/HoodBuybackModule.sol:HoodBuybackModule",
   seasonDrop: "src/HoodSeasonDrop.sol:HoodSeasonDrop",
   firstBuyLock: "src/HoodTokenLock.sol:HoodTokenLock",
+  curveRouter: "src/HoodCurveRouter.sol:HoodCurveRouter",
   // A launch's own pair, once one exists: the factory clones these per token.
   token: "src/HoodToken.sol:HoodToken",
   curve: "src/HoodCurve.sol:HoodCurve",
@@ -46,6 +47,7 @@ const FROM_ENV = {
   portal: "HOOD_PORTAL", directDeployer: "HOOD_DIRECT_DEPLOYER",
   tokenImplementation: "HOOD_TOKEN_IMPLEMENTATION", buyback: "HOOD_BUYBACK_MODULE",
   seasonDrop: "HOOD_SEASON_DROP", firstBuyLock: "HOOD_FIRST_BUY_LOCK",
+  curveRouter: "HOOD_CURVE_ROUTER",
 };
 
 const args = process.argv.slice(2);

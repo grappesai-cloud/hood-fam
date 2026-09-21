@@ -230,6 +230,15 @@ Two things that bit on the day this was built, both worth knowing before the nex
   of the menu, each looking like a deliberate refusal; all of them in a single multicall means the
   node declines the call and the menu comes back empty. Sixty at a time, and an asset the chain
   will not answer for keeps its last known answer.
+- **not every quote can carry a curve.** A preset hands the curve one number for the opening
+  price: the start cap spread over the supply, in the pair's own units. cbBTC has eight decimals
+  and costs eighty five thousand dollars, so one unit is a tenth of a cent, and a billion tokens
+  opening at a few thousand dollars are worth less than one unit each. The price rounds to zero,
+  which would be free tokens, and the factory refuses the preset. Raising the cap until it fits
+  would open the coin at eight hundred thousand dollars, so such an asset gets no preset: it is
+  still a pair and still a direct quote, where the price has far more room, and the wizard says so
+  where the presets would be. `plan.mjs` works this out and writes a `curvePresets` column that
+  `AllowQuotes.s.sol` honours.
 
 After a redeploy the plan has to be applied again: the allow list and the presets live on the
 factory, and a new factory starts empty.
@@ -273,6 +282,19 @@ the curve machine was not configured while the API crash-looped on an empty pass
 ```bash
 rsync -az --delete --exclude .env --exclude node_modules --exclude .git \
   --exclude 'apps/web/.next' --exclude 'packages/*/dist' ./ box:~/hood-fam/
+```
+
+**And never `docker compose` without the overlays.** On the box the live services are named by
+`docker-compose.proxy.yml` (`hood-db`, `hood-api`, `hood-web`) and `docker-compose.brands.yml`
+(`hood-web-ox` and the rest), and the proxy routes to those names. A plain
+`docker compose up -d api` uses the bare file, so compose sees the same service under a different
+name, tears the running container down and brings up `hood-fam-api-1` beside a recreated
+`hood-fam-db-1`. The database survives, because its data is a named volume, but the site answers
+502 until the containers come back under the names the proxy knows. Always pass all three files:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.brands.yml \
+  up -d db api
 ```
 
 If it happens anyway, the running containers are the backup: `docker inspect <container>` prints the
