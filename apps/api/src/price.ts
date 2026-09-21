@@ -12,7 +12,13 @@ import { resolveQuote } from "./quote-resolver.js";
 /// that cannot take part in an import cycle, which is what this is really avoiding.
 
 const RPC = process.env.HOOD_RPC ?? robinhood.rpcUrls.default.http[0]!;
-const client = createPublicClient({ chain: robinhood, transport: http(RPC) });
+/// Batched, because `/pairs` now prices three hundred assets at once: one Multicall3 call per
+/// batch instead of three hundred round trips a minute at a public node that rate limits.
+const client = createPublicClient({
+  chain: robinhood,
+  transport: http(RPC),
+  batch: { multicall: { batchSize: 1024, wait: 16 } },
+});
 
 const ETH_USD_FEED = "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9" as Address;
 
