@@ -25,7 +25,7 @@ const SORTS = [
 type SortKey = (typeof SORTS)[number]["key"];
 
 export function Explore() {
-  const [sort, setSort] = useState<SortKey>("new");
+  const [sort, setSort] = useState<SortKey>("volume");
   const [q, setQ] = useState("");
   const [view, setView] = useState<"board" | "cards">("board");
   const search = useRef<HTMLInputElement>(null);
@@ -59,6 +59,7 @@ export function Explore() {
   }, []);
 
   const rows = tokens.data?.tokens ?? [];
+  const hasMarketActivity = Number(stats.data?.launches ?? 0) > 0 || rows.length > 0 || Boolean(trending.data?.tokens.length);
 
   return (
     <div className="ox-home">
@@ -79,20 +80,17 @@ export function Explore() {
 
       <section className="ox-hero">
         <div className="ox-hero-copy">
-          <div className="ox-live-pill"><i aria-hidden="true" /> A cut of the fees comes back</div>
-          <h1>Launch. Trade.<br /><em>Share the fees.</em></h1>
+          <div className="ox-live-pill"><i aria-hidden="true" /> Robinhood Chain launchpad</div>
+          <h1>Launch tokens.<br /><em>Trade together.</em></h1>
           <p>
-            Launch, trade or lock to earn season points. A published share of fees ox.family
-            actually collects funds the season pool, paid to eligible wallets by points. Creators
-            choose where their token&apos;s trade-fee share goes.
+            Create a token, follow the market and see exactly where the fees go.
+            Creators choose a fee wallet; eligible activity earns points toward the season pool.
           </p>
           <div className="ox-hero-actions">
             <Link className="ox-primary-action" href="/launch"><span>＋</span>Create token</Link>
             <Link className="ox-secondary-action" href="/airdrop">See the fee pool <span>↗</span></Link>
           </div>
-          <div className="ox-trust-line">
-            <span>✓ Points for activity</span><span>✓ Creator fee wallet</span><span>✓ On-chain fee split</span>
-          </div>
+          <div className="ox-trust-line"><span>Transparent curves</span><span>Creator fee wallet</span><span>Locked liquidity at graduation</span></div>
         </div>
         <div className="ox-hero-visual" aria-label="ox.family glass logo">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -117,8 +115,6 @@ export function Explore() {
         <MarketStat label="Active traders" value={stats.data?.traders ?? "—"} />
       </section>
 
-      <div className="ox-race-wrap"><GraduationRace /></div>
-
       {trending.data?.tokens.length ? (
         <section className="ox-trending-section" aria-labelledby="trending-title">
           <div className="ox-section-heading compact">
@@ -131,29 +127,10 @@ export function Explore() {
         </section>
       ) : null}
 
-      <div className="ox-social-grid">
-        <FomoFeed />
-        <TopTraders />
-      </div>
-
-      <section className="ox-how" id="how-it-works" aria-labelledby="how-title">
-        <div className="ox-how-intro">
-          <span className="ox-heading-kicker">One continuous market</span>
-          <h2 id="how-title">From idea to<br />locked liquidity.</h2>
-          <p>No manual migration and no liquidity switch to miss. Your token stays the same while its market grows up.</p>
-        </div>
-        <ol className="ox-steps">
-          <li><b>01</b><span><strong>Create</strong><small>Choose the name, ticker, image and fee split.</small></span></li>
-          <li><b>02</b><span><strong>Trade the curve</strong><small>Buy and sell from block one at a transparent price.</small></span></li>
-          <li><b>03</b><span><strong>Graduate</strong><small>The curve fills and creates the market automatically.</small></span></li>
-          <li><b>04</b><span><strong>Open market</strong><small>Liquidity is locked and trading continues in the pool.</small></span></li>
-        </ol>
-      </section>
-
       <section className="ox-discover" aria-labelledby="discover-title">
         <div className="ox-section-heading">
-          <div><span className="ox-heading-kicker">Explore the family</span><h2 id="discover-title">Discover tokens</h2></div>
-          <p>Watch launches move from their first trade to graduation.</p>
+          <div><span className="ox-heading-kicker">The market</span><h2 id="discover-title">Explore tokens</h2></div>
+          <p>New launches, active curves and graduated markets in one place.</p>
         </div>
 
         <div className="ox-discover-controls">
@@ -199,10 +176,31 @@ export function Explore() {
         ) : (
           <State
             title={q ? "No tokens found" : "No launches here yet"}
-            body={q ? `Nothing matches “${q}”. Try a ticker or paste the token address.` : "Be the first member of this part of the family."}
+            body={q ? `Nothing matches “${q}”. Try a ticker or paste the token address.` : "The board is ready. Create a token to start the first market."}
             action={!q ? <Link className="ox-primary-action" href="/launch">Create the first token</Link> : undefined}
           />
         )}
+      </section>
+
+      {hasMarketActivity ? (
+        <>
+          <div className="ox-race-wrap"><GraduationRace /></div>
+          <div className="ox-social-grid"><FomoFeed /><TopTraders /></div>
+        </>
+      ) : null}
+
+      <section className="ox-how" id="how-it-works" aria-labelledby="how-title">
+        <div className="ox-how-intro">
+          <span className="ox-heading-kicker">How it works</span>
+          <h2 id="how-title">From launch<br />to open market.</h2>
+          <p>One token, one market path. Follow the curve and the fee split at every step.</p>
+        </div>
+        <ol className="ox-steps">
+          <li><b>01</b><span><strong>Create</strong><small>Choose the name, ticker, image and fee split.</small></span></li>
+          <li><b>02</b><span><strong>Trade the curve</strong><small>Buy and sell from block one at a transparent price.</small></span></li>
+          <li><b>03</b><span><strong>Graduate</strong><small>The curve fills and creates the market automatically.</small></span></li>
+          <li><b>04</b><span><strong>Open market</strong><small>Liquidity is locked and trading continues in the pool.</small></span></li>
+        </ol>
       </section>
     </div>
   );

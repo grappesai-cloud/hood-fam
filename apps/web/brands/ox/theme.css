@@ -1039,3 +1039,317 @@ html[data-brand="ox"] .ox-hero-visual > img {
     height: 34px;
   }
 }
+
+/* Market-first OX: calm surfaces, readable controls and a small brand signature.
+   Keep the familiar green, but reserve it for decisions and live market data. */
+html[data-brand="ox"] {
+  --color-ink: #0b0d0b;
+  --color-ink-2: #111410;
+  --color-panel: #151914;
+  --color-line: #ffffff1c;
+  --color-dim: #a0a99b;
+  --color-text: #f2f4ef;
+  --color-lime: #afd47e;
+  --color-lime-soft: #c5e3a1;
+  --glass: #151914;
+  --glass-line: #ffffff1c;
+  --glass-shadow: none;
+  --glass-blur: none;
+  --glass-hover-line: #afd47e75;
+  --glow-lime: none;
+  --glow-lime-strong: none;
+  --liquid-surface: #151914;
+  --liquid-surface-deep: #111510;
+  --liquid-control: #141813;
+  --liquid-lime: #afd47e;
+  --liquid-line: #afd47e5c;
+  --liquid-line-soft: #ffffff1b;
+  --liquid-inset: none;
+  --liquid-shadow: none;
+  color-scheme: dark;
+}
+
+html[data-brand="ox"] body {
+  background: #0b0d0b;
+  color: var(--color-text);
+}
+html[data-brand="ox"] body::before,
+html[data-brand="ox"] body::after { display: none; }
+
+html[data-brand="ox"] .ox-topbar,
+html[data-brand="ox"] .ox-mobile-head,
+html[data-brand="ox"] .ox-network-line,
+html[data-brand="ox"] .ox-live-tape,
+html[data-brand="ox"] .ox-mobile-nav {
+  border-color: #ffffff17;
+  background: #101310f5;
+  box-shadow: none;
+  backdrop-filter: blur(14px);
+}
+html[data-brand="ox"] .ox-topbar-inner { height: 62px; }
+html[data-brand="ox"] .ox-topbar .ox-nav-link { min-height: 62px; color: #a1aa9c; font-size: 12px; }
+html[data-brand="ox"] .ox-topbar .ox-nav-link.active {
+  background: transparent;
+  color: #f2f4ef;
+  box-shadow: inset 0 -2px 0 var(--color-lime);
+}
+html[data-brand="ox"] .ox-network-line { min-height: 27px; font-size: 10px; letter-spacing: .02em; }
+html[data-brand="ox"] .ox-network-line > span:not(:first-child) { display: none; }
+html[data-brand="ox"] .ox-network-line i,
+html[data-brand="ox"] .ox-product-name i,
+html[data-brand="ox"] .ox-live-pill i { box-shadow: none; }
+html[data-brand="ox"] .ox-app-switcher,
+html[data-brand="ox"] :is(.ox-search, .ox-sort-tabs, .ox-view-switch) {
+  border-color: #ffffff20;
+  background: #141814;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+html[data-brand="ox"] .ox-app-switcher a { color: #a4ada0; font-size: 11px; }
+html[data-brand="ox"] .ox-launch-button,
+html[data-brand="ox"] .ox-wallet-connect,
+html[data-brand="ox"] .ox-primary-action,
+html[data-brand="ox"] .btn:not(.btn-ghost) {
+  border-color: var(--color-lime);
+  background: var(--color-lime);
+  color: #172014;
+  box-shadow: none;
+}
+html[data-brand="ox"] .ox-launch-button:hover,
+html[data-brand="ox"] .ox-wallet-connect:hover:not(:disabled),
+html[data-brand="ox"] .ox-primary-action:hover,
+html[data-brand="ox"] .btn:not(.btn-ghost):hover:not(:disabled) {
+  background: var(--color-lime-soft);
+  box-shadow: none;
+  transform: none;
+}
+
+html[data-brand="ox"] .ox-hero,
+html[data-brand="ox"] .ox-live-tape + .ox-hero {
+  min-height: 310px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, .42fr);
+  border: 1px solid #ffffff20;
+  border-radius: 16px;
+  background: #151914;
+  box-shadow: none;
+}
+html[data-brand="ox"] .ox-hero::before,
+html[data-brand="ox"] .ox-hero::after,
+html[data-brand="ox"] .ox-hero-visual::before,
+html[data-brand="ox"] .ox-hero-visual::after { display: none; }
+html[data-brand="ox"] .ox-hero-copy { padding: 33px 24px 32px clamp(28px, 4vw, 52px); }
+html[data-brand="ox"] .ox-live-pill {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #a9b3a4;
+  font-size: 11px;
+  letter-spacing: .025em;
+}
+html[data-brand="ox"] .ox-hero h1 {
+  margin: 16px 0 12px;
+  font-size: clamp(37px, 3.65vw, 55px);
+  letter-spacing: -.055em;
+  line-height: 1.02;
+}
+html[data-brand="ox"] .ox-hero h1 em { color: var(--color-lime); text-shadow: none; }
+html[data-brand="ox"] .ox-hero-copy > p { max-width: 620px; color: #aeb6a9; font-size: 14px; line-height: 1.55; }
+html[data-brand="ox"] .ox-hero-actions { margin-top: 20px; }
+html[data-brand="ox"] .ox-primary-action,
+html[data-brand="ox"] .ox-secondary-action { min-height: 41px; border-radius: 8px; padding: 0 16px; font-size: 12px; }
+html[data-brand="ox"] .ox-secondary-action { border-color: #ffffff2a; background: #1b211a; color: #e5e9e0; }
+html[data-brand="ox"] .ox-trust-line { gap: 14px; margin-top: 17px; color: #909b8d; font-size: 10px; }
+html[data-brand="ox"] .ox-trust-line span::before { content: "· "; color: var(--color-lime); }
+html[data-brand="ox"] .ox-hero-visual { display: grid; place-items: center; overflow: hidden; }
+html[data-brand="ox"] .ox-hero-visual > img {
+  position: static;
+  width: min(94%, 350px);
+  height: auto;
+  opacity: .78;
+  object-fit: contain;
+  filter: saturate(.64) brightness(.82);
+  transform: none;
+}
+html[data-brand="ox"] .ox-market-strip {
+  margin-top: 11px;
+  border-color: #ffffff1c;
+  border-radius: 10px;
+  background: #121612;
+  box-shadow: none;
+}
+html[data-brand="ox"] .ox-market-stat { gap: 5px; padding: 12px 18px; }
+html[data-brand="ox"] .ox-market-stat span { color: #9da79a; font-size: 10px; letter-spacing: .02em; text-transform: none; }
+html[data-brand="ox"] .ox-market-stat strong { font-size: 19px; }
+html[data-brand="ox"] .ox-trending-section { padding-top: 25px; }
+html[data-brand="ox"] .ox-discover { padding-top: 26px; }
+html[data-brand="ox"] .ox-section-heading { align-items: center; margin-bottom: 15px; }
+html[data-brand="ox"] .ox-section-heading h2 { font-size: clamp(25px, 2.5vw, 34px); }
+html[data-brand="ox"] .ox-heading-kicker { margin-bottom: 5px; color: #a9c791; font-size: 10px; letter-spacing: .045em; }
+html[data-brand="ox"] .ox-section-heading > p { max-width: none; color: #a3ac9e; font-size: 12px; }
+html[data-brand="ox"] .ox-discover-controls { gap: 8px; margin-bottom: 12px; }
+html[data-brand="ox"] .ox-search { height: 43px; border-radius: 8px; }
+html[data-brand="ox"] .ox-search input { font-size: 12px; }
+html[data-brand="ox"] .ox-sort-tabs { border-radius: 8px; padding: 3px; }
+html[data-brand="ox"] .ox-sort-tabs button { min-height: 35px; border-radius: 6px; padding: 0 11px; color: #b1b8ac; font-size: 11px; }
+html[data-brand="ox"] .ox-sort-tabs button.active { background: #2b3728; color: #e4f2d6; box-shadow: none; }
+html[data-brand="ox"] .ox-sort-tabs button.active::before { box-shadow: none; }
+html[data-brand="ox"] .ox-view-switch { border-radius: 8px; padding: 3px; }
+html[data-brand="ox"] .ox-view-switch button { width: 35px; height: 35px; }
+html[data-brand="ox"] .ox-state {
+  min-height: 190px;
+  border: 1px solid #ffffff1b;
+  border-radius: 10px;
+  padding: 25px;
+  background: #121612;
+}
+html[data-brand="ox"] .ox-state > span { width: 36px; height: 36px; border-color: #ffffff25; border-radius: 9px; background: #1d261b; box-shadow: none; }
+html[data-brand="ox"] .ox-state h3 { margin-top: 11px; font-size: 16px; }
+html[data-brand="ox"] .ox-state p { color: #a8b0a3; font-size: 12px; }
+html[data-brand="ox"] .ox-state .ox-primary-action { margin-top: 14px; }
+html[data-brand="ox"] .ox-how {
+  grid-template-columns: minmax(200px, .62fr) minmax(0, 1.38fr);
+  gap: 30px;
+  margin-top: 28px;
+  border-color: #ffffff1b;
+  border-radius: 12px;
+  padding: 26px 32px;
+  background: #121612;
+  box-shadow: none;
+}
+html[data-brand="ox"] .ox-how h2 { font-size: clamp(25px, 2.5vw, 34px); }
+html[data-brand="ox"] .ox-how-intro > p { margin-top: 10px; color: #a8b0a3; font-size: 12px; }
+html[data-brand="ox"] .ox-steps li { padding: 7px 0; }
+html[data-brand="ox"] .ox-steps li > b { width: 34px; height: 34px; border-radius: 8px; background: #222b20; box-shadow: none; }
+html[data-brand="ox"] .ox-steps { font-size: 12px; }
+html[data-brand="ox"] .ox-steps::before { display: none; }
+html[data-brand="ox"] .ox-steps li { grid-template-columns: 34px 1fr; gap: 12px; }
+html[data-brand="ox"] .ox-steps li > span { padding-bottom: 8px; }
+html[data-brand="ox"] .ox-steps small { color: #a2ab9e; }
+
+html[data-brand="ox"] :is(.panel, .launch-preview, .step, .choice, .launch-bar, .sim, .art-picker, .token-hero, .token-facts, .chart-panel, .trade-panel, .token-tape, .chat-panel, .holder-map, .portfolio-empty, .fact, .way, .fineprint, .safe-strip, .demo-strip) {
+  border-color: #ffffff20;
+  background: #151914;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+html[data-brand="ox"] :is(.panel, .launch-preview, .trade-panel, .token-hero, .portfolio-empty):hover {
+  border-color: #ffffff35;
+  box-shadow: none;
+}
+html[data-brand="ox"] :is(.rail, .launch-bar) {
+  border-color: #ffffff23;
+  background: #151914;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+html[data-brand="ox"] .rail,
+html[data-brand="ox"] .launch-preview { border-radius: 12px; }
+html[data-brand="ox"] .launch-content { grid-template-columns: minmax(0, 1fr) minmax(280px, 310px); gap: 22px; }
+html[data-brand="ox"] .launch-guide { grid-template-columns: 160px minmax(0, 1fr); gap: 18px; }
+html[data-brand="ox"] .launch-preview { top: 108px; }
+html[data-brand="ox"] .launch-bar { border-radius: 12px; }
+html[data-brand="ox"] .lg-sheen,
+html[data-brand="ox"] .spot::before { display: none; }
+html[data-brand="ox"] :is(.input, textarea.input, select.input) {
+  border-color: #ffffff25;
+  border-radius: 8px;
+  background: #101410;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+html[data-brand="ox"] :is(.input, textarea.input, select.input):focus {
+  border-color: #afd47e91;
+  box-shadow: 0 0 0 2px #afd47e1a;
+}
+html[data-brand="ox"] :is(.choice.on, .side-tab.active, .ox-sort-tabs button.active, .ox-view-switch button.active, .ox-mobile-nav a.active) {
+  border-color: #afd47e76;
+  background: #293629;
+  color: #ecf5e7;
+  box-shadow: none;
+}
+html[data-brand="ox"] .choice { border-radius: 10px; background: #1a2019; box-shadow: none; }
+html[data-brand="ox"] .choice.on .choice-mark { box-shadow: none; }
+html[data-brand="ox"] :is(.step-n, .step-n.done, .rail-n, .rail li.current .rail-n, .rail li.done .rail-n) { box-shadow: none; }
+html[data-brand="ox"] .field-label { color: #d6dcd1; font-size: 12px; }
+html[data-brand="ox"] .field-note { color: #a4aea0; font-size: 11.5px; }
+html[data-brand="ox"] .choice-body { color: #b1b9ad; }
+html[data-brand="ox"] .choice.on .choice-body { color: #c4d1bd; }
+html[data-brand="ox"] .what-happens ol { color: #aab4a6; }
+html[data-brand="ox"] .bridge-shell {
+  width: min(760px, 100%);
+  min-height: 0;
+  grid-template-columns: 1fr;
+  gap: 0;
+  margin: 28px auto 44px;
+  border: 0;
+  border-radius: 14px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-brand="ox"] .bridge-shell::before { display: none; }
+html[data-brand="ox"] .bridge-story {
+  display: block;
+  border: 0;
+  border-radius: 0;
+  padding: 0 0 18px;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-brand="ox"] .bridge-workspace {
+  border-color: #ffffff1b;
+  border-radius: 10px;
+  padding: 20px;
+  background: #171c16;
+  box-shadow: none;
+}
+html[data-brand="ox"] .bridge-story .page-intro h1 { font-size: 38px; }
+html[data-brand="ox"] .bridge-story .page-intro p { font-size: 14px; }
+html[data-brand="ox"] .bridge-tabs button,
+html[data-brand="ox"] .bridge-tabs button.bridge-tab-active {
+  border-color: #ffffff21;
+  background: #1b211a;
+  box-shadow: none;
+}
+html[data-brand="ox"] .bridge-tabs button.bridge-tab-active { border-color: #afd47e6b; background: #2a3825; color: #e4f2d7; }
+
+@media (max-width: 900px) {
+  html[data-brand="ox"] .ox-hero { grid-template-columns: minmax(0, 1fr) 190px; min-height: 300px; }
+  html[data-brand="ox"] .ox-hero-visual { position: relative; inset: auto; height: auto; }
+  html[data-brand="ox"] .ox-hero-copy { padding: 28px; }
+  html[data-brand="ox"] .ox-how { grid-template-columns: 1fr; }
+  html[data-brand="ox"] .launch-content { grid-template-columns: 1fr; }
+  html[data-brand="ox"] .launch-guide { grid-template-columns: 1fr; }
+  html[data-brand="ox"] .launch-preview { order: 2; }
+  html[data-brand="ox"] .bridge-shell { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  html[data-brand="ox"] .ox-topbar-inner { height: 56px; }
+  html[data-brand="ox"] .ox-hero,
+  html[data-brand="ox"] .ox-live-tape + .ox-hero { min-height: 0; grid-template-columns: 1fr; border-radius: 10px; }
+  html[data-brand="ox"] .ox-hero-copy { padding: 22px 19px; }
+  html[data-brand="ox"] .ox-hero h1 { margin: 13px 0 9px; font-size: clamp(34px, 10vw, 44px); }
+  html[data-brand="ox"] .ox-hero-copy > p { font-size: 12px; }
+  html[data-brand="ox"] .ox-hero-visual { display: none; }
+  html[data-brand="ox"] .ox-hero-actions { display: flex; gap: 7px; margin-top: 16px; }
+  html[data-brand="ox"] .ox-hero-actions a { flex: 1; min-width: 0; padding: 0 9px; font-size: 11px; }
+  html[data-brand="ox"] .ox-trust-line { gap: 7px 12px; margin-top: 13px; font-size: 9px; }
+  html[data-brand="ox"] .ox-market-stat { padding: 10px 12px; }
+  html[data-brand="ox"] .ox-market-stat strong { font-size: 17px; }
+  html[data-brand="ox"] .ox-discover { padding-top: 22px; }
+  html[data-brand="ox"] .ox-section-heading h2 { font-size: 25px; }
+  html[data-brand="ox"] .ox-section-heading > p { margin-top: 5px; }
+  html[data-brand="ox"] .ox-discover-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  html[data-brand="ox"] .ox-search { grid-column: 1 / -1; width: 100%; }
+  html[data-brand="ox"] .ox-sort-tabs { min-width: 0; max-width: none; }
+  html[data-brand="ox"] .ox-sort-tabs button { padding: 0 10px; }
+  html[data-brand="ox"] .ox-how { margin-top: 22px; padding: 22px; }
+  html[data-brand="ox"] .launch-bar { position: static; }
+  html[data-brand="ox"] .bridge-shell { margin-top: 16px; padding: 0; }
+  html[data-brand="ox"] .bridge-story { padding: 0 0 16px; }
+  html[data-brand="ox"] .bridge-workspace { padding: 16px; }
+}
