@@ -440,3 +440,321 @@ main.site-main.ox-main { padding-right: 25px; padding-left: 25px; }
   .ox-mobile-nav a.create span { font-size: 20px; }
   .ox-footer { padding-bottom: 100px; }
 }
+
+/* -------------------------------------------------------------------------------- liquid system
+   One material language across the whole product: smoked black glass, suspended lime light,
+   wet highlights and soft depth. The gradients are intentionally shared by discovery, launch,
+   portfolio and trading surfaces so every screen still feels like the same OX object. */
+html[data-brand="ox"] {
+  --liquid-surface:
+    radial-gradient(130% 115% at 8% -18%, #efffcf1f 0, #b9ff3618 18%, transparent 46%),
+    radial-gradient(90% 120% at 105% 118%, #63bd0012 0, transparent 58%),
+    linear-gradient(145deg, #151b11e8 0, #0a0d08ed 48%, #050704f5 100%);
+  --liquid-surface-deep:
+    radial-gradient(100% 130% at 4% -24%, #d9ff9720 0, #8bff1110 25%, transparent 54%),
+    linear-gradient(155deg, #10150ce8, #050704f4 68%);
+  --liquid-control:
+    radial-gradient(90% 130% at 18% -35%, #e7ffc62a 0, #b9ff3611 30%, transparent 56%),
+    linear-gradient(180deg, #151a12e8, #080a07f2);
+  --liquid-lime:
+    radial-gradient(90% 170% at 28% -45%, #ffffff 0, #efffc9 13%, transparent 38%),
+    linear-gradient(180deg, #d8ff87 0, #b9ff36 47%, #78b900 100%);
+  --liquid-line: #caff5960;
+  --liquid-line-soft: #b9ff362c;
+  --liquid-inset: inset 0 1px 0 #f3ffdd3d, inset 0 -18px 34px #0015004d;
+  --liquid-shadow: 0 28px 70px -48px #9cff2aa8, var(--liquid-inset);
+}
+
+html[data-brand="ox"] body {
+  background:
+    radial-gradient(720px 520px at 8% 9%, #86ff1714, transparent 72%),
+    radial-gradient(980px 720px at 96% 24%, #b9ff3610, transparent 68%),
+    radial-gradient(780px 580px at 48% 94%, #4e94000c, transparent 70%),
+    linear-gradient(135deg, #030403, #070a05 48%, #030403);
+  background-attachment: fixed;
+}
+
+html[data-brand="ox"] body::after {
+  content: "";
+  position: fixed;
+  z-index: -2;
+  inset: -18%;
+  background:
+    radial-gradient(ellipse at 22% 28%, #c7ff5c12 0, transparent 28%),
+    radial-gradient(ellipse at 76% 58%, #78ff0010 0, transparent 31%);
+  filter: blur(42px);
+  pointer-events: none;
+}
+
+/* Liquid glass surfaces used across every route. */
+html[data-brand="ox"] :is(
+  .panel,
+  .launch-preview,
+  .step,
+  .choice,
+  .launch-bar,
+  .sim,
+  .art-picker,
+  .token-hero,
+  .token-facts,
+  .chart-panel,
+  .trade-panel,
+  .token-tape,
+  .chat-panel,
+  .holder-map,
+  .portfolio-empty,
+  .fact,
+  .way,
+  .fineprint,
+  .safe-strip,
+  .demo-strip
+) {
+  border-color: var(--liquid-line-soft);
+  background: var(--liquid-surface);
+  box-shadow: var(--liquid-shadow);
+  backdrop-filter: blur(22px) saturate(155%);
+}
+
+html[data-brand="ox"] :is(.panel, .launch-preview, .trade-panel, .token-hero, .portfolio-empty):hover {
+  border-color: #b9ff3645;
+  box-shadow: 0 30px 78px -48px #a7ff2eb5, inset 0 1px 0 #f4ffdf4a, inset 0 -20px 38px #00150052;
+}
+
+/* Top chrome and mobile dock use the same poured-glass surface. */
+html[data-brand="ox"] .ox-topbar,
+html[data-brand="ox"] .ox-mobile-head {
+  border-color: #caff5930;
+  background:
+    radial-gradient(70% 210% at 14% -90%, #e7ffc52e 0, #a9ff2510 42%, transparent 67%),
+    linear-gradient(180deg, #10150dcc, #050704ed);
+  box-shadow: inset 0 1px 0 #f2ffdd2e, 0 18px 55px -36px #8cff1f8f;
+  backdrop-filter: blur(28px) saturate(175%);
+}
+
+html[data-brand="ox"] .ox-network-line,
+html[data-brand="ox"] .ox-live-tape {
+  border-color: #b9ff3622;
+  background:
+    radial-gradient(65% 180% at 16% -80%, #dfffaa20 0, transparent 60%),
+    linear-gradient(180deg, #10140ccc, #060805e8);
+  box-shadow: inset 0 1px 0 #ffffff18, inset 0 -12px 28px #00160042;
+  backdrop-filter: blur(22px) saturate(160%);
+}
+
+html[data-brand="ox"] .ox-topbar .ox-nav-link.active {
+  background: linear-gradient(180deg, #dfffaf12, #b9ff3605 72%);
+  color: #f6faef;
+  box-shadow: inset 0 -2px 0 var(--color-lime), inset 0 -13px 26px #b9ff3608;
+}
+
+html[data-brand="ox"] .ox-app-switcher,
+html[data-brand="ox"] :is(.ox-search, .ox-sort-tabs, .ox-view-switch) {
+  border-color: var(--liquid-line-soft);
+  background: var(--liquid-control);
+  box-shadow: inset 0 1px 0 #efffd531, inset 0 -12px 28px #00150050, 0 15px 38px -33px #9cff31;
+  backdrop-filter: blur(18px) saturate(160%);
+}
+
+html[data-brand="ox"] :is(.ox-search, .ox-sort-tabs, .ox-view-switch):focus-within {
+  border-color: #c7ff596b;
+  box-shadow: 0 0 0 3px #b9ff3610, 0 0 34px -17px #b9ff36, var(--liquid-inset);
+}
+
+/* The hero behaves like a single pool of black glass around the glossy mark. */
+html[data-brand="ox"] .ox-hero {
+  border-color: #b9ff3633;
+  background:
+    radial-gradient(75% 125% at 73% 42%, #a8ff2422 0, #74d8000c 31%, transparent 66%),
+    radial-gradient(90% 110% at 6% -24%, #efffc51b 0, transparent 54%),
+    linear-gradient(102deg, #040604 0 38%, #081006df 64%, #020302 100%);
+  box-shadow: inset 0 1px 0 #f3ffdf2b, inset 0 -44px 90px #001b0061, 0 34px 92px -64px #a3ff2a;
+}
+
+html[data-brand="ox"] .ox-hero::before {
+  width: 620px;
+  height: 520px;
+  border: 1px solid #b9ff3612;
+  background: radial-gradient(circle at 37% 32%, #efffc925 0, #b9ff3616 18%, #63b8000c 42%, transparent 70%);
+  filter: blur(38px);
+  animation: oxLiquidBreathe 8s ease-in-out infinite;
+}
+
+html[data-brand="ox"] .ox-hero-visual::after {
+  background:
+    radial-gradient(ellipse at 52% 58%, transparent 34%, #0204023b 70%),
+    linear-gradient(90deg, #040604 0, transparent 24%),
+    linear-gradient(0deg, #040604 0, transparent 23%);
+}
+
+html[data-brand="ox"] :is(.ox-live-pill, .ox-status, .ox-age) {
+  border-color: #c9ff5b46;
+  background:
+    radial-gradient(85% 160% at 24% -60%, #ffffff35 0, transparent 53%),
+    linear-gradient(180deg, #1a2414d9, #071006dd);
+  box-shadow: inset 0 1px 0 #ffffff45, inset 0 -8px 16px #00210055, 0 10px 26px -20px #a6ff35;
+  backdrop-filter: blur(14px) saturate(170%);
+}
+
+/* Lime gel for every primary action. */
+html[data-brand="ox"] :is(
+  .btn:not(.btn-ghost),
+  .ox-primary-action,
+  .ox-launch-button,
+  .ox-wallet-connect,
+  .ox-mobile-nav a.create
+) {
+  border-color: #e5ffa5;
+  background: var(--liquid-lime);
+  color: #0b1302;
+  box-shadow: inset 0 1px 0 #fff, inset 0 -9px 15px #397a0066, 0 15px 35px -17px #aaff25;
+  text-shadow: 0 1px 0 #efffc18a;
+}
+
+html[data-brand="ox"] :is(
+  .btn:not(.btn-ghost),
+  .ox-primary-action,
+  .ox-launch-button,
+  .ox-wallet-connect,
+  .ox-mobile-nav a.create
+):hover:not(:disabled) {
+  border-color: #f3ffd6;
+  background:
+    radial-gradient(100% 180% at 26% -38%, #fff 0, #f4ffd8 19%, transparent 42%),
+    linear-gradient(180deg, #e5ffa7, #c4ff48 47%, #87ca08);
+  color: #071000;
+  box-shadow: inset 0 1px 0 #fff, inset 0 -8px 15px #397a0052, 0 18px 43px -15px #b9ff36;
+}
+
+html[data-brand="ox"] :is(.btn-ghost, .ox-secondary-action, .ox-wallet, .ox-board-trade) {
+  border-color: #c7ff5938;
+  background: var(--liquid-control);
+  color: #edf4e6;
+  box-shadow: inset 0 1px 0 #efffda38, inset 0 -10px 22px #00170050, 0 14px 32px -27px #a4ff32;
+  backdrop-filter: blur(16px) saturate(160%);
+}
+
+html[data-brand="ox"] :is(.btn-ghost, .ox-secondary-action, .ox-wallet, .ox-board-trade):hover:not(:disabled) {
+  border-color: #d7ff7e76;
+  background:
+    radial-gradient(100% 170% at 26% -42%, #eaffc73b 0, transparent 48%),
+    linear-gradient(180deg, #192314, #0a1008);
+  color: var(--color-lime);
+  box-shadow: inset 0 1px 0 #f4ffe55a, inset 0 -11px 23px #001b0055, 0 15px 35px -23px #a7ff31;
+}
+
+/* Inputs and choice controls are translucent pieces of the same material. */
+html[data-brand="ox"] :is(.input, textarea.input, select.input) {
+  border-color: var(--liquid-line-soft);
+  background:
+    radial-gradient(90% 180% at 16% -70%, #eaffc51a 0, transparent 53%),
+    linear-gradient(180deg, #10140ddb, #050704e8);
+  box-shadow: inset 0 1px 0 #ffffff20, inset 0 8px 25px #0008;
+  backdrop-filter: blur(14px) saturate(145%);
+}
+
+html[data-brand="ox"] :is(.input, textarea.input, select.input):focus {
+  border-color: #c7ff596e;
+  box-shadow: inset 0 1px 0 #ffffff2b, inset 0 8px 25px #0007, 0 0 0 3px #b9ff3610, 0 0 30px -17px #b9ff36;
+}
+
+html[data-brand="ox"] :is(.choice.on, .side-tab.active, .ox-sort-tabs button.active, .ox-view-switch button.active, .ox-mobile-nav a.active) {
+  border-color: #d2ff7066;
+  background:
+    radial-gradient(100% 180% at 23% -70%, #f5ffe05c 0, transparent 47%),
+    linear-gradient(180deg, #b9ff362b, #67b40016);
+  color: #f6ffed;
+  box-shadow: inset 0 1px 0 #efffc982, inset 0 -11px 22px #1540002e, 0 11px 28px -21px #aaff31;
+}
+
+/* Discovery cards, boards and data rows catch the same green light. */
+html[data-brand="ox"] :is(.ox-market-strip, .ox-how, .ox-board-wrap, .ox-token-card, .ox-trending-card, .ox-state) {
+  border-color: var(--liquid-line-soft);
+  background: var(--liquid-surface);
+  box-shadow: var(--liquid-shadow);
+  backdrop-filter: blur(20px) saturate(155%);
+}
+
+html[data-brand="ox"] .ox-market-stat {
+  background: linear-gradient(150deg, #efffc50a, transparent 52%);
+  box-shadow: inset 0 1px 0 #ffffff0d;
+}
+
+html[data-brand="ox"] :is(.ox-token-card, .ox-trending-card):hover {
+  border-color: #cbff5c66;
+  background:
+    radial-gradient(120% 130% at 9% -19%, #efffd637 0, #b9ff3618 25%, transparent 53%),
+    linear-gradient(145deg, #141c10f2, #060805fa);
+  box-shadow: 0 26px 62px -38px #a7ff35c7, inset 0 1px 0 #f3ffe04d, inset 0 -20px 36px #001b0047;
+}
+
+html[data-brand="ox"] .ox-board-table thead {
+  background: linear-gradient(180deg, #e7ffc511, #b9ff3604);
+  box-shadow: inset 0 1px 0 #ffffff18, inset 0 -1px 0 #b9ff3619;
+}
+
+html[data-brand="ox"] .ox-board-table tbody tr:hover {
+  background: linear-gradient(90deg, #b9ff3615, #b9ff3606 42%, transparent);
+  box-shadow: inset 2px 0 0 var(--color-lime), inset 0 1px 0 #efffc313, inset 0 -1px 0 #b9ff360c;
+}
+
+html[data-brand="ox"] :is(.ox-progress, .ox-board-progress, .progress-track) {
+  border: 1px solid #ffffff0d;
+  background: linear-gradient(180deg, #010301, #11170d);
+  box-shadow: inset 0 2px 5px #000, 0 1px 0 #ffffff0c;
+}
+
+html[data-brand="ox"] :is(.ox-progress i, .ox-board-progress i, .progress-fill) {
+  background:
+    linear-gradient(180deg, #efffc7b5 0, transparent 40%),
+    linear-gradient(90deg, #69a900, #b9ff36 62%, #ddff95);
+  box-shadow: inset 0 1px 0 #fff9, 0 0 12px #b9ff3680;
+}
+
+/* Small utility objects: numbers, art wells and the sticky launch rail. */
+html[data-brand="ox"] :is(.step-n, .choice-mark, .rank, .ox-steps li > b) {
+  border-color: #d4ff7260;
+  background:
+    radial-gradient(circle at 32% 18%, #f5ffd970 0, transparent 30%),
+    linear-gradient(145deg, #283a1d, #091006 70%);
+  color: var(--color-lime);
+  box-shadow: inset 0 1px 0 #ffffff5c, inset 0 -8px 14px #001c0060, 0 10px 24px -18px #b9ff36;
+}
+
+html[data-brand="ox"] :is(.launch-preview-art, .art-preview, .token-art, .row-art, .ox-token-art) {
+  border-color: #b9ff363d;
+  background:
+    radial-gradient(circle at 34% 20%, #dfff9f25 0, #78cb0015 22%, transparent 53%),
+    linear-gradient(145deg, #182313, #050704 72%);
+  box-shadow: inset 0 1px 0 #edffd031, inset 0 -24px 48px #0018005c;
+}
+
+html[data-brand="ox"] :is(.rail, .launch-bar) {
+  border-color: #caff5940;
+  background:
+    radial-gradient(100% 155% at 14% -42%, #eeffd02d 0, #b9ff360e 34%, transparent 59%),
+    linear-gradient(155deg, #11170ee8, #050704f2);
+  box-shadow: 0 26px 64px -44px #a8ff30b5, inset 0 1px 0 #f2ffdc40, inset 0 -18px 34px #00170052;
+  backdrop-filter: blur(24px) saturate(165%);
+}
+
+html[data-brand="ox"] .ox-mobile-nav {
+  border-color: #caff5947;
+  background:
+    radial-gradient(85% 170% at 16% -80%, #eaffc83c 0, transparent 56%),
+    linear-gradient(180deg, #12180edb, #050704f2);
+  box-shadow: inset 0 1px 0 #efffda45, inset 0 -15px 30px #00170055, 0 24px 65px #000;
+  backdrop-filter: blur(26px) saturate(175%);
+}
+
+html[data-brand="ox"] * {
+  scrollbar-color: #9ce82755 #070a05;
+}
+
+@keyframes oxLiquidBreathe {
+  0%, 100% { opacity: .75; transform: translate3d(0, 0, 0) scale(.96); }
+  50% { opacity: 1; transform: translate3d(-16px, 10px, 0) scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-brand="ox"] .ox-hero::before { animation: none; }
+}
