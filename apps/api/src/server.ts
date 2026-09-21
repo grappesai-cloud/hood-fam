@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
-import { createPublicClient, http, isAddress, parseAbi, type Address } from "viem";
+import { createPublicClient, http, isAddress, parseAbi, zeroAddress, type Address } from "viem";
 import { z } from "zod";
 
 const gzip = promisify(gzipCb);
@@ -14,8 +14,9 @@ const gzip = promisify(gzipCb);
 const GZIP_MIN_BYTES = 1024;
 
 import { pool, currentSeason } from "./db.js";
-import { PAIR_ASSETS, robinhood } from "@hood/sdk";
-import { pairUsdPrice } from "./price.js";
+import { pairAsset, robinhood } from "@hood/sdk";
+import { PAIR_ASSETS as PRICEABLE, pairUsdPrice } from "./price.js";
+import { resolveQuote } from "./quote-resolver.js";
 
 /// The two views the pair list asks the factory for. A client of its own rather than the
 /// indexer's, because this one answers a request and must not wait behind a block scan.
@@ -456,6 +457,21 @@ export async function buildServer() {
     return { ...proof, claimed: null };
   });
 
+  /// Resolves a pasted ERC-20 directly from Robinhood Chain and checks its deepest USDG v3 pool.
+  /// This endpoint never mutates the allow list: launchCustom is permissionless and the contract is
+  /// still the final authority on decimals and transfer behaviour.
+  app.get("/pairs/resolve/:address", async (req, reply) => {
+    const { address } = req.params as { address: string };
+    if (!isAddress(address) || address.toLowerCase() === zeroAddress) {
+      return reply.code(400).send({ error: "not an ERC-20 address" });
+    }
+    try {
+      return await resolveQuote(address);
+    } catch (e) {
+      return reply.code(422).send({ error: e instanceof Error ? e.message : "could not resolve token" });
+    }
+  });
+
   /// What a launch may trade against, and therefore what its creator can be paid in.
   ///
   /// The factory's allow list is the authority, so this asks it rather than answering from a
@@ -464,7 +480,15 @@ export async function buildServer() {
   /// a creator picking a share as their pair is picking a number they think in dollars.
   app.get("/pairs", async () => cached("pairs", 60_000, async () => {
     const factory = process.env.HOOD_FACTORY as Address | undefined;
-    const rows = await Promise.all(PAIR_ASSETS.map(async (asset) => {
+    // Everything the indexer can price, which is the built in table plus whatever the discovery
+    // found and the owner allowed. The factory still decides which of them may actually be used.
+    const known = Object.entries(PRICEABLE).map(([address, a]) => ({
+      address: address as Address,
+      symbol: a.symbol,
+      decimals: a.decimals,
+      share: Boolean(pairAsset(address)?.share),
+    }));
+    const rows = await Promise.all(known.map(async (asset) => {
       let allowed = false;
       let lockThreshold = "0";
       if (factory) {
@@ -484,7 +508,7 @@ export async function buildServer() {
         address: asset.address,
         symbol: asset.symbol,
         decimals: asset.decimals,
-        share: Boolean(asset.share),
+        share: asset.share,
         allowed,
         lockThreshold,
         usd: await pairUsdPrice(asset.address),

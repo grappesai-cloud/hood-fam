@@ -1,0 +1,1545 @@
+{
+  "chainId": 4663,
+  "readAt": "2026-09-21T13:08:26.432Z",
+  "minPoolUsd": 5000,
+  "assets": [
+    {
+      "address": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "symbol": "WETH",
+      "decimals": 18,
+      "usd": 2740.937679636839,
+      "traded": 26738190,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x52e65B17fB6E5BA00Ed806f37Afcd2DaA50271Ca",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x0000000000000000000000000000000000000000",
+      "verdict": "not an erc20 that answers symbol and decimals"
+    },
+    {
+      "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+      "symbol": "NVDA",
+      "decimals": 18,
+      "usd": 223.819849965536,
+      "traded": 876080,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xd4EB21209C4D6093f80B5b84f5C45cc093EA14a3",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e",
+      "symbol": "GLD",
+      "decimals": 18,
+      "usd": 399.7756601528406,
+      "traded": 857513,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xBA2f1ed4cEB2169D538d1e614D847E83C5A55913",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x39dBED3a2bd333467115dE45665cC57F813C4571",
+      "symbol": "PONS",
+      "decimals": 18,
+      "usd": 0.6433981752936172,
+      "traded": 753912,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x486435a1f76cd58193f854c6e6213cd05fd58d637865d02065ff558b387fa6ea",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+      "symbol": "SPCX",
+      "decimals": 18,
+      "usd": 153.4300019613424,
+      "traded": 664913,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xc61284332117c3FB23A2A56cceFFD07F7aF60029",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x300FcB4BBE8C86b844536EA7d817e4bd0F1096b3",
+      "symbol": "karure",
+      "decimals": 18,
+      "usd": 0.000056880064996897104,
+      "traded": 464175,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x93bf67f4514044b15b444244c650e7c30d5d69a3e094583f2120105bab0fd741",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x812486EAea648819853F8E372dc9f1516C7868Bd",
+      "symbol": "UBIK",
+      "decimals": 18,
+      "usd": 0.02485860249966402,
+      "traded": 435634,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x6d56f66e52e63e8be558d708a987426314bb4de92bc9b43a44effee1f2abf317",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3",
+      "symbol": "GOOGL",
+      "decimals": 18,
+      "usd": 351.00124698029094,
+      "traded": 261628,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x34D0dC122CF9A8Eb296fC5e0D3A233625D7d19b7",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xAa07A0e9209e16aC99708C3EC70159c6eF3128A3",
+      "symbol": "ORBIO",
+      "decimals": 18,
+      "usd": 0.08300365143424124,
+      "traded": 244807,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xea9f200e13055b82f175f44f592c4c13dd8c9d9320a66487d3c5cd90d68550ef",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+      "symbol": "META",
+      "decimals": 18,
+      "usd": 680.9140266916974,
+      "traded": 239205,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xc58bb68060bcb7b3ea0f6d4a4afef1e57f628722e808db12afb6d1733552872f",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+      "symbol": "AAPL",
+      "decimals": 18,
+      "usd": 336.1498622303534,
+      "traded": 237907,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xAae0d815EE56e4092a5E5C2911E676Fea50B2d6D",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18",
+      "symbol": "AI",
+      "decimals": 18,
+      "usd": 0.2861327995329577,
+      "traded": 220412,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x7aebd80541bfaaf23dbb6e99ce13d4d31c1a84c91414f971eadbff7db5f85995",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x020bfC650A365f8BB26819deAAbF3E21291018b4",
+      "symbol": "CASHCAT",
+      "decimals": 18,
+      "usd": 0.19077028287171038,
+      "traded": 214398,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xa92a3df27a00a276183ff7265fd8affa11df1fe8bb23ddfaf13f6c879a3f818b",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xF51fb54DE60f6e16252E852A5Ed0E60B8307606A",
+      "symbol": "NVDAx3L",
+      "decimals": 18,
+      "usd": 1.1233612537219824,
+      "traded": 186868,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x59de14b62a322e317e753fa23a23b72db0b8c4b593649e69ebcef09c456e2718",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xcE24439F2D9C6a2289F741120FE202248B666666",
+      "symbol": "U",
+      "decimals": 18,
+      "usd": 0.9997709362742361,
+      "traded": 186234,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xf399bd1544377680d48c62fd85c2105b869e55906c4189cc5ab3b4e83446928c",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x1b0E319c6A659F002271B69dB8A7df2F911c153E",
+      "symbol": "GME",
+      "decimals": 18,
+      "usd": 22.796123401451215,
+      "traded": 157791,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xE2b46c905E12Ab8E2f864e4821a4325884C1B126",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x0A574aae41DA077713ba32aa05cA151c8759e2F6",
+      "symbol": "SFX",
+      "decimals": 18,
+      "usd": 0.0009801120267423347,
+      "traded": 127058,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x51958cce8f6eee392b53c22005325e94ad605c24ed46f5d6fb225a69f8f9bd36",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C",
+      "symbol": "SPY",
+      "decimals": 18,
+      "usd": 765.7461706673462,
+      "traded": 124375,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xfe2a80bb5618fd14984b92ca6d45bf5ba67443ddb1435e28b2e48df2fc1526cd",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xec262a75e413fAfD0dF80480274532C79D42da09",
+      "symbol": "MSTR",
+      "decimals": 18,
+      "usd": 166.5800775576226,
+      "traded": 117306,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x319bac87e616a89e241c10aeb8afd4892a852cdd8b373cd9765ecddc40b87cfe",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xa30FA36Db767ad9eD3f7a60fC79526fB4d56D344",
+      "symbol": "USO",
+      "decimals": 18,
+      "usd": 150.09210018297262,
+      "traded": 107355,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x02175608F1b5E6b5ed221cCFdC7Be197D111D915",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xeeca2E7Dc194a320d349122d88259bB9595a4cB0",
+      "symbol": "LIT",
+      "decimals": 18,
+      "usd": 5.0723064992690565,
+      "traded": 96554,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xecc90c8bd08ff7138856f4205e30ae38adfd529578ee925f010b0134f2c91f6a",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x385F4f8ae47651ce5F58F5265395a669f8281e18",
+      "symbol": "MEME",
+      "decimals": 18,
+      "usd": 0.028465717378755355,
+      "traded": 78297,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x46525dc119850396470f132c4a989d7192cb692139db891b5a4cdcd684c11b17",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xCA9c78Dd337A67F6e0077F65F5E9218719d30eDf",
+      "symbol": "NET",
+      "decimals": 9,
+      "usd": 655.2468713820402,
+      "traded": 62981,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x0d662a58507a46cd6a22632228306dc0d9c26f5fce90c37ced3b8358db33deb3",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xf588ecc878A0ad2C41bE07d30046f3d33f91acE8",
+      "symbol": "KARURE",
+      "decimals": 18,
+      "usd": 0.0000024590678613938763,
+      "traded": 55936,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xa275f397b721e0af66e77188069c0fc291ccd4e549bc4fb366ee51cb62b68e16",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xBaabCB1800C539a58a46035d3982403a37FD6d5D",
+      "symbol": "MRDN",
+      "decimals": 18,
+      "usd": 0.010554053301368204,
+      "traded": 51671,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x6626eF9f5Ca630b19cBaE5A75139c969F9D9643A",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+      "symbol": "cbBTC",
+      "decimals": 8,
+      "usd": 85308.68492128876,
+      "traded": 51029,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x94c62eebf6454231b2fcd0259ede448ae3c6ad8617718cd88dab20b30cfae48a",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xEF82DDc566653699B89C3aFe123559a75aAA2976",
+      "symbol": "SI",
+      "decimals": 18,
+      "usd": 0.0018177182009538574,
+      "traded": 50537,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x5e2a2d101a38c853510305bd68dae7106c27a08c3867b91718d987879abd4f89",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xdF0992E440dD0be65BD8439b609d6D4366bf1CB5",
+      "symbol": "CRCL",
+      "decimals": 18,
+      "usd": 97.55715644703325,
+      "traded": 49641,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x654E4143e82a5824445Ade0824351C2A9ACD95a8",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xab093dEF657F15dF31b33922A95e047aDd645B29",
+      "symbol": "SHROOM",
+      "decimals": 18,
+      "usd": 0.011491955084242372,
+      "traded": 47493,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x778a632fdd85577efe9cfce4a2c9ac91b9decdb24c351f9b56e25d38fbe587b4",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B",
+      "symbol": "AMC",
+      "decimals": 18,
+      "usd": 2.7492734152033664,
+      "traded": 46095,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xaA34feA710a1A737840329051D81D3B0B7C564d5",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x411eFb0E7f985935DAec3D4C3ebaEa0d0AD7D89f",
+      "symbol": "SLV",
+      "decimals": 18,
+      "usd": 60.215326680869204,
+      "traded": 42836,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x8cB787e6c315D464775289BaD00FDD67d53Ecb3D",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x8005d266423c7ea827372c9c864491e5786600ea",
+      "symbol": "LLY",
+      "decimals": 18,
+      "usd": 1146.7741023003382,
+      "traded": 40175,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xF212D02146a897F5F686E9d629F6A73da534324a",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xb9972CA7188e511174947E3936a5315ac7073277",
+      "symbol": "PROLOGUE",
+      "decimals": 18,
+      "usd": 0.010672356040785116,
+      "traded": 38447,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x341443c3b31edb1e146e4bd400e8cb12cde5bd25c349d640eb610cf163c50971",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x7dbf38976f6D3b9c529e7D9484A71898B409eE6a",
+      "symbol": "ZZZ",
+      "decimals": 18,
+      "usd": 0.029428850525428693,
+      "traded": 35461,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x4e2a7c0057cec67170ee71641d23d0e835afb6f1deb6b4c6a182b4c16ec8f594",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xe2324FF2a59F8eCBa8c321c6466e59121C00e795",
+      "symbol": "CME",
+      "decimals": 18,
+      "usd": 0.004887993567667452,
+      "traded": 34143,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x431b005650bcde540b87caa0ec06553953956b5820ae8e5ab5a3a5f122e3d721",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xe02c53d448A62067B2Ac10ED70F5BC6C29471386",
+      "symbol": "NOSH",
+      "decimals": 18,
+      "usd": 0.0016410806995709505,
+      "traded": 33099,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x63eeaac7a218d31dc36a404cf66b2e2843de4e7c5dd05fed3a9d7ce4e5b19527",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x32aC8C1D7672667D5EbdEa22935F7B06fC8D496f",
+      "symbol": "HOOD",
+      "decimals": 18,
+      "usd": 121.24208799484734,
+      "traded": 31293,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x7fb39eb653999feb9f0d3b1410848911383dfc681f3585229df4aa5b560bf0ba",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
+      "symbol": "MU",
+      "decimals": 18,
+      "usd": 1034.0460365184576,
+      "traded": 30245,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xd057B1Bc54917855BBee58eAd58647f47caB35E5",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x822CC93fFD030293E9842c30BBD678F530701867",
+      "symbol": "BE",
+      "decimals": 18,
+      "usd": 270.0418209585376,
+      "traded": 28078,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x1baD145C8F06444E0dF81c28257cd20231Bd1f16",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x1D11f0496982706C5e14A514D4E79F2e6BdE4516",
+      "symbol": "DJT",
+      "decimals": 18,
+      "usd": 9.00559920228428,
+      "traded": 27908,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x31a89afd92F9397465649AD03226c52292fc1ae5",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x5aB3D4c385B400F3aBB49e80DE2fAF6a88A7B691",
+      "symbol": "FLOCK",
+      "decimals": 18,
+      "usd": 0.07219419591801443,
+      "traded": 27635,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x77f0e97f94b742b7c2046efb6675eb9583a31b36316c8b7b070d0d04f11aa7b2",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x5e81213613b6B86EaB4c6c50d718d34359459786",
+      "symbol": "TTWO",
+      "decimals": 18,
+      "usd": 206.6615191676423,
+      "traded": 27576,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xD9Ab4b7fAe6DC2f7020134Ec744A8F53Ef3E5E24",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xfe09Fb328bE1c286B4f597eD34764b7472ae72c5",
+      "symbol": "OPENAIx1L",
+      "decimals": 18,
+      "usd": 1.1112720181239506,
+      "traded": 27374,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xaa93c55caf0de2153ee7cf5450d7b50a4b8040d8822de767e7ae50483d845f05",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xba527c23903EFf094A987197cCD643f2da76e4Ff",
+      "symbol": "DOGGO",
+      "decimals": 18,
+      "usd": 0.0004275425104038088,
+      "traded": 26992,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x170cd83bdb08dc86e24636ce8f37025f5bb72105feee620740556fed746a317d",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xded852De9fe9bA9b6f27f39e8e81CF851A5C79cc",
+      "symbol": "ROBINCAT",
+      "decimals": 18,
+      "usd": 0.0025453334275245846,
+      "traded": 26435,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x05c53aa8db4ac905381ba999d92a40a13fc0bc93b5d0a287ca16dc107bd8d11b",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x451b42A15100C340CA12F7c66DE06fac5EA2D751",
+      "symbol": "BOW",
+      "decimals": 18,
+      "usd": 0.006923467473904922,
+      "traded": 25992,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xd80658c99853f6543c6e3e0a3456a5bedf47ff5a3e9c85b95fe561d4f7798eae",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xF0C4BF4C582cb3836e98394b1d4e7B7281101bE8",
+      "symbol": "RBLX",
+      "decimals": 18,
+      "usd": 50.07251413299023,
+      "traded": 25164,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x2ef5945cd5664876b6481FdacFaA2942995a4DA8",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x72AEC25d3c3A5fD9772901e8433fe5c8cf4eaA04",
+      "symbol": "FAITH",
+      "decimals": 18,
+      "usd": 0.00042729993642499404,
+      "traded": 24506,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x04a8c1633ff84ca4f659e58f69a9190ddc4b07382b586516c69294aeab34ad45",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x63Ee32Ac3077d1fbd8a77eBBA2a6ed4b8e9c1e18",
+      "symbol": "INU",
+      "decimals": 18,
+      "usd": 0.011478324812568401,
+      "traded": 20446,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x9fbcc982881813add98a9e1875c0794bfc4bbc9cc6e0cf29b946a0e909e9dd5f",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x15d36B6A28d8327ABc7aFABF0F106AE2c9Af5C4d",
+      "symbol": "PARE",
+      "decimals": 18,
+      "usd": 0.008160607785093645,
+      "traded": 20337,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xda363c3d99309666465f0832e55af1d1be31a932696ac9fcdd6324d1eb1cc0a6",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x980dcf6766FA79f5Cf0c4AAdb3ab477ff15a9619",
+      "symbol": "IBM",
+      "decimals": 18,
+      "usd": 231.22171871692373,
+      "traded": 19578,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x8cD848ce18b829C5c769AFf27164078bB52e0E97",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x56910D4409F3a0C78C64DD8D0545FF0705389870",
+      "symbol": "Index",
+      "decimals": 18,
+      "usd": 0.03389306545131029,
+      "traded": 18964,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x2500e77b68040591e0e75acaa612616fa6b4eaa33423ce35add57413c63ffa67",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x8Ff92566f2e81BDd68EDfAa8cde73942A723796b",
+      "symbol": "VEX",
+      "decimals": 18,
+      "usd": 0.004711653574755421,
+      "traded": 17938,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x4fA27693a052863bb5e9D3E63bA02857442A1Ecf",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xEb24a2663af4Ee979dCbfE39cB95B5F12D369c4B",
+      "symbol": "CEREBRO",
+      "decimals": 18,
+      "usd": 0.003529240833624667,
+      "traded": 17572,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x402added27e8b8daa0e8141e05f7cec46a8a5549944a77ef122e541e54596700",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x86923f96303D656E4aa86D9d42D1e57ad2023fdC",
+      "symbol": "AMD",
+      "decimals": 18,
+      "usd": 580.1499932831512,
+      "traded": 17540,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x48D284A2A4d3DC1b3Da08231Fe44317e7e7Aa51f",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xD5f3879160bc7c32ebb4dC785F8a4F505888de68",
+      "symbol": "QQQ",
+      "decimals": 18,
+      "usd": 728.3467107342932,
+      "traded": 17321,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xD60A5d14dB690B7Afad71F76B108071D7175597d",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x6321652A74D131Db483bFf0Ec88b98b523e283b8",
+      "symbol": "SNOW",
+      "decimals": 18,
+      "usd": 0.0002490767247338439,
+      "traded": 17269,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xed1eafb0cd40476ae13bff42792aec757a1ad172bfe37fcdb2c0818723f8827b",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x98096d17e191B3dA1d5f99a6D7b3584351b11E18",
+      "symbol": "BONER",
+      "decimals": 18,
+      "usd": 0.05158972999159766,
+      "traded": 16322,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xfec7b1efe77aa60887986db5bcbfff39ca40b56d964bb8ce3d9dd0d9baaca4d4",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xA74a94c15B95f8d5F3abDd2Db00F6c7384037B55",
+      "symbol": "Aria",
+      "decimals": 18,
+      "usd": 0.003958953253860923,
+      "traded": 15285,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xae0a6747dedafd0902b3bf91b86e944df7861effba43176a4afd5fbcf0ef2bf5",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xc4f730335Fb9e439ca5552f7b52B8E638c4245B0",
+      "symbol": "NOTE",
+      "decimals": 18,
+      "usd": 0.11910345628656512,
+      "traded": 14751,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x0e13a8f96118c2712131ead19eab069f0a94d28cc968a58b5d890afa92d367c1",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x3bA500F1AbabbCF0F0247D06D1c56Fd7E6C4c09D",
+      "symbol": "WORM",
+      "decimals": 18,
+      "usd": 0.005273120667204918,
+      "traded": 14548,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xe13a2df193f97fb8c388faa0495141f70aea70eb733df7b770039354dfeb771f",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x18E674231A58c239Dc7DaeDcffE15Ec3A24cff5c",
+      "symbol": "HOOKR",
+      "decimals": 18,
+      "usd": 0.011712001852262644,
+      "traded": 14482,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xe9e93bd1fa0f05fcce035e0f4b456f7f8079e8da9a3dceefb0cc89607dfdaa6a",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xc6911796042b15d7Fa4F6CDe69e245DdCd3d9c31",
+      "symbol": "VIRTUAL",
+      "decimals": 18,
+      "usd": 0.7130228830985818,
+      "traded": 14402,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xa95732060867f07aa9b8ae9a4b7b8d737bc3374f1dfbb952759c5ed676e8737c",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x5f10A1C971B69e47e059e1dC91901B59b3fB49C3",
+      "symbol": "CRWV",
+      "decimals": 18,
+      "usd": 80.80860647639325,
+      "traded": 13907,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x237014478f7ef98afbe7412ac35b6a3f96b8fb111de48b7c4dbf49dba4bd9c4b",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xD5f1afEA47b1A9eab414D2ee740cF1d6d039E725",
+      "symbol": "microduck",
+      "decimals": 18,
+      "usd": 0.005403212030455561,
+      "traded": 13836,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xa3318d6ff46aa685b3dcee29cb09211d19a53b142fe503f8ff572258fd4c5aad",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x9dbA0d61D9936D72a40dA17fe017CAf126D712d5",
+      "symbol": "CLANK",
+      "decimals": 18,
+      "usd": 0.0012454959744580534,
+      "traded": 12879,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x84618eabb987b71bf7877857a0d5e4a58697d57f4468e0eb2b184ac74045b237",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x6b1d42927B1a84eC28Fa88d4fC6FA7AF404966be",
+      "symbol": "PAIR",
+      "decimals": 18,
+      "usd": 0.0045039646145339915,
+      "traded": 12731,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x97f48c8d9639b7940874b6c6a43b3d606d070a694920b545acff9c35926593a6",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x842B9Cf519C9919D4B09037487F0742dEFd50Cd3",
+      "symbol": "OUTSIDER",
+      "decimals": 18,
+      "usd": 0.000003805744764844357,
+      "traded": 12389,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x9acb78477d142c0e3199d7a996155d4f708066fc363a2b4df69017a1f180393a",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xe8ffd7e24187F72afB08d75B1bb13088A989a791",
+      "symbol": "DELTA",
+      "decimals": 18,
+      "usd": 0.014665763477301948,
+      "traded": 12289,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xebd2fbb46948c5b21ca32dcd0be5ae851fed99362cfcf198d060a63a8689cd66",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x92FD66527192E3e61d4DDd13322Aa222DE86F9B5",
+      "symbol": "SGOV",
+      "decimals": 18,
+      "usd": 101.00815028621724,
+      "traded": 12277,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x6Ba50150B17Ffd0972915Aaf04fFd5E8f4Fa49b4",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xd23F772Ea2B912C98603ca89D189bE098EEE6abb",
+      "symbol": "PVP",
+      "decimals": 6,
+      "usd": 0.00009440913303016266,
+      "traded": 11951,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xe8d0817a2b00dce24f2db6d830577cb3154b89b256c1f2ac559156f35da8a426",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x43B07D15cE533bEc5476d70C22a78a1B2B662155",
+      "symbol": "MRNA",
+      "decimals": 18,
+      "usd": 159.2185216893905,
+      "traded": 11888,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xB40196272A6d2EB5edF6d93bc4DC39856AD95E0E",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x756Bc80af765C82da966a788858d65aDF14f3793",
+      "symbol": "RUN",
+      "decimals": 18,
+      "usd": 8.786133105146263,
+      "traded": 11838,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x87be5bc8f3196643f962d5d28fc9121f7c6c7b79f56d54827c76ef8c06d94020",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xca18A528Ea897040f715edC92e6e4572780c5ca1",
+      "symbol": "KAI",
+      "decimals": 18,
+      "usd": 0.0012057759166103639,
+      "traded": 11092,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xf68b8e8dc7ed1c262c7e732ac9d114802c5ad38f9f02914552fdab1828e994b2",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x329fcACEb9AD6F9580DD5F643fed0646900D043c",
+      "symbol": "LMT",
+      "decimals": 18,
+      "usd": 537.357631367714,
+      "traded": 10897,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x0b118d2480ebdb11374d3ad2ea1b935e9458a9f704222004b3b8de07bc98f1eb",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xEF67e3064bEf1a27e81925eC7132f23E533bd5f6",
+      "symbol": "GME",
+      "decimals": 18,
+      "usd": 0.002059218679386704,
+      "traded": 10822,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xf2fd48691c5b75935f9828417d12e4ce36cc2b2568ee6c1d0d6a56c4b22f2763",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x977689834cb1822Ea31D80307303a76AaA313368",
+      "symbol": "MBG",
+      "decimals": 18,
+      "usd": 0.14446631563434234,
+      "traded": 10809,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xf04ae837530853204bb9803d9ef58697ea8a297101d5113daa36c09c5e4d6b4d",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xc72b96e0E48ecd4DC75E1e45396e26300BC39681",
+      "symbol": "INTC",
+      "decimals": 18,
+      "usd": 114.6517987794249,
+      "traded": 10700,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xf2e329e631d0fb315a5c563ee3a9120f24822b5ef6c502a91cb56b174d5d8c22",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xF6589F11Bc40b669e584073F428B05562F568733",
+      "symbol": "SNAP",
+      "decimals": 18,
+      "usd": 5.551283752687397,
+      "traded": 10657,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x4e7456c28bf5afd8a7a21109090ab2d0e0f75c8f3249e0fa14a4ec06a2360af2",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xa92768863a55d8A0591709f7f5E594A249d36Ea3",
+      "symbol": "ASKR",
+      "decimals": 18,
+      "usd": 0.003309286333730666,
+      "traded": 10629,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x89d567ae1f70adc86227c3adbeb84128590b1c1555d907c2313bac11e580f070",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x20024E485c0B22b42855589700721b28320A7777",
+      "symbol": "PRISM",
+      "decimals": 18,
+      "usd": 0.011228584690039341,
+      "traded": 10595,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xc2d1a212123a83e19991cde3df91a3407cd7a12bdbaef3666ad4cad54b73d538",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x88C4C42ED68584FF02F5a00D5D3D985108A3961C",
+      "symbol": "EDEL",
+      "decimals": 18,
+      "usd": 0.02931794833507758,
+      "traded": 10456,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x30c574a6d9bdffbc4b170259d24f1ead2488fa8649f0444ac20e3b1be9a88875",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x1C1DAEF0300551aDBfbE403e7d567b6c5aFF566f",
+      "symbol": "HOTDOG",
+      "decimals": 18,
+      "usd": 0.0031499207646256498,
+      "traded": 10228,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x19c05832614264bf7d8c38507bef70f7fa4d372300138f152fa27a2e964530e3",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xE0444EF8BF4eD74f74FD73686e2ddF4C1c5591E8",
+      "symbol": "NFLX",
+      "decimals": 18,
+      "usd": 71.78428634411603,
+      "traded": 9934,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x59895C0302F41aEaa129D2fa2442CEc01E7eF45E",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x1937caD42b17D43bB2b347ce16d5288887C46c33",
+      "symbol": "ANTHROPICx1L",
+      "decimals": 18,
+      "usd": 1.109148026206935,
+      "traded": 9841,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xee53240450839ada47d40c6335135cbcd5cb924ad048ed6c2a5703970c880546",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34",
+      "symbol": "USDe",
+      "decimals": 18,
+      "usd": 0.9999000891695924,
+      "traded": 9816,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xa5f23cae4e5c3388c5a8a6b08a83f53e56df8f1a63757e606b362994b68a2361",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x42aFA2124ca5a2B83898E46B2dA9a190995b1E18",
+      "symbol": "SCHIFFY",
+      "decimals": 18,
+      "usd": 0.009248089978807397,
+      "traded": 9460,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xf66ccb1c5e6b579f94311131724a8daf0d96b0ebdbe53ab9fa27b98a8abaeb8b",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xdd0C034DAdA72325BC893fA39bc392E82bF847D7",
+      "symbol": "LOOM",
+      "decimals": 18,
+      "usd": 0.00031925621416141925,
+      "traded": 9170,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xd706d43f635066544cfa75de551862b4eb1c5cde28fc75414a13327667db1634",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xdEc8eaDbe856D73B32f9117C2cDdC757233656aA",
+      "symbol": "MACHINE",
+      "decimals": 18,
+      "usd": 0.0007920882713066015,
+      "traded": 9094,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xea145890a6191803f2348c0870c92c31a3cb51ebd6b0274dc85d72a46ba8d191",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x8eaa17Be69AE9616cEDe4671e6d837bb89491E18",
+      "symbol": "CPU",
+      "decimals": 18,
+      "usd": 0.001344813611358787,
+      "traded": 9051,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x02139009c6c9393086f706afb8e5b70f037dcac9fb1057a904c83cf41e8350ee",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x91A2DAe9699f0B82540B5886b0d8759C22820bA3",
+      "symbol": "musebook",
+      "decimals": 18,
+      "usd": 0.000059962575700966194,
+      "traded": 8887,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x93cc54eb4e1928e841cb8b2e488bd82e8d97d56e0aab16cf078ef71c576dcded",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xeDBf91223639800BCd5756815CAf908Df3b890bE",
+      "symbol": "PRIORS",
+      "decimals": 18,
+      "usd": 0.00015414264726606438,
+      "traded": 8755,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xff7b3bd2db34d9ed8160e6dedf1d448777abaa1fa6fc8a31144930a1a656fd92",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xcaCB0e9caCcee63ec4d82952E561a291c68Bcb68",
+      "symbol": "GG",
+      "decimals": 18,
+      "usd": 0.0010668899466477048,
+      "traded": 8660,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xe8dc17753ee2e0614e54a2963cfcf9743e0ef4dbfc939200a730733684e72a04",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x4e62068525Ab11FE768e29dfD00ef909B9803016",
+      "symbol": "LULU",
+      "decimals": 18,
+      "usd": 98.39357642296356,
+      "traded": 8268,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x0F4227D27082B3BCA6818381b9ea6460275e49f4",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xe2dAE1c072B9F66BeD999873b94798b2152af7e1",
+      "symbol": "AA",
+      "decimals": 18,
+      "usd": 0.0003120279637606292,
+      "traded": 8203,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x0173154b990c8905fa54766436ead0debfd7d2ea93c17d312dd5b03821ba4a77",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xf24f8F6b08fE87CF062E833a732AD7F636064BC8",
+      "symbol": "PRM",
+      "decimals": 18,
+      "usd": 0.008385813231304225,
+      "traded": 8178,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xcdfbebe244e465969b4c38c5304e1c4f71275c8f349f3ef5016dac224c63ca11",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xd917B029C761D264c6A312BBbcDA868658eF86a6",
+      "symbol": "USAR",
+      "decimals": 18,
+      "usd": 16.369334145400135,
+      "traded": 7716,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x04391780F519B7d3ba59c9590459D76e23d225C4",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x11B70d0243baf75E85CE03201A92b5B7C33BEB59",
+      "symbol": "ROBIN",
+      "decimals": 18,
+      "usd": 0.004174926588397337,
+      "traded": 7669,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x5eac4195930d5ff8b7a34a347f2bde951c42eb730d6e26075bea3dd7c66feb40",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x1537feE0675e85A9b3F01938A56c9e6Ed6941E18",
+      "symbol": "LONGCAT",
+      "decimals": 18,
+      "usd": 0.002163527972427943,
+      "traded": 7373,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x7fd3368affce07404938f84d40bde6e9b06f5dc89028b2b1c864c831530b45a7",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xb97D9e5Ad6244d27588Fe0A624A8C78E512934eE",
+      "symbol": "RECEIPT",
+      "decimals": 18,
+      "usd": 0.0005775648597203211,
+      "traded": 7076,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xee1a459e5669e40197d7f1b9ec27b53763b338e5831dce14661397cfb6f2be7d",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x85a574f2fF0795685F58d1D7B0D4b51F148Ac489",
+      "symbol": "PRINTER",
+      "decimals": 18,
+      "usd": 0.0051910642423578105,
+      "traded": 6829,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xf6c9f0a8bf94ecda6751465a3097bc4c69914421126d2cbc3df723e36b8cf47b",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xB90A19fF0Af67f7779afF50A882A9CfF42446400",
+      "symbol": "SNDK",
+      "decimals": 18,
+      "usd": 1806.9549983630652,
+      "traded": 6694,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x2707cb88a6a40fa0f948f58958051ba097d6f6a3cf7f87929bd68ccc5becea24",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x3b4A0048a00787A644932cD648Faa043410C163e",
+      "symbol": "SIRIUS",
+      "decimals": 18,
+      "usd": 0.00034652633725675767,
+      "traded": 6659,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x3206ce1c4d3f9fa25cfab95de7e743f61912fcb03efa6b3bff02cc577dcda22b",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x4d066AB4D924b7b3D01c6EcbFC142efe33AEb7FA",
+      "symbol": "JEV",
+      "decimals": 18,
+      "usd": 0.0002704041809425694,
+      "traded": 6573,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x8aa103395e106b6a456c1aec0dd2a1f3a7d4221f316052ca803ec6dba3c885c8",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xCceE82fE024c36fA15E1005edE3E9e4787e23D09",
+      "symbol": "HIMS",
+      "decimals": 18,
+      "usd": 28.264296772965395,
+      "traded": 6361,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xC8C90d3a1c1a24967E773ac2aD0d456BA3E31F64",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x408c14038a04f7bD235329E26d2bf569ee20e250",
+      "symbol": "NU",
+      "decimals": 18,
+      "usd": 13.83775301871243,
+      "traded": 6128,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x0E3FaEd512E7909758EB924E6919e0057Bd6b45E",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2",
+      "symbol": "COST",
+      "decimals": 18,
+      "usd": 896.7682822524824,
+      "traded": 6014,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x0a2121A50A09eD0796ae81F9c53fF9398355a398",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x25C288E6D899b9BC30160965aD9644c67e73bE0C",
+      "symbol": "F",
+      "decimals": 18,
+      "usd": 13.28460534403655,
+      "traded": 5948,
+      "pool": {
+        "kind": "v3",
+        "pool": "0x4dbAC19E895322ac5b93abad9008691632bFFC05",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xB1BF26c1D20ff267A4f93550d1E0d06ac40a114B",
+      "symbol": "RIVN",
+      "decimals": 18,
+      "usd": 15.195049630825286,
+      "traded": 5615,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x58b68552d45529cc6c3b35faeaa75e47f4e2bcf2afb2399597acbc39e34a9a8a",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x6330D8C3178a418788dF01a47479c0ce7CCF450b",
+      "symbol": "COIN",
+      "decimals": 18,
+      "usd": 203.2327449824626,
+      "traded": 5510,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x007a13fa152f6dc383cad20a8eaab4e1e2538b606936eae2a424f8aa47d6db31",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x05b37Fb53A299a1b874A619e1c4C404D52C36F4C",
+      "symbol": "RDDT",
+      "decimals": 18,
+      "usd": 151.96884947604644,
+      "traded": 5484,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xa8744E76aED23B05F0126335E7BD38f7935D19fe",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x116F00968269B7bfbaD4109cE591d6E74c0601d4",
+      "symbol": "NET",
+      "decimals": 18,
+      "usd": 327.3920756248896,
+      "traded": 5300,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xA9Caebb1b2fB2b954F192572b309aEf1cAf6a330",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x4A72B9702f991b790788f8AFA9e7112541f4E8f8",
+      "symbol": "ROUTE",
+      "decimals": 18,
+      "usd": 0.00286892899385322,
+      "traded": 5282,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xabd1b1a744529b3bbccb01690e661dbbf3533e3d44eed734ac0478295c8d848f",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x4D21483a44Bf67a86b77E3dA301411880797D452",
+      "symbol": "BA",
+      "decimals": 18,
+      "usd": 199.93280407250737,
+      "traded": 5259,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xc6517047b189c72D3bAa9eF37D1d28F27a63638a",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0xbc9E7b1c5C0081f4aE85e71eC95703d3dEC9ffaD",
+      "symbol": "Bucket",
+      "decimals": 18,
+      "usd": 0.0019116947303992225,
+      "traded": 5236,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0xf995afbcf406c641a5185ba2330cfef8ec0fd7502f06d638798c48e78e6e9dac",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x9651342CeA770aE9a2969Ba2A52611523146aef9",
+      "symbol": "CCL",
+      "decimals": 18,
+      "usd": 22.75248217033604,
+      "traded": 5110,
+      "pool": {
+        "kind": "v3",
+        "pool": "0xB19AcE635Ef3A28B85bFB01Bae97d0DE80750680",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x4472C69d299382F8847ebCE4FC6Ed8e295510E3e",
+      "symbol": "pBTC3x",
+      "decimals": 18,
+      "usd": 215.57431455900002,
+      "traded": 5070,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x39e0a58cefb384898c0ae5e603f44630abb9420bed64e706ceda41905dfcb68d",
+        "assetIsToken0": true
+      },
+      "verdict": "candidate"
+    },
+    {
+      "address": "0x6249519883B8d7ccf915dfcd6c0442984dAE9d24",
+      "symbol": "CASHED",
+      "decimals": 18,
+      "usd": 0.0008008201987658144,
+      "traded": 5045,
+      "pool": {
+        "kind": "v4",
+        "poolId": "0x7baedde6eb2537c5aa36427edc4003f861ae3d6527f48476ab3b5d495230b787",
+        "assetIsToken0": false
+      },
+      "verdict": "candidate"
+    }
+  ]
+}

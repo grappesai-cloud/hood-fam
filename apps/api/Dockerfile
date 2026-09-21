@@ -24,6 +24,10 @@ COPY --from=build /app/apps/api apps/api
 COPY package.json README.md FEATURES.md ./
 # the support assistant reads the public documents at boot
 COPY docs docs
+# what the pad takes as a quote, and where each asset's dollar price is read from: written by
+# scripts/quotes/discover.mjs, applied on chain by script/AllowQuotes.s.sol, and loaded here so the
+# indexer prices a pair it was never compiled with.
+COPY deploy deploy
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \

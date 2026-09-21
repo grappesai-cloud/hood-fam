@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+
 import { createPublicClient, http, parseAbiItem, zeroAddress, type Address } from "viem";
 import { robinhood } from "@hood/sdk";
+import { resolveQuote } from "./quote-resolver.js";
 
 /// What a pair amount is worth in dollars.
 ///
@@ -73,7 +76,10 @@ export interface PairAsset {
 /// The v4 StateView on 4663. Same one the graduator reads pool state through.
 const STATE_VIEW = "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b" as Address;
 
-export const PAIR_ASSETS: Record<string, PairAsset> = {
+/// The table the pad ships with: the chain's own currency, the dollar, and the tokenised shares
+/// that were read off the chain by hand. Everything else arrives from `deploy/quotes.json` below,
+/// which is how a quote added after this build still gets a price.
+const BUILT_IN: Record<string, PairAsset> = {
   [zeroAddress]: { symbol: "ETH", decimals: 18 },
   "0x5fc5360d0400a0fd4f2af552add042d716f1d168": { symbol: "USDG", decimals: 6, isDollar: true },
   "0xd0601ce157db5bdc3162bbac2a2c8af5320d9eec": {
@@ -110,6 +116,30 @@ export const PAIR_ASSETS: Record<string, PairAsset> = {
   },
 };
 
+/// Every asset the discovery found and the owner allowed. Read from the file rather than compiled
+/// in, so allowing a new quote is a plan, a transaction and a restart, not a release.
+function discovered(): Record<string, PairAsset> {
+  const out: Record<string, PairAsset> = {};
+  try {
+    const file = new URL("../../../deploy/quotes.json", import.meta.url);
+    const found = JSON.parse(readFileSync(file, "utf8")) as {
+      assets: { address: string; symbol: string; decimals: number; verdict: string; pool?: PairAsset["usdPool"] }[];
+    };
+    for (const a of found.assets) {
+      if (a.verdict !== "candidate" || !a.pool) continue;
+      const key = a.address.toLowerCase();
+      if (BUILT_IN[key]) continue; // what was checked by hand wins over what was scanned
+      out[key] = { symbol: a.symbol, decimals: a.decimals, usdPool: a.pool };
+    }
+  } catch {
+    // No file, or a file this build cannot read: the built in table is the whole answer, which is
+    // what every deployment before the discovery existed ran on.
+  }
+  return out;
+}
+
+export const PAIR_ASSETS: Record<string, PairAsset> = { ...BUILT_IN, ...discovered() };
+
 const slot0Abi = parseAbiItem(
   "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 a, uint16 b, uint16 c, uint8 d, bool e)",
 );
@@ -122,7 +152,9 @@ const poolPrices = new Map<string, { price: number; at: number }>();
 /// What one whole unit of a pair asset is worth in dollars.
 export async function pairUsdPrice(pairToken: string): Promise<number> {
   const asset = PAIR_ASSETS[pairToken.toLowerCase()];
-  if (!asset) return 0;
+  if (!asset) {
+    try { return (await resolveQuote(pairToken)).usd; } catch { return 0; }
+  }
   if (asset.isDollar) return 1;
   if (!asset.usdPool) return ethUsdPrice();
 
@@ -151,6 +183,11 @@ export async function pairUsdPrice(pairToken: string): Promise<number> {
 export async function usdValue(pairToken: string, amount: bigint): Promise<number> {
   const key = pairToken.toLowerCase();
   const asset = PAIR_ASSETS[key];
-  if (!asset) return 0;
-  return (Number(amount) / 10 ** asset.decimals) * (await pairUsdPrice(key));
+  if (asset) return (Number(amount) / 10 ** asset.decimals) * (await pairUsdPrice(key));
+  try {
+    const resolved = await resolveQuote(key);
+    return (Number(amount) / 10 ** resolved.decimals) * resolved.usd;
+  } catch {
+    return 0;
+  }
 }

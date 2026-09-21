@@ -11,7 +11,7 @@ import { api, type PairRow } from "@/lib/api";
 import { pairDecimals, pairSymbol } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
-import { Choice, Field, LaunchBar, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
+import { Choice, Field, LaunchBar, PairChooser, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 import { DirectSim } from "@/components/Sim";
 
 const SUPPLY = 1_000_000_000;
@@ -253,20 +253,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           </Step>
 
           <Step n={3} title="What it trades against, and the price it opens at" purpose="Every trade is priced in this, the tax is taken in it, and your share arrives in it. Then the whole supply goes into one position above the opening price: buys walk it up, and when it reaches the bonding valuation the launch is bonded. No migration afterwards, the liquidity has been real and locked the whole time." done={priceDone}>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {pairs.map((p) => (
-                <Choice key={p.address} selected={form.quote.toLowerCase() === p.address.toLowerCase()}
-                  onClick={() => { set("quote", p.address as Address); set("firstBuy", ""); }}
-                  title={p.symbol}
-                  body={p.share
-                    ? `A tokenised share. The pool is ${p.symbol} on one side, and the tax reaches you in ${p.symbol}.`
-                    : p.symbol === "ETH"
-                      ? "The chain's own currency. No approval and no second transaction."
-                      : "The dollar on this chain. A price that does not move underneath you."}
-                  meta={p.usd > 0 ? `$${p.usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : undefined} />
-              ))}
-              {pairs.length === 0 && <p className="text-xs dim">Reading what this deployment takes as a quote.</p>}
-            </div>
+            <PairChooser pairs={pairs} value={form.quote}
+              onPick={(address: Address) => { set("quote", address); set("firstBuy", ""); }} />
 
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Opens at" help={`Valuation of the whole supply, in ${quoteSym}, at the first trade.`}>
