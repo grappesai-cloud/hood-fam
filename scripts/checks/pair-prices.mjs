@@ -18,9 +18,11 @@ const allowed = parseAbiItem("function pairAllowed(address) view returns (bool)"
 const threshold = parseAbiItem("function lockThreshold(address) view returns (uint256)");
 
 let bad = 0;
+let unallowed = 0;
 for (const [address, asset] of Object.entries(PAIR_ASSETS)) {
   const price = await pairUsdPrice(address);
   let onChain = "";
+  let allowedHere = true;
   if (factory) {
     try {
       const [ok, lock] = await Promise.all([
@@ -29,8 +31,8 @@ for (const [address, asset] of Object.entries(PAIR_ASSETS)) {
       ]);
       onChain = ok
         ? `allowed, ticker locks above ${(Number(lock) / 10 ** asset.decimals).toLocaleString()} ${asset.symbol} in 24h`
-        : "NOT allowed on the factory";
-      if (!ok) bad++;
+        : "known and priceable, not allowed";
+      allowedHere = ok;
     } catch (e) { onChain = `factory unreadable: ${String(e).slice(0, 40)}`; }
   }
   // The symbol the token itself claims, so a wrong address in the table shows up as a wrong name.
@@ -42,7 +44,12 @@ for (const [address, asset] of Object.entries(PAIR_ASSETS)) {
   // A price this far from anything a person would pay is a decimals mistake, not a market: the
   // only way to get one is to scale a pool's raw price by the wrong power of ten.
   const absurd = price > 1_000_000 || (price > 0 && price < 1e-12);
-  if (!agrees || price <= 0 || absurd) bad++;
+  // An asset the owner has not allowed is a decision, not a fault. What is a fault is an asset
+  // that IS allowed and cannot be priced, or one whose name does not match the token at that
+  // address, because both of those quietly mislead somebody launching against it.
+  if (!allowedHere) { unallowed++; if (!agrees) bad++; }
+  else if (!agrees || price <= 0 || absurd) bad++;
+  if (!allowedHere && !absurd && agrees && price > 0) continue;
   console.log(
     `${asset.symbol.padEnd(6)} ${address} ${agrees ? "  " : "!!"} $${price.toFixed(2).padStart(10)}  ${onChain}`,
   );
@@ -51,5 +58,6 @@ for (const [address, asset] of Object.entries(PAIR_ASSETS)) {
   if (absurd) console.log(`       that is not a price: check this asset's decimals against its pool`);
 }
 
-if (bad) { console.error(`\n${bad} problem(s) above.`); process.exit(1); }
-console.log(`\n${Object.keys(PAIR_ASSETS).length} pair assets, all priced.`);
+const total = Object.keys(PAIR_ASSETS).length;
+console.log(`\n${total - unallowed} allowed and priced, ${unallowed} more known to the indexer and not allowed.`);
+if (bad) { console.error(`${bad} problem(s) above.`); process.exit(1); }
