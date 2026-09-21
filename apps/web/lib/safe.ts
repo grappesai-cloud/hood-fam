@@ -10,6 +10,10 @@ import { safeTxSnapshot, subscribeToSafeTxs, type PendingSafeTx } from "./safe-c
 
 export * from "./safe-core";
 
+const subscribeToBrowserReady = () => () => {};
+const browserReadySnapshot = () => true;
+const serverBrowserSnapshot = () => false;
+
 /// The React half: what is waiting in the connected Safe, what that Safe is, and how to send a
 /// wallet several calls at once. See `safe-core.ts` for the machinery underneath.
 
@@ -82,8 +86,12 @@ export function useBatch() {
 /// every button took the first connector in the list, so WalletConnect could never be reached.
 export function usePreferredConnector() {
   const { connectors } = useConnect();
-  const framed = typeof window !== "undefined" && window.parent !== window;
-  const injected = typeof window !== "undefined" && Boolean((window as { ethereum?: unknown }).ethereum);
+  // Browser capabilities do not exist while Next renders the server tree. During hydration React
+  // must see that exact same answer once more; afterwards this store flips to the real browser and
+  // enables an injected connector without changing the HTML React is trying to attach to.
+  const browserReady = useSyncExternalStore(subscribeToBrowserReady, browserReadySnapshot, serverBrowserSnapshot);
+  const framed = browserReady && window.parent !== window;
+  const injected = browserReady && Boolean((window as { ethereum?: unknown }).ethereum);
   // Nothing at the end of this list. The injected connector exists in the config whether or not a
   // wallet was ever installed, so returning it as a fallback gave a phone a Connect button that
   // looked alive and did nothing on tap. An honest undefined disables the button and lets
