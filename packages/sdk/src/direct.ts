@@ -475,3 +475,62 @@ export function createDirectClient({
 }
 
 export type DirectClient = ReturnType<typeof createDirectClient>;
+
+/// Where a direct launch's token will land, before it exists.
+///
+/// The whole supply opens as one position on one side of the price, and which side depends on
+/// whether the token address sorts under the quote's or over it. That is decided by an address
+/// nobody has yet, so the app has to work it out the way the portal will: a deterministic clone of
+/// the token implementation, salted with the creator and their own salt.
+export function predictDirectToken(
+  { deployer, implementation, creator, salt }:
+  { deployer: Address; implementation: Address; creator: Address; salt: `0x${string}` },
+): Address {
+  const bound = keccak256(encodeAbiParameters(parseAbiParameters("address, bytes32"), [creator, salt]));
+  // EIP-1167: the minimal proxy's creation code, hashed, is what CREATE2 commits to.
+  const initCode = concatHex([
+    "0x3d602d80600a3d3981f3363d3d373d3d3d363d73",
+    implementation.toLowerCase() as `0x${string}`,
+    "0x5af43d82803e903d91602b57fd5bf3",
+  ]);
+  const hash = keccak256(concatHex(["0xff", deployer, bound, keccak256(initCode)]));
+  return getAddress(`0x${hash.slice(26)}`);
+}
+
+export interface DirectTicks {
+  tickStart: int24Like;
+  tickBond: int24Like;
+}
+type int24Like = number;
+
+/// The two ticks a direct launch opens and bonds at, from the two valuations a creator thinks in.
+///
+/// A pool's price is token1 per token0 in RAW units, so three things decide the number: how many
+/// decimals the quote has, how many the token has, and which of the two sorted into currency0. Get
+/// any of them wrong and the launch opens at a valuation nobody chose, which is why this is one
+/// function with one test rather than a line in a form.
+export function directTicks(
+  { openFdv, bondFdv, supply, quoteDecimals, tokenIsZero, tickSpacing, tokenDecimals = 18 }: {
+    /// What the whole supply is worth at the open, in whole quote units (5,000 dollars, 2 ETH).
+    openFdv: number;
+    bondFdv: number;
+    /// Whole tokens minted.
+    supply: number;
+    quoteDecimals: number;
+    tokenIsZero: boolean;
+    tickSpacing: number;
+    tokenDecimals?: number;
+  },
+): DirectTicks {
+  const raw = (fdv: number) => {
+    // tokens per quote, in raw units: (supply * 10^td) / (fdv * 10^qd)
+    const tokensPerQuote = (supply * 10 ** tokenDecimals) / (fdv * 10 ** quoteDecimals);
+    // token1 per token0: if the token is currency0 the pool quotes the other way round
+    return tokenIsZero ? 1 / tokensPerQuote : tokensPerQuote;
+  };
+  const toTick = (price: number) => {
+    const tick = Math.log(price) / Math.log(1.0001);
+    return Math.round(tick / tickSpacing) * tickSpacing;
+  };
+  return { tickStart: toTick(raw(openFdv)), tickBond: toTick(raw(bondFdv)) };
+}

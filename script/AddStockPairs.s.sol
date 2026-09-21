@@ -29,6 +29,9 @@ contract AddStockPairs is Script {
     address internal constant SPY = 0x117cc2133c37B721F49dE2A7a74833232B3B4C0C;
     address internal constant SPCX = 0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa;
     address internal constant AAPL = 0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9;
+    address internal constant META = 0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35;
+    address internal constant GOOGL = 0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3;
+    address internal constant INTC = 0xc72b96e0E48ecd4DC75E1e45396e26300BC39681;
 
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
@@ -43,12 +46,18 @@ contract AddStockPairs is Script {
         _pair(factory, SPY, 90e18, "SPY");
         _pair(factory, SPCX, 450e18, "SPCX");
         _pair(factory, AAPL, 210e18, "AAPL");
+        _pair(factory, META, 100e18, "META");
+        _pair(factory, GOOGL, 200e18, "GOOGL");
+        _pair(factory, INTC, 600e18, "INTC");
 
         _preset(factory, NVDA, "NVDA", 12e18, 120e18);
         _preset(factory, GME, "GME", 120e18, 1_200e18);
         _preset(factory, SPY, "SPY", 3.5e18, 35e18);
         _preset(factory, SPCX, "SPCX", 18e18, 180e18);
         _preset(factory, AAPL, "AAPL", 8e18, 80e18);
+        _preset(factory, META, "META", 4e18, 40e18);
+        _preset(factory, GOOGL, "GOOGL", 8e18, 80e18);
+        _preset(factory, INTC, "INTC", 24e18, 240e18);
 
         vm.stopBroadcast();
 

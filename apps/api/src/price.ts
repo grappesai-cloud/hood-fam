@@ -60,39 +60,61 @@ export async function ethUsdPrice(): Promise<number> {
 export interface PairAsset {
   symbol: string;
   decimals: number;
-  /// The v3 pool this asset trades against USDG in, and which side of it the asset sits on.
-  usdPool?: { pool: Address; assetIsToken0: boolean };
+  /// The pool this asset trades against USDG in, and which side of it the asset sits on. A v3 pool
+  /// answers `slot0()` at its own address; a v4 pool has no address at all, only an id inside the
+  /// PoolManager, read through the StateView the graduator already uses. Both give the same
+  /// number, and which one an asset has is an accident of where its liquidity landed.
+  usdPool?: { kind: "v3"; pool: Address; assetIsToken0: boolean }
+    | { kind: "v4"; poolId: `0x${string}`; assetIsToken0: boolean };
   /// True for the dollar itself.
   isDollar?: boolean;
 }
+
+/// The v4 StateView on 4663. Same one the graduator reads pool state through.
+const STATE_VIEW = "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b" as Address;
 
 export const PAIR_ASSETS: Record<string, PairAsset> = {
   [zeroAddress]: { symbol: "ETH", decimals: 18 },
   "0x5fc5360d0400a0fd4f2af552add042d716f1d168": { symbol: "USDG", decimals: 6, isDollar: true },
   "0xd0601ce157db5bdc3162bbac2a2c8af5320d9eec": {
     symbol: "NVDA", decimals: 18,
-    usdPool: { pool: "0xd4eb21209c4d6093f80b5b84f5c45cc093ea14a3", assetIsToken0: false },
+    usdPool: { kind: "v3", pool: "0xd4eb21209c4d6093f80b5b84f5c45cc093ea14a3", assetIsToken0: false },
   },
   "0x1b0e319c6a659f002271b69db8a7df2f911c153e": {
     symbol: "GME", decimals: 18,
-    usdPool: { pool: "0xe9713f453adb9245b19559790c96f470a18f2fdf", assetIsToken0: true },
+    usdPool: { kind: "v3", pool: "0xe9713f453adb9245b19559790c96f470a18f2fdf", assetIsToken0: true },
   },
   "0x117cc2133c37b721f49de2a7a74833232b3b4c0c": {
     symbol: "SPY", decimals: 18,
-    usdPool: { pool: "0xa7bb1ac63bbab0c44316e6c8c455213441689167", assetIsToken0: true },
+    usdPool: { kind: "v3", pool: "0xa7bb1ac63bbab0c44316e6c8c455213441689167", assetIsToken0: true },
   },
   "0x4a0e65a3eccec6dbe60ae065f2e7bb85fae35eea": {
     symbol: "SPCX", decimals: 18,
-    usdPool: { pool: "0xc61284332117c3fb23a2a56cceffd07f7af60029", assetIsToken0: true },
+    usdPool: { kind: "v3", pool: "0xc61284332117c3fb23a2a56cceffd07f7af60029", assetIsToken0: true },
   },
   "0xaf3d76f1834a1d425780943c99ea8a608f8a93f9": {
     symbol: "AAPL", decimals: 18,
-    usdPool: { pool: "0xaae0d815ee56e4092a5e5c2911e676fea50b2d6d", assetIsToken0: false },
+    usdPool: { kind: "v3", pool: "0xaae0d815ee56e4092a5e5c2911e676fea50b2d6d", assetIsToken0: false },
+  },
+  "0xc0d6457c16cc70d6790dd43521c899c87ce02f35": {
+    symbol: "META", decimals: 18,
+    usdPool: { kind: "v4", poolId: "0xc58bb68060bcb7b3ea0f6d4a4afef1e57f628722e808db12afb6d1733552872f", assetIsToken0: false },
+  },
+  "0x2e0847e8910a9732eb3fb1bb4b70a580adad4fe3": {
+    symbol: "GOOGL", decimals: 18,
+    usdPool: { kind: "v4", poolId: "0xf28d25a3078d0cf697ff18767f57052090aca2ffdfd11c808d6f29e96b44506a", assetIsToken0: true },
+  },
+  "0xc72b96e0e48ecd4dc75e1e45396e26300bc39681": {
+    symbol: "INTC", decimals: 18,
+    usdPool: { kind: "v4", poolId: "0x4d0e6d81d9634c20ea0fd3f980f67560c06a76f3d530eef9654ecca7381acb53", assetIsToken0: false },
   },
 };
 
 const slot0Abi = parseAbiItem(
   "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 a, uint16 b, uint16 c, uint8 d, bool e)",
+);
+const getSlot0Abi = parseAbiItem(
+  "function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)",
 );
 
 const poolPrices = new Map<string, { price: number; at: number }>();
@@ -107,12 +129,16 @@ export async function pairUsdPrice(pairToken: string): Promise<number> {
   const cached = poolPrices.get(pairToken);
   if (cached && Date.now() - cached.at < 60_000 && cached.price > 0) return cached.price;
   try {
-    const slot0 = (await client.readContract({
-      address: asset.usdPool.pool, abi: [slot0Abi], functionName: "slot0",
-    })) as readonly [bigint, number, number, number, number, number, boolean];
-    // A v3 pool's price is token1 per token0; the dollar has six decimals and a share eighteen,
-    // so the same twelve orders of magnitude go one way or the other depending on the sort order.
-    const raw = (Number(slot0[0]) / 2 ** 96) ** 2;
+    const sqrtPriceX96 = asset.usdPool.kind === "v3"
+      ? ((await client.readContract({
+          address: asset.usdPool.pool, abi: [slot0Abi], functionName: "slot0",
+        })) as readonly [bigint, ...unknown[]])[0]
+      : ((await client.readContract({
+          address: STATE_VIEW, abi: [getSlot0Abi], functionName: "getSlot0", args: [asset.usdPool.poolId],
+        })) as readonly [bigint, ...unknown[]])[0];
+    // A pool's price is token1 per token0; the dollar has six decimals and a share eighteen, so the
+    // same twelve orders of magnitude go one way or the other depending on the sort order.
+    const raw = (Number(sqrtPriceX96) / 2 ** 96) ** 2;
     const price = asset.usdPool.assetIsToken0 ? raw * 1e12 : 1e12 / raw;
     if (Number.isFinite(price) && price > 0) poolPrices.set(pairToken, { price, at: Date.now() });
   } catch {

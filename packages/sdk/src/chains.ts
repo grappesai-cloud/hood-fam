@@ -194,6 +194,9 @@ export const PAIR_ASSETS: PairAsset[] = [
   { address: "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C", symbol: "SPY", decimals: 18, share: true },
   { address: "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa", symbol: "SPCX", decimals: 18, share: true },
   { address: "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9", symbol: "AAPL", decimals: 18, share: true },
+  { address: "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35", symbol: "META", decimals: 18, share: true },
+  { address: "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3", symbol: "GOOGL", decimals: 18, share: true },
+  { address: "0xc72b96e0E48ecd4DC75E1e45396e26300BC39681", symbol: "INTC", decimals: 18, share: true },
 ];
 
 const byAddress = new Map(PAIR_ASSETS.map((p) => [p.address.toLowerCase(), p]));

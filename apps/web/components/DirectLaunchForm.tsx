@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { formatEther, keccak256, parseEther, stringToHex, zeroAddress } from "viem";
+import { erc20Abi, formatUnits, keccak256, parseUnits, stringToHex, zeroAddress, type Address } from "viem";
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { hoodPortalAbi, hoodDirectDeployerAbi, mineFreeHookSalt, uniswapV4 } from "@hood/sdk";
+import { useQuery } from "@tanstack/react-query";
+import { directTicks, hoodPortalAbi, hoodDirectDeployerAbi, mineFreeHookSalt, predictDirectToken, uniswapV4 } from "@hood/sdk";
 import { directAddresses } from "@/lib/config";
-import { fdvToTick, tickToFdv } from "@/lib/direct";
+import { api, type PairRow } from "@/lib/api";
+import { pairDecimals, pairSymbol } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
 import { Choice, Field, LaunchBar, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
@@ -30,6 +32,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const [form, setForm] = useState({
     name: "", symbol: "", logo: "", description: "",
     twitter: "", telegram: "", discord: "", website: "", farcaster: "",
+    quote: zeroAddress as Address,
     openFdv: "10", bondFdv: "100",
     buyTax: 5, sellTax: 5, snipeTax: 50, snipeSeconds: 3,
     restrictionBlocks: 30, maxHold: 5, maxBuy: 5.5,
@@ -48,11 +51,50 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     query: { enabled: Boolean(directAddresses.deployer) },
   });
 
+  // What this pad takes as a quote, from the same list the curve machine reads.
+  const { data: pairData } = useQuery({
+    queryKey: ["pairs"],
+    queryFn: () => api<{ pairs: PairRow[] }>("/pairs"),
+    staleTime: 60_000,
+  });
+  const pairs = pairData?.pairs ?? [];
+  const quote = pairs.find((p) => p.address.toLowerCase() === form.quote.toLowerCase());
+  const quoteDec = quote?.decimals ?? pairDecimals(form.quote);
+  const quoteSym = quote?.symbol ?? pairSymbol(form.quote);
+  const isNative = form.quote === zeroAddress;
+
+  // The salt is fixed the moment this form is opened rather than at the press, because the token's
+  // address decides which side of the pool it sorts into, and that decides the direction of both
+  // ticks. Predicting it is the only way to compute them before the launch exists.
+  const [salt] = useState<`0x${string}`>(() => keccak256(stringToHex(`hood:${Date.now()}:${Math.random()}`)));
+  const { data: tokenImplementation } = useReadContract({
+    address: directAddresses.portal, abi: hoodPortalAbi, functionName: "tokenImplementation",
+    query: { enabled: Boolean(directAddresses.portal) },
+  });
+  const predictedToken = useMemo(() => {
+    if (!address || !directAddresses.deployer || !tokenImplementation) return undefined;
+    return predictDirectToken({
+      deployer: directAddresses.deployer,
+      implementation: tokenImplementation as Address,
+      creator: address,
+      salt,
+    });
+  }, [address, tokenImplementation, salt]);
+
   const ticks = useMemo(() => {
     const open = Number(form.openFdv) || 10;
     const bond = Number(form.bondFdv) || 100;
-    return { tickStart: fdvToTick(open, SUPPLY, SPACING), tickBond: fdvToTick(bond, SUPPLY, SPACING) };
-  }, [form.openFdv, form.bondFdv]);
+    const tokenIsZero = predictedToken ? predictedToken.toLowerCase() < form.quote.toLowerCase() : false;
+    return directTicks({ openFdv: open, bondFdv: bond, supply: SUPPLY, quoteDecimals: quoteDec, tokenIsZero, tickSpacing: SPACING });
+  }, [form.openFdv, form.bondFdv, form.quote, quoteDec, predictedToken]);
+
+  /// What a tick means back in the creator's own units, undoing exactly what `directTicks` did.
+  const landedFdv = (tick: number) => {
+    const tokenIsZero = predictedToken ? predictedToken.toLowerCase() < form.quote.toLowerCase() : false;
+    const raw = Math.pow(1.0001, tick);
+    const tokensPerQuote = tokenIsZero ? 1 / raw : raw;
+    return (SUPPLY * 10 ** 18) / (tokensPerQuote * 10 ** quoteDec);
+  };
 
   const allocationSum = form.creatorBps + form.buybackBps + form.dividendsBps + form.liquidityBps;
   const ready = Boolean(address && directAddresses.portal && initCodeHash)
@@ -77,7 +119,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
       // The hook's permissions live in its address, so the salt has to be mined for it. The salt
       // is bound to this wallet on chain, so only this wallet's own earlier launches can collide,
       // and the miner skips those.
-      const { salt } = await mineFreeHookSalt(publicClient as never, directAddresses.deployer!, initCodeHash as `0x${string}`, address);
+      const { salt: hookSalt } = await mineFreeHookSalt(publicClient as never, directAddresses.deployer!, initCodeHash as `0x${string}`, address);
       setMining(false);
 
       const params = {
@@ -89,8 +131,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           twitter: form.twitter, telegram: form.telegram, discord: form.discord,
           website: form.website, farcaster: form.farcaster,
         },
-        quote: zeroAddress as `0x${string}`,
-        supply: parseEther(String(SUPPLY)),
+        quote: form.quote,
+        supply: parseUnits(String(SUPPLY), 18),
         poolFee: 10_000,
         tickSpacing: SPACING,
         config: {
@@ -110,13 +152,27 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             liquidityBps: form.liquidityBps * 100,
           },
         },
-        salt: keccak256(stringToHex(`${form.symbol}:${Date.now()}`)),
-        initialBuy: form.firstBuy ? parseEther(form.firstBuy) : 0n,
+        salt,
+        initialBuy: form.firstBuy ? parseUnits(form.firstBuy, quoteDec) : 0n,
       };
+
+      // Only the chain's own currency travels with the transaction; anything else is pulled, and
+      // the portal needs an allowance before it can pull it.
+      if (!isNative && params.initialBuy > 0n) {
+        const allowance = await publicClient!.readContract({
+          address: form.quote, abi: erc20Abi, functionName: "allowance", args: [address, directAddresses.portal],
+        }) as bigint;
+        if (allowance < params.initialBuy) {
+          setHash(await writeContractAsync({
+            address: form.quote, abi: erc20Abi, functionName: "approve", args: [directAddresses.portal, params.initialBuy],
+          }));
+          return;
+        }
+      }
 
       setHash(await writeContractAsync({
         address: directAddresses.portal, abi: hoodPortalAbi, functionName: "createLaunch",
-        args: [params, salt], value: ((launchFee as bigint | undefined) ?? 0n) + params.initialBuy,
+        args: [params, hookSalt], value: ((launchFee as bigint | undefined) ?? 0n) + (isNative ? params.initialBuy : 0n),
       }));
     } catch (e) {
       setMining(false);
@@ -132,7 +188,16 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const priceDone = Number(form.bondFdv) > Number(form.openFdv);
   const splitDone = allocationSum === 100;
   const fee = (launchFee as bigint | undefined) ?? 0n;
-  const total = fee + (form.firstBuy ? parseEther(form.firstBuy) : 0n);
+  // The fee is in the chain's own currency whatever the launch is quoted in, so the bar shows it
+  // alone and says what the first buy costs beside it, in the quote.
+  const firstBuyUnits = form.firstBuy ? parseUnits(form.firstBuy, quoteDec) : 0n;
+  const { data: quoteAllowance } = useReadContract({
+    address: form.quote, abi: erc20Abi, functionName: "allowance",
+    args: [address ?? zeroAddress, directAddresses.portal ?? zeroAddress],
+    query: { enabled: !isNative && firstBuyUnits > 0n && Boolean(address && directAddresses.portal) },
+  });
+  const needsQuoteApproval = !isNative && firstBuyUnits > 0n
+    && ((quoteAllowance as bigint | undefined) ?? 0n) < firstBuyUnits;
 
   // One reason at a time, in the order somebody would hit them.
   const blocked = !address ? "Connect a wallet first. It pays the fee and becomes the creator."
@@ -187,9 +252,24 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             </div>
           </Step>
 
-          <Step n={3} title="The price it opens and bonds at" purpose="The whole supply goes into one position above the opening price. Buys walk the price up through it, and when it reaches the bonding valuation the launch is bonded. There is no migration afterwards: the liquidity has been real and locked the whole time." done={priceDone}>
+          <Step n={3} title="What it trades against, and the price it opens at" purpose="Every trade is priced in this, the tax is taken in it, and your share arrives in it. Then the whole supply goes into one position above the opening price: buys walk it up, and when it reaches the bonding valuation the launch is bonded. No migration afterwards, the liquidity has been real and locked the whole time." done={priceDone}>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {pairs.map((p) => (
+                <Choice key={p.address} selected={form.quote.toLowerCase() === p.address.toLowerCase()}
+                  onClick={() => { set("quote", p.address as Address); set("firstBuy", ""); }}
+                  title={p.symbol}
+                  body={p.share
+                    ? `A tokenised share. The pool is ${p.symbol} on one side, and the tax reaches you in ${p.symbol}.`
+                    : p.symbol === "ETH"
+                      ? "The chain's own currency. No approval and no second transaction."
+                      : "The dollar on this chain. A price that does not move underneath you."}
+                  meta={p.usd > 0 ? `$${p.usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : undefined} />
+              ))}
+              {pairs.length === 0 && <p className="text-xs dim">Reading what this deployment takes as a quote.</p>}
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Opens at" help="Valuation of the whole supply, in ETH, at the first trade.">
+              <Field label="Opens at" help={`Valuation of the whole supply, in ${quoteSym}, at the first trade.`}>
                 <input className="input mono" value={form.openFdv}
                   onChange={(e) => set("openFdv", e.target.value.replace(/[^0-9.]/g, ""))} />
               </Field>
@@ -201,8 +281,11 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               </Field>
             </div>
             <p className="field-note mono">
-              Uniswap prices in ticks, so the numbers land on the nearest one: open {tickToFdv(ticks.tickStart, SUPPLY).toFixed(2)} ETH,
-              bond {tickToFdv(ticks.tickBond, SUPPLY).toFixed(2)} ETH (ticks {ticks.tickStart} to {ticks.tickBond}).
+              Uniswap prices in ticks, so the numbers land on the nearest one: open{" "}
+              {landedFdv(ticks.tickStart).toFixed(landedFdv(ticks.tickStart) < 100 ? 3 : 0)} {quoteSym},
+              bond {landedFdv(ticks.tickBond).toFixed(landedFdv(ticks.tickBond) < 100 ? 3 : 0)} {quoteSym}{" "}
+              (ticks {ticks.tickStart} to {ticks.tickBond}).
+              {quote && quote.usd > 0 && ` About $${Math.round(landedFdv(ticks.tickStart) * quote.usd).toLocaleString()} at the open.`}
             </p>
           </Step>
 
@@ -234,8 +317,10 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               <Slider label={`Hold at most ${form.maxHold}%`} hint="Of the supply, per wallet, while the limits last." min={0.5} max={20} step={0.5} value={form.maxHold} onChange={(v) => set("maxHold", v)} />
               <Slider label={`Buy at most ${form.maxBuy}%`} hint="Per transaction, while the limits last." min={0.5} max={20} step={0.5} value={form.maxBuy} onChange={(v) => set("maxBuy", v)} />
             </div>
-            <Field label="Your first buy in ETH"
-              help="Optional, and it lands inside the launch transaction, before anyone else can trade. The buy cap above applies to it too: first dibs, not the whole open.">
+            <Field label={`Your first buy in ${quoteSym}`}
+              help={`Optional, and it lands inside the launch transaction, before anyone else can trade. The buy cap above applies to it too: first dibs, not the whole open.${
+                isNative ? "" : ` Paid in ${quoteSym} out of your wallet, so it takes one approval first.`
+              }`}>
               <input className="input mono" inputMode="decimal" value={form.firstBuy}
                 onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
             </Field>
@@ -244,12 +329,14 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           {error && <p className="panel p-3 text-xs text-[var(--color-red)]">{error}</p>}
 
           <LaunchBar
-            cost={`${formatEther(total)} ETH`}
-            costLabel={form.firstBuy ? `${formatEther(fee)} fee plus your ${form.firstBuy} first buy` : "launch fee, plus gas"}
+            cost={`${formatUnits(fee, 18)} ETH`}
+            costLabel={form.firstBuy
+              ? `launch fee, plus your ${form.firstBuy} ${quoteSym} first buy${isNative ? "" : `, pulled from your wallet in ${quoteSym}`}`
+              : "launch fee, plus gas"}
             blocked={blocked}
             busy={mining || isPending || receipt.isLoading}
             busyLabel={mining ? "mining the hook address" : receipt.isLoading ? "waiting for the chain" : "confirm in your wallet"}
-            label="Create the token"
+            label={needsQuoteApproval ? `Approve ${quoteSym}` : "Create the token"}
             onClick={launch}
           />
         </div>
@@ -262,9 +349,10 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         <p className="launch-preview-symbol">$<span>{form.symbol || "TICKER"}</span></p>
         <div className="launch-preview-details">
           <div className="flex justify-between"><span className="dim">Launch model</span><span className="mono">Direct pool</span></div>
-          <div className="flex justify-between"><span className="dim">Opens at</span><span className="mono">{form.openFdv || "0"} ETH</span></div>
+          <div className="flex justify-between"><span className="dim">Quoted in</span><span className="mono">{quoteSym}</span></div>
+          <div className="flex justify-between"><span className="dim">Opens at</span><span className="mono">{form.openFdv || "0"} {quoteSym}</span></div>
           <div className="flex justify-between"><span className="dim">Buy / sell tax</span><span className="mono">{form.buyTax}% / {form.sellTax}%</span></div>
-          <div className="flex justify-between"><span className="dim">Launch fee</span><span className="mono">{formatEther(fee)} ETH</span></div>
+          <div className="flex justify-between"><span className="dim">Launch fee</span><span className="mono">{formatUnits(fee, 18)} ETH</span></div>
         </div>
         <WhatHappens items={[
           "We mine an address for your hook, which takes a few seconds and costs nothing.",

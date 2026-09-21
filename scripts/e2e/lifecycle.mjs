@@ -15,14 +15,16 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
 import {
-  createPublicClient, createWalletClient, decodeEventLog, encodeAbiParameters, formatEther, http,
-  keccak256, parseAbi, parseAbiItem, parseAbiParameters, parseEther, toHex, zeroAddress,
+  createPublicClient, createWalletClient, decodeEventLog, encodeAbiParameters, encodeFunctionData,
+  formatEther, http, keccak256, parseAbi, parseAbiItem, parseAbiParameters, parseEther, toHex,
+  zeroAddress,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 import {
-  buildSwap, createDirectClient, createHoodClient, hoodCurveAbi, hoodFeeRouterAbi, hoodSeasonDropAbi,
-  hoodStakingAbi, layerZero, pairs, robinhood, uniswapV4, universalRouterAbi,
+  buildSwap, createDirectClient, createHoodClient, directTicks, hoodCurveAbi, hoodFeeRouterAbi,
+  hoodSeasonDropAbi, hoodStakingAbi, layerZero, pairs, predictDirectToken, robinhood, uniswapV4,
+  universalRouterAbi,
 } from "../../packages/sdk/dist/index.js";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -163,6 +165,25 @@ const rpc = (method, params = []) => publicClient.request({ method, params });
 /// deadline that is already behind it.
 const deadline = async (seconds = 3600) => BigInt((await publicClient.getBlock()).timestamp) + BigInt(seconds);
 const mine = (n) => rpc("anvil_mine", [`0x${n.toString(16)}`]);
+
+/// Dollars for a wallet that has none. The fork carries the real USDG, and nothing in it will mint,
+/// so the only way to hold some is to take it from somebody who does: the PoolManager, which holds
+/// millions of it as pool liquidity. A few hundred dollars out of that is a rounding error, the
+/// pools this rehearsal actually trades are its own, and the fork is thrown away at the end.
+async function fundUsdg(to, amount) {
+  const whale = uniswapV4.poolManager;
+  await rpc("anvil_impersonateAccount", [whale]);
+  await rpc("anvil_setBalance", [whale, `0x${parseEther("1").toString(16)}`]);
+  await publicClient.request({
+    method: "eth_sendTransaction",
+    params: [{
+      from: whale,
+      to: USDG,
+      data: encodeFunctionData({ abi: parseAbi(["function transfer(address,uint256) returns (bool)"]), functionName: "transfer", args: [to, amount] }),
+    }],
+  });
+  await rpc("anvil_stopImpersonatingAccount", [whale]);
+}
 const warp = async (seconds) => { await rpc("anvil_increaseTime", [`0x${seconds.toString(16)}`]); await mine(1); };
 
 const erc20Abi = parseAbi([
@@ -730,9 +751,9 @@ async function directMachine(a) {
 
   const poolKey = await direct(creator).poolKey(row.locker);
   const tokenIsZero = same(poolKey.currency0, token);
-  const swapThrough = async (w, amountIn, tokenIn, tokenOut) => {
+  const swapThroughKey = async (key, w, amountIn, tokenIn, tokenOut) => {
     const { commands, inputs } = buildSwap({
-      key: poolKey, zeroForOne: same(tokenIn, poolKey.currency0), amountIn, minAmountOut: 0n, tokenIn, tokenOut,
+      key, zeroForOne: same(tokenIn, key.currency0), amountIn, minAmountOut: 0n, tokenIn, tokenOut,
     });
     const args = [commands, inputs, await deadline()];
     const value = tokenIn === zeroAddress ? amountIn : 0n;
@@ -745,6 +766,7 @@ async function directMachine(a) {
       address: uniswapV4.universalRouter, abi: universalRouterAbi, functionName: "execute", args, value, gas: (gas * 13n) / 10n,
     }));
   };
+  const swapThrough = (w, amountIn, tokenIn, tokenOut) => swapThroughKey(poolKey, w, amountIn, tokenIn, tokenOut);
   // The opening window caps a wallet's buy and its holding; a whale trying to take the open is the
   // exact thing it exists to refuse.
   let windowHeld = false;
@@ -840,6 +862,69 @@ async function directMachine(a) {
   const status = await direct(creator).graduationStatus(token);
   check("the launch reports its distance to bonding",
     status.progressBps >= 0 && status.progressBps <= 10000, `${status.progressBps}bps, bonded ${status.bonded}`);
+
+  // ---- the same machine, quoted in something that is not the chain's own currency
+  //
+  // Everything above ran against ETH. A launch quoted in the dollar (or in a tokenised share, which
+  // is the same branch) has to survive three differences: the quote is pulled from the wallet
+  // rather than sent with the transaction, the token can sort into currency0 instead of currency1,
+  // which flips the position and the direction of every tick, and the splitter holds an ERC-20.
+  // The app works the orientation out by predicting the token's address, so the prediction is what
+  // is checked first: if it were wrong the launch would open at a valuation nobody chose.
+  const usdSalt = `0x${"2b".repeat(32)}`;
+  const predicted = predictDirectToken({
+    deployer: a.directDeployer,
+    implementation: await read(a.portal, parseAbi(["function tokenImplementation() view returns (address)"]), "tokenImplementation"),
+    creator: creator.address,
+    salt: usdSalt,
+  });
+  const usdTokenIsZero = predicted.toLowerCase() < USDG.toLowerCase();
+  const usdTicks = directTicks({
+    openFdv: 10_000, bondFdv: 100_000, supply: SUPPLY, quoteDecimals: 6,
+    tokenIsZero: usdTokenIsZero, tickSpacing: SPACING,
+  });
+
+  const usdBuy = 500_000_000n; // five hundred dollars
+  await fundUsdg(creator.address, usdBuy * 4n);
+  await fundUsdg(bob.address, usdBuy * 4n);
+  await send(creator, USDG, parseAbi(["function approve(address,uint256) returns (bool)"]), "approve", [a.portal, usdBuy * 10n]);
+  const usdSaltMined = await direct(creator).hookSalt();
+  const usdLaunched = await direct(creator).launch({
+    name: "Rehearsal Dollar", symbol: "RUSD", logo: "", description: "quoted in dollars",
+    socials: {}, quote: USDG, tickStart: usdTicks.tickStart, tickBond: usdTicks.tickBond,
+    restrictionBlocks: 0, maxHoldBps: 10_000, maxBuyBps: 10_000,
+    snipeTaxBps: 0, snipeDecaySeconds: 0, initialBuy: usdBuy, salt: usdSalt,
+  });
+  const usdReceipt = await wait(usdLaunched.hash);
+  const usdLog = usdReceipt.logs.find((l) => same(l.address, a.portal) && l.topics.length >= 4);
+  const usdToken = `0x${usdLog.topics[1].slice(26)}`;
+  check("the app's prediction is the address the portal actually cloned", same(usdToken, predicted), usdToken);
+
+  const usdRow = await direct(creator).getLaunch(usdToken);
+  check("the dollar launch registered with the dollar as its quote", usdRow.exists && same(usdRow.quote, USDG), usdRow.quote);
+  const usdKey = await direct(creator).poolKey(usdRow.locker);
+  check("the token sorted into the currency the prediction said it would",
+    same(usdKey.currency0, usdTokenIsZero ? usdToken : USDG),
+    `${usdTokenIsZero ? "token" : "dollar"} is currency0`);
+  check("the creator's first buy was pulled in dollars and bought the token",
+    (await balanceOf(usdToken, creator.address)) > 0n,
+    `${formatEther(await balanceOf(usdToken, creator.address))} RUSD for 500 USDG`);
+
+  // A stranger buying with dollars: the hook taxes the quote side the same way it taxes ETH, and
+  // what it keeps reaches the splitter as an ERC-20 rather than as value.
+  await send(bob, USDG, parseAbi(["function approve(address,uint256) returns (bool)"]), "approve", [uniswapV4.permit2, 2n ** 160n - 1n]);
+  await send(bob, uniswapV4.permit2, parseAbi(["function approve(address,address,uint160,uint48)"]), "approve",
+    [USDG, uniswapV4.universalRouter, 2n ** 160n - 1n, 2n ** 48n - 1n]);
+  const bobDollarBefore = await balanceOf(usdToken, bob.address);
+  await swapThroughKey(usdKey, bob, 200_000_000n, USDG, usdToken);
+  check("a dollar buy went through the hooked pool", (await balanceOf(usdToken, bob.address)) > bobDollarBefore,
+    `${formatEther((await balanceOf(usdToken, bob.address)) - bobDollarBefore)} RUSD for 200 USDG`);
+
+  await send(keeper, usdRow.splitter, parseAbi(["function sweep()"]), "sweep");
+  check("the dollar tax reached the splitter and was divided",
+    (await read(usdRow.splitter, parseAbi(["function creatorClaimable() view returns (uint256)"]), "creatorClaimable")) > 0n
+      || (await read(usdRow.splitter, parseAbi(["function buybackPot() view returns (uint256)"]), "buybackPot")) > 0n,
+    "in USDG, not in ether");
 
   return { token, hook: row.hook, splitter: row.splitter, locker: row.locker };
 }
@@ -973,9 +1058,9 @@ async function checkApi(a, curve, direct) {
     directRow.body.buy_tax_bps === 500 && directRow.body.sell_tax_bps === 500 && directRow.body.snipe_tax_bps === 5000);
 
   const stats = await api("/stats");
-  // Three: the house coin, the curve launch and the direct one.
-  check("the api counts all three launches and one graduation",
-    Number(stats.body.launches) === 3 && Number(stats.body.graduated) >= 1,
+  // Four: the house coin, the curve launch, the direct one and the dollar quoted direct one.
+  check("the api counts all four launches and one graduation",
+    Number(stats.body.launches) === 4 && Number(stats.body.graduated) >= 1,
     `${stats.body.launches} launches, ${stats.body.graduated} graduated`);
 
   // ---- points, which is the number the season drop is paid against
