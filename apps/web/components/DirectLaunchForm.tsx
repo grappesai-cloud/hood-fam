@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { erc20Abi, formatUnits, getAddress, isAddress, keccak256, parseUnits, stringToHex, zeroAddress, type Address } from "viem";
+import { erc20Abi, formatUnits, getAbiItem, getAddress, isAddress, keccak256, parseUnits, stringToHex, toFunctionSelector, zeroAddress, type Address } from "viem";
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
 import { directTicks, hoodPortalAbi, hoodDirectDeployerAbi, mineFreeHookSalt, predictDirectToken, uniswapV4 } from "@hood/sdk";
@@ -16,6 +16,19 @@ import { DirectSim } from "@/components/Sim";
 
 const SUPPLY = 1_000_000_000;
 const SPACING = 200;
+
+// A Portal deployed before creatorFeeRecipient existed still serves the rest of the direct-launch
+// machine. Derive its ABI from the generated current one instead of keeping a second hand-written
+// tuple that can drift. The runtime selector check below chooses exactly what the deployed bytecode
+// supports, so publishing the web app never bricks launch while an on-chain upgrade is pending.
+const createLaunchItem = getAbiItem({ abi: hoodPortalAbi, name: "createLaunch" });
+const currentCreateLaunchSelector = toFunctionSelector(createLaunchItem);
+const legacyPortalAbi = hoodPortalAbi.map((item) => {
+  if (item.type !== "function" || item.name !== "createLaunch") return item;
+  const [launch, salt] = item.inputs;
+  if (!launch || launch.type !== "tuple" || !("components" in launch)) return item;
+  return { ...item, inputs: [{ ...launch, components: launch.components.filter((component) => component.name !== "creatorFeeRecipient") }, salt] };
+}) as unknown as typeof hoodPortalAbi;
 
 /// The other machine. A creator here is not choosing a curve, they are choosing a price to open at,
 /// a price to bond at, what the trade costs, and who that cost pays.
@@ -51,6 +64,16 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     args: [uniswapV4.poolManager as `0x${string}`],
     query: { enabled: Boolean(directAddresses.deployer) },
   });
+  const portalGeneration = useQuery({
+    queryKey: ["portal-fee-recipient", directAddresses.portal],
+    queryFn: async () => {
+      const code = await publicClient!.getCode({ address: directAddresses.portal! });
+      return Boolean(code?.toLowerCase().includes(currentCreateLaunchSelector.slice(2).toLowerCase()));
+    },
+    enabled: Boolean(publicClient && directAddresses.portal),
+    staleTime: Infinity,
+  });
+  const supportsFeeRecipient = portalGeneration.data === true;
 
   // What this pad takes as a quote, from the same list the curve machine reads.
   const { data: pairData } = useQuery({
@@ -101,7 +124,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const ready = Boolean(address && directAddresses.portal && initCodeHash)
     && form.name.length > 0 && form.symbol.length > 0
     && allocationSum === 100
-    && (form.creatorBps === 0 || form.feeRecipient === "" || isAddress(form.feeRecipient))
+    && (!supportsFeeRecipient || form.creatorBps === 0 || form.feeRecipient === "" || isAddress(form.feeRecipient))
     && Number(form.bondFdv) > Number(form.openFdv);
 
   useEffect(() => {
@@ -124,7 +147,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
       const { salt: hookSalt } = await mineFreeHookSalt(publicClient as never, directAddresses.deployer!, initCodeHash as `0x${string}`, address);
       setMining(false);
 
-      const params = {
+      const baseParams = {
         name: form.name,
         symbol: form.symbol,
         logo: form.logo,
@@ -134,7 +157,6 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           website: form.website, farcaster: form.farcaster,
         },
         quote: form.quote,
-        creatorFeeRecipient: form.feeRecipient ? getAddress(form.feeRecipient) : address,
         supply: parseUnits(String(SUPPLY), 18),
         poolFee: 10_000,
         tickSpacing: SPACING,
@@ -158,6 +180,9 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         salt,
         initialBuy: form.firstBuy ? parseUnits(form.firstBuy, quoteDec) : 0n,
       };
+      const params = supportsFeeRecipient
+        ? { ...baseParams, creatorFeeRecipient: form.feeRecipient ? getAddress(form.feeRecipient) : address }
+        : baseParams;
 
       // Only the chain's own currency travels with the transaction; anything else is pulled, and
       // the portal needs an allowance before it can pull it.
@@ -174,8 +199,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
       }
 
       setHash(await writeContractAsync({
-        address: directAddresses.portal, abi: hoodPortalAbi, functionName: "createLaunch",
-        args: [params, hookSalt], value: ((launchFee as bigint | undefined) ?? 0n) + (isNative ? params.initialBuy : 0n),
+        address: directAddresses.portal, abi: (supportsFeeRecipient ? hoodPortalAbi : legacyPortalAbi) as never, functionName: "createLaunch",
+        args: [params, hookSalt] as never, value: ((launchFee as bigint | undefined) ?? 0n) + (isNative ? params.initialBuy : 0n),
       }));
     } catch (e) {
       setMining(false);
@@ -208,7 +233,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : !form.symbol ? "Step 2 needs a ticker."
     : !priceDone ? "Step 3: the bonding valuation has to be above the opening one."
     : !splitDone ? `Step 5: the four shares add up to ${allocationSum}%. They have to make 100.`
-    : form.creatorBps > 0 && form.feeRecipient !== "" && !isAddress(form.feeRecipient) ? "Step 5 needs a valid creator fee recipient."
+    : supportsFeeRecipient && form.creatorBps > 0 && form.feeRecipient !== "" && !isAddress(form.feeRecipient) ? "Step 5 needs a valid creator fee recipient."
+    : portalGeneration.isLoading ? "Checking the launch contract version."
     : !initCodeHash ? "Still reading the deployer. One moment."
     : undefined;
 
@@ -303,7 +329,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             <p className={splitDone ? "field-note good" : "field-note bad"}>
               {splitDone ? "Adds up to 100." : `Adds up to ${allocationSum}%. It has to be 100.`}
             </p>
-            {form.creatorBps > 0 ? (
+            {supportsFeeRecipient && form.creatorBps > 0 ? (
               <Field label="Creator fee recipient"
                 error={form.feeRecipient && !isAddress(form.feeRecipient) ? "Paste a valid 0x address." : undefined}
                 help="Optional. The creator share is claimable only by this address. Leave blank to use your connected wallet.">
@@ -354,7 +380,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           <div className="flex justify-between"><span className="dim">Quoted in</span><span className="mono">{quoteSym}</span></div>
           <div className="flex justify-between"><span className="dim">Opens at</span><span className="mono">{form.openFdv || "0"} {quoteSym}</span></div>
           <div className="flex justify-between"><span className="dim">Buy / sell tax</span><span className="mono">{form.buyTax}% / {form.sellTax}%</span></div>
-          <div className="flex justify-between"><span className="dim">Creator fees to</span><span className="mono">{shortAddress(form.feeRecipient || address || zeroAddress)}</span></div>
+          <div className="flex justify-between"><span className="dim">Creator fees to</span><span className="mono">{shortAddress(supportsFeeRecipient ? (form.feeRecipient || address || zeroAddress) : (address || zeroAddress))}</span></div>
           <div className="flex justify-between"><span className="dim">Launch fee</span><span className="mono">{formatUnits(fee, 18)} ETH</span></div>
         </div>
         <WhatHappens items={[
