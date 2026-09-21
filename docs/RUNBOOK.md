@@ -144,7 +144,8 @@ anything. That is deliberate, and it fixes the order:
 ```bash
 cast send $HOOD_STAKING "setHouseToken(address)" $HOUSE_COIN \
   --rpc-url robinhood --private-key $PRIVATE_KEY
-# or, when the owner is a Safe: npm run safe -- call staking setHouseToken <coin>
+# or, when the owner is a Safe, as a batch file every signer can read before signing:
+#   npm run safe -- call $HOOD_STAKING "setHouseToken(address)" $HOUSE_COIN
 ```
 
 `setHouseToken` reverts on a second call, for anyone including the owner: a vault whose coin can be
