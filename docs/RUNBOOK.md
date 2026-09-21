@@ -196,6 +196,18 @@ That script is also the checklist for adding another asset. Before allowing anyt
 The ticker lock threshold is in that asset's units: pick roughly what a day of real volume looks
 like, the way 25 ETH and 100,000 USDG were picked.
 
+The direct machine keeps its own list, on the portal, because it is a different contract with a
+different owner path:
+
+```bash
+PRIVATE_KEY=... HOOD_PORTAL=... forge script script/AllowDirectQuotes.s.sol --rpc-url robinhood --broadcast
+```
+
+Nothing else is needed for it: the portal has always pulled an ERC-20 quote, sorted the pool by
+address and taxed whichever side the quote landed on. The app works out which side the token will
+sort into with `predictDirectToken`, because the position and both ticks depend on it, and
+`npm run check:ticks` holds that arithmetic to the numbers the fork test worked out by hand.
+
 ## 3. The server
 
 One box, one compose file, own Postgres. Not a serverless platform: the indexer is a long-lived

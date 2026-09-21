@@ -18,6 +18,7 @@
     "check:safe": "node scripts/checks/safe-batch.mjs",
     "check:curve": "node scripts/checks/curve-port.mjs",
     "check:pairs": "node scripts/checks/pair-prices.mjs",
+    "check:ticks": "node scripts/checks/direct-ticks.mjs",
     "brand": "node scripts/brand.mjs"
   },
   "keywords": [],

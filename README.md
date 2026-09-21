@@ -23,7 +23,9 @@ holders, and the liquidity itself. When the price crosses the bonding tick the l
 that is a status rather than a migration, because the liquidity was real and locked the whole time.
 
 Both machines share one registry, one ticker lock, one vault for the house coin, one points system
-and one app.
+and one app, and both can be quoted in the same assets: the chain's own currency, the dollar, and
+the tokenised shares that trade on it. A launch is priced in what you pick, holds its raise in it,
+and pays you in it.
 
 ## The fee split: four roads, not a choice
 
