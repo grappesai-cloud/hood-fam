@@ -373,7 +373,9 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             )}
 
             <Field label={`Your first buy in ${pair}`}
-              help="Optional, and it lands inside the launch transaction, so nobody can get in ahead of you. Leave it empty to launch without buying.">
+              help={isNative
+                ? "Optional, and it lands inside the launch transaction, so nobody can get in ahead of you. Leave it empty to launch without buying."
+                : `Optional, and it lands inside the launch transaction, so nobody can get in ahead of you. Paid in ${pair} out of your wallet, which means one approval first unless you are signing from a Safe.`}>
               <input className="input mono" inputMode="decimal" value={form.firstBuy}
                 onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
             </Field>
