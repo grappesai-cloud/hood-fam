@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { createPublicClient, http, parseAbiItem, zeroAddress, type Address } from "viem";
 import { robinhood } from "@hood/sdk";
+import { resolveQuote } from "./quote-resolver.js";
 
 /// What a pair amount is worth in dollars.
 ///
@@ -151,7 +152,9 @@ const poolPrices = new Map<string, { price: number; at: number }>();
 /// What one whole unit of a pair asset is worth in dollars.
 export async function pairUsdPrice(pairToken: string): Promise<number> {
   const asset = PAIR_ASSETS[pairToken.toLowerCase()];
-  if (!asset) return 0;
+  if (!asset) {
+    try { return (await resolveQuote(pairToken)).usd; } catch { return 0; }
+  }
   if (asset.isDollar) return 1;
   if (!asset.usdPool) return ethUsdPrice();
 
@@ -165,10 +168,12 @@ export async function pairUsdPrice(pairToken: string): Promise<number> {
       : ((await client.readContract({
           address: STATE_VIEW, abi: [getSlot0Abi], functionName: "getSlot0", args: [asset.usdPool.poolId],
         })) as readonly [bigint, ...unknown[]])[0];
-    // A pool's price is token1 per token0; the dollar has six decimals and a share eighteen, so the
-    // same twelve orders of magnitude go one way or the other depending on the sort order.
+    // A pool's price is token1 per token0 in RAW units, so the two decimals decide the scale: a
+    // share has eighteen and the dollar six, but wrapped bitcoin has eight, and assuming the
+    // eighteen priced it at eight hundred trillion dollars a coin.
     const raw = (Number(sqrtPriceX96) / 2 ** 96) ** 2;
-    const price = asset.usdPool.assetIsToken0 ? raw * 1e12 : 1e12 / raw;
+    const scale = 10 ** (asset.decimals - 6);
+    const price = asset.usdPool.assetIsToken0 ? raw * scale : scale / raw;
     if (Number.isFinite(price) && price > 0) poolPrices.set(pairToken, { price, at: Date.now() });
   } catch {
     // Keep the last good answer: a pool that cannot be read for a minute must not price a day of
@@ -180,6 +185,11 @@ export async function pairUsdPrice(pairToken: string): Promise<number> {
 export async function usdValue(pairToken: string, amount: bigint): Promise<number> {
   const key = pairToken.toLowerCase();
   const asset = PAIR_ASSETS[key];
-  if (!asset) return 0;
-  return (Number(amount) / 10 ** asset.decimals) * (await pairUsdPrice(key));
+  if (asset) return (Number(amount) / 10 ** asset.decimals) * (await pairUsdPrice(key));
+  try {
+    const resolved = await resolveQuote(key);
+    return (Number(amount) / 10 ** resolved.decimals) * resolved.usd;
+  } catch {
+    return 0;
+  }
 }

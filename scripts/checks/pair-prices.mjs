@@ -39,12 +39,16 @@ for (const [address, asset] of Object.entries(PAIR_ASSETS)) {
     try { claimed = await client.readContract({ address, abi: erc20Abi, functionName: "symbol" }); } catch { claimed = "unreadable"; }
   }
   const agrees = claimed === asset.symbol;
-  if (!agrees || price <= 0) bad++;
+  // A price this far from anything a person would pay is a decimals mistake, not a market: the
+  // only way to get one is to scale a pool's raw price by the wrong power of ten.
+  const absurd = price > 1_000_000 || (price > 0 && price < 1e-12);
+  if (!agrees || price <= 0 || absurd) bad++;
   console.log(
     `${asset.symbol.padEnd(6)} ${address} ${agrees ? "  " : "!!"} $${price.toFixed(2).padStart(10)}  ${onChain}`,
   );
   if (!agrees) console.log(`       the token at that address calls itself ${claimed}`);
   if (price <= 0) console.log(`       no price: trades in this pair would be credited zero points`);
+  if (absurd) console.log(`       that is not a price: check this asset's decimals against its pool`);
 }
 
 if (bad) { console.error(`\n${bad} problem(s) above.`); process.exit(1); }
