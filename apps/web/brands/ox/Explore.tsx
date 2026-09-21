@@ -79,18 +79,19 @@ export function Explore() {
 
       <section className="ox-hero">
         <div className="ox-hero-copy">
-          <div className="ox-live-pill"><i aria-hidden="true" /> Live on Robinhood Chain</div>
-          <h1>Launch a token.<br /><em>Find its family.</em></h1>
+          <div className="ox-live-pill"><i aria-hidden="true" /> A cut of the fees comes back</div>
+          <h1>Launch. Trade.<br /><em>Share the fees.</em></h1>
           <p>
-            Create and trade community tokens from the first buy to the open market. Every launch
-            starts on a transparent curve and graduates automatically into permanently locked liquidity.
+            Launch, trade or lock to earn season points. A published share of fees ox.family
+            actually collects funds the season pool, paid to eligible wallets by points. Creators
+            choose where their token&apos;s trade-fee share goes.
           </p>
           <div className="ox-hero-actions">
             <Link className="ox-primary-action" href="/launch"><span>＋</span>Create token</Link>
-            <a className="ox-secondary-action" href="#how-it-works">How it works <span>↓</span></a>
+            <Link className="ox-secondary-action" href="/airdrop">See the fee pool <span>↗</span></Link>
           </div>
           <div className="ox-trust-line">
-            <span>✓ No presale</span><span>✓ Non-custodial</span><span>✓ Locked liquidity</span>
+            <span>✓ Points for activity</span><span>✓ Creator fee wallet</span><span>✓ On-chain fee split</span>
           </div>
         </div>
         <div className="ox-hero-visual" aria-label="ox.family glass logo">

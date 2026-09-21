@@ -7,9 +7,9 @@ export const brand: Brand = {
   id: "ox",
   name: "ox.family",
   host: "ox.family",
-  tagline: "Launch on the curve. Graduate to the market.",
+  tagline: "Launch. Trade. Share the fees.",
   description:
-    "Create and trade community tokens on Robinhood Chain. Fair curves, automatic graduation and permanently locked liquidity.",
+    "Launch and trade tokens on Robinhood Chain. Eligible activity earns season points toward a share of collected fees; creators choose where their fee share goes.",
   Wordmark,
   nav: [
     { href: "/", label: "Discover" },

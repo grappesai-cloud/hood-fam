@@ -89,16 +89,15 @@ function Board() {
       <GraduationRace />
       <section className="hero" aria-labelledby="explore-title">
         <div className="hero-copy">
-          <span className="eyebrow">A cut of the fees comes back</span>
-          <h1 id="explore-title"><span>Launch. Trade.</span><span>Share the fees.</span></h1>
+          <span className="eyebrow">Live on Robinhood Chain</span>
+          <h1 id="explore-title"><span>Print a coin.</span><span>Let the fam trade it.</span></h1>
           <p>
-            Eligible launches, trades and locks earn season points. A published cut of the fees
-            hood.fam actually collects funds the drop, split by those points. Creators choose the
-            wallet that receives their token&apos;s fee share.
+            Every launch on chain 4663, on one board. Buy on the curve, watch it graduate into a
+            pool nobody can pull, and take your cut of what the house collects.
           </p>
           <div className="hero-actions">
             <Link className="btn" href="/launch">Create token</Link>
-            <Link className="btn btn-ghost" href="/airdrop">See the fee pool</Link>
+            <Link className="btn btn-ghost" href="/airdrop">See the drop</Link>
           </div>
         </div>
         <div className="hero-object" aria-hidden="true">
