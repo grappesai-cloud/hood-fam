@@ -409,7 +409,11 @@ main.site-main > :not(.home-shell) { padding-top: 44px; }
 
    The rim is the whole trick. A disc with a flat fill reads as a sticker; a disc with a bright
    outer ring, a dark inner ring and a set of milled teeth around the edge reads as metal. */
-.hero-object { position: relative; display: grid; place-items: center; min-height: 340px; perspective: 1200px; }
+/* The plane under the coin is deliberately wider than this box (it runs 16% past each edge so the
+   grid does not end where the column does), and nothing was clipping it: on a wide screen it was
+   the thing pushing the front page past the viewport. It fades out under its own mask well before
+   the cut, so clipping here costs the drawing nothing. */
+.hero-object { position: relative; display: grid; place-items: center; min-height: 340px; perspective: 1200px; overflow: hidden; }
 .hero-plane {
   position: absolute; right: -16%; bottom: 4%; left: -16%; height: 260px;
   transform: rotateX(76deg); transform-origin: 50% 100%;
