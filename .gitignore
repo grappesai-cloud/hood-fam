@@ -22,3 +22,9 @@ safe-batch-*.json
 
 # the deploy keys: generated locally, never committed
 .deploy/
+
+# the pool scan's cache: 68MB of every pool this chain ever opened, rebuilt by
+# scripts/quotes/discover.mjs in a minute from what it already has
+deploy/pools.cache.json
+# a plan is priced on the day it is drawn up, so it is made fresh rather than kept
+deploy/quotes.plan.json
