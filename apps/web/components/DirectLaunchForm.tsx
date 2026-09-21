@@ -10,6 +10,7 @@ import { fdvToTick, tickToFdv } from "@/lib/direct";
 import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
 import { Choice, Field, LaunchBar, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
+import { DirectSim } from "@/components/Sim";
 
 const SUPPLY = 1_000_000_000;
 const SPACING = 200;
@@ -212,6 +213,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               <Slider label={`Opening surcharge ${form.snipeTax}%`} hint="An extra tax at the very open, on top of the buy tax." min={0} max={89} step={1} value={form.snipeTax} onChange={(v) => set("snipeTax", v)} />
               <Slider label={`Gone after ${form.snipeSeconds}s`} hint="The surcharge falls to nothing over this many seconds." min={0} max={30} step={1} value={form.snipeSeconds} onChange={(v) => set("snipeSeconds", v)} />
             </div>
+            <DirectSim buyTax={form.buyTax} sellTax={form.sellTax} snipeTax={form.snipeTax} snipeSeconds={form.snipeSeconds} />
           </Step>
 
           <Step n={5} title="Where your nine tenths go" purpose="The protocol keeps a tenth of the tax, always. You decide what happens to the rest, once, here. The four shares have to add up to 100." done={splitDone}>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { zeroAddress, type Address } from "viem";
+import { FeeFlow } from "@/components/FeeFlow";
 import { useAccount, usePublicClient, useReadContract, useReadContracts, useWriteContract } from "wagmi";
 import { hoodLaunchHookAbi, hoodRevenueSplitterAbi, hoodLockerAbi, hoodBuybackModuleAbi, minOutFromQuote, quoteBuybackRun } from "@hood/sdk";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
@@ -141,6 +142,17 @@ export function DirectPanels({ token, hook, splitter, locker, quote, launchedAt,
           <Road label="liquidity" bps={Number(allocations[3])} amount={liquidityPot} dec={dec} sym={sym} />
           <p className="dim">A tenth goes to the protocol before any of this, and none of it can be changed.</p>
         </div>
+
+        <FeeFlow
+          token={token}
+          source={`tax on every trade`}
+          legs={[
+            { key: "stakers" as const, label: "holders", bps: Number(allocations[2]) },
+            { key: "buyback" as const, label: "burn", bps: Number(allocations[1]) },
+            { key: "liquidity" as const, label: "liquidity", bps: Number(allocations[3]) },
+            { key: "creator" as const, label: "creator", bps: Number(allocations[0]) },
+          ]}
+        />
 
         <div className="grid grid-cols-2 gap-2">
           <button className="btn btn-ghost text-xs" disabled={!address || (buybackPot === 0n && carried === 0n) || !buybackModule}

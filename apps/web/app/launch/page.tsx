@@ -10,6 +10,7 @@ import { fmt } from "@/lib/format";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
 import { Choice, Field, LaunchBar, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
+import { CurveSim } from "@/components/Sim";
 
 interface CurvePreset {
   totalSupply: bigint; curveSupplyBps: number; startCap: bigint; graduationCap: bigint;
@@ -39,9 +40,9 @@ const MACHINES = {
     meta: "the pump.fun shape",
   },
   direct: {
-    title: "Straight to the pool, with your own rules",
+    title: "Straight to the pool",
     body: "The whole supply opens in a real Uniswap pool from the first block. You set the buy and sell tax, a surcharge that punishes the first bots and decays in seconds, how long wallets are capped, and how the tax splits between you, a buyback, dividends and the liquidity. No curve, no migration.",
-    meta: "custom tax, anti-snipe, four way split",
+    meta: "tax, anti-snipe, splits",
   },
 } as const;
 
@@ -124,6 +125,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     }
   }, [receipt.isSuccess, receipt.data, router]);
 
+  const chosen = ((configs ?? []) as { result?: CurvePreset }[])[form.configId]?.result;
   const isNative = form.pairToken === zeroAddress;
   const pair = isNative ? "ETH" : "USDG";
   const firstBuyWei = form.firstBuy ? (isNative ? parseEther(form.firstBuy) : parseUnits(form.firstBuy, 6)) : 0n;
@@ -254,6 +256,19 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 );
               })}
             </div>
+            {chosen && (
+              <CurveSim
+                p0={(chosen.startCap * 10n ** 18n) / chosen.totalSupply}
+                p1={(chosen.graduationCap * 10n ** 18n) / chosen.totalSupply}
+                curveSupply={(chosen.totalSupply * BigInt(chosen.curveSupplyBps)) / 10_000n}
+                totalSupply={chosen.totalSupply}
+                dec={isNative ? 18 : 6}
+                sym={pair}
+                feeBps={chosen.protocolFeeBps + chosen.creatorFeeBps}
+                ticker={form.symbol}
+              />
+            )}
+
             <Field label={`Your first buy in ${pair}`}
               help="Optional, and it lands inside the launch transaction, so nobody can get in ahead of you. Leave it empty to launch without buying.">
               <input className="input mono" inputMode="decimal" value={form.firstBuy}

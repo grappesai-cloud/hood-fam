@@ -522,9 +522,11 @@ main.site-main > :not(.home-shell) { padding-top: 44px; }
 .choice { position: relative; display: block; overflow: hidden; width: 100%; border: 1px solid var(--glass-line); border-radius: 18px; padding: 14px 40px 14px 15px; background: var(--glass); box-shadow: var(--glass-shadow); text-align: left; transition: border-color .18s, box-shadow .18s, background .18s; }
 .choice:hover { border-color: var(--glass-hover-line); }
 .choice.on { border-color: #ccff0073; background: linear-gradient(158deg, #ccff0014, #ffffff05 46%), #0c0e09; box-shadow: var(--glass-shadow), 0 0 34px -14px #ccff00b3; }
-.choice-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.choice-title { color: #fff; font-size: 14px; font-weight: 700; letter-spacing: -.02em; }
-.choice-meta { flex: none; color: #8f958a; font-family: var(--font-mono); font-size: 11px; }
+/* The title comes first and the tag gives way: a tag that refused to shrink (`flex: none`) squeezed
+   a long title into a one-word column. Now the tag drops onto its own line when both cannot fit. */
+.choice-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.choice-title { flex: 1 1 auto; min-width: 0; color: #fff; font-size: 14px; font-weight: 700; letter-spacing: -.02em; }
+.choice-meta { flex: 0 1 auto; margin-left: auto; color: #8f958a; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
 .choice-body { display: block; margin-top: 5px; color: #8f958a; font-size: 12.5px; line-height: 1.5; }
 .choice.on .choice-body { color: #a9b09e; }
 .choice-mark { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 19px; height: 19px; border: 1px solid var(--glass-line); border-radius: 50%; color: #0d1100; font-size: 11px; }
@@ -1067,3 +1069,61 @@ a.race-lead:hover .race-go { color: var(--color-lime); }
   background: color-mix(in oklab, var(--color-lime) 12%, transparent);
 }
 .token-art .token-locked { position: absolute; left: 0.6rem; bottom: 0.6rem; }
+
+/* ---- the fee, moving ------------------------------------------------------------------------
+   The diagram in `FeeFlow.tsx`. Everything that runs on its own is small and slow; everything
+   loud is a reaction to a real trade landing on a leg, so the page is never busy for its own sake. */
+.feeflow { margin-top: 10px; }
+.feeflow-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.feeflow-waiting { margin-top: 6px; color: #8f958a; font-family: var(--font-mono); font-size: 11px; text-align: center; }
+
+.ff-chip { fill: #ffffff0f; stroke: var(--glass-line); }
+.ff-chip-text { fill: #cfd6c6; font-size: 10.5px; font-family: var(--font-mono); text-anchor: middle; }
+.ff-lane { fill: none; stroke: var(--color-lime, #ccff00); stroke-opacity: .26; stroke-linecap: round; }
+.ff-coin { fill: var(--color-lime, #ccff00); filter: drop-shadow(0 0 5px #ccff0099); }
+
+.ff-node-box { fill: #ffffff08; stroke: var(--glass-line); transition: fill .3s, stroke .3s; }
+.ff-glyph { fill: none; stroke: #8f958a; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: stroke .3s; }
+.ff-pct { fill: #fff; font-size: 12px; font-weight: 700; text-anchor: middle; }
+.ff-leg { fill: #8f958a; font-size: 9px; font-family: var(--font-mono); text-anchor: middle; }
+
+/* The flame is alive before anything lands on it, the way a pilot light is. */
+.ff-buyback .ff-flame { fill: #ccff0014; animation: ff-pilot 2.6s ease-in-out infinite; transform-origin: 14px 24px; }
+@keyframes ff-pilot { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.09) scaleX(.97); } }
+
+/* Landing. One class, four readings. */
+.ff-node { animation: none; }
+.ff-node.ff-hit { animation: ff-thump .52s cubic-bezier(.2, .9, .2, 1); }
+.ff-node.ff-hit .ff-node-box { fill: #ccff001f; stroke: #ccff0073; }
+.ff-node.ff-hit .ff-glyph { stroke: var(--color-lime, #ccff00); }
+.ff-buyback.ff-hit .ff-flame { fill: #ccff0066; animation: ff-flare .52s ease-out; }
+@keyframes ff-thump { 0% { transform: scale(1); } 34% { transform: scale(1.13); } 100% { transform: scale(1); } }
+@keyframes ff-flare { 0% { transform: scale(1); } 30% { transform: scale(1.35) translateY(-2px); } 100% { transform: scale(1); } }
+.ff-liquidity.ff-hit .ff-glyph { animation: ff-rise .52s ease-out; }
+@keyframes ff-rise { 0% { transform: translateY(4px); } 100% { transform: translateY(0); } }
+.ff-stakers.ff-hit .ff-glyph { animation: ff-pay .52s ease-out; }
+@keyframes ff-pay { 0% { transform: translateY(-3px); } 60% { transform: translateY(2px); } 100% { transform: translateY(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ff-buyback .ff-flame, .ff-node.ff-hit, .ff-node.ff-hit .ff-glyph { animation: none; }
+  .ff-buyback .ff-flame { fill: #ccff0033; }
+}
+
+/* ---- the simulator --------------------------------------------------------------------------
+   `Sim.tsx`, inside a wizard step. It sits under the choice it explains, so the chart and the
+   dials read as part of the decision rather than as a widget bolted to the page. */
+.sim { margin-top: 12px; border: 1px solid var(--glass-line); border-radius: 16px; padding: 12px; background: #ffffff05; }
+.sim-chart { display: block; width: 100%; height: auto; margin-bottom: 8px; }
+.sim-area { fill: #ffffff08; }
+.sim-band { fill: #ccff0026; }
+.sim-line { fill: none; stroke: var(--color-lime, #ccff00); stroke-width: 1.8; stroke-linecap: round; }
+.sim-dot { fill: var(--color-lime, #ccff00); filter: drop-shadow(0 0 6px #ccff00aa); }
+.sim-axis { fill: #8f958a; font-family: var(--font-mono); font-size: 8.5px; }
+.sim-axis-end { text-anchor: end; }
+.sim-out { display: grid; gap: 6px; margin-top: 10px; }
+.sim-row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 4px 10px; }
+.sim-row-label { color: #8f958a; font-size: 12px; }
+.sim-row-value { color: #fff; font-size: 12.5px; text-align: right; }
+.sim-row-note { grid-column: 1 / -1; color: #6f756b; font-size: 10.5px; }
+.sim-row-strong .sim-row-value { color: var(--color-lime, #ccff00); font-size: 14px; font-weight: 700; }
+.sim-note { margin-top: 10px; color: #6f756b; font-size: 10.5px; line-height: 1.5; }

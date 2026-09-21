@@ -26,8 +26,9 @@ const Chart = dynamic(() => import("@/components/Chart").then((m) => m.Chart), {
   loading: () => <div className="h-[320px] w-full animate-pulse rounded-xl bg-[var(--color-ink)]" />,
 });
 import { StakePanel } from "@/components/StakePanel";
-import { ago, compact, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, paysStakers, safeUrl, screenerLinks, shortAddress, splitLabel, telegramUrl, twitterUrl } from "@/lib/format";
+import { ago, compact, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, paysStakers, safeUrl, splitOf, screenerLinks, shortAddress, splitLabel, telegramUrl, twitterUrl } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
+import { FeeFlow } from "@/components/FeeFlow";
 
 interface PoolKey { currency0: Address; currency1: Address; fee: number; tickSpacing: number; hooks: Address }
 
@@ -199,10 +200,12 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
             <p className="mt-1 text-xs dim">
               Chosen at launch and locked. Nobody, including us, can point it somewhere else.
             </p>
-            <div className="mt-3 flex items-center justify-between text-xs">
-              <span className="dim">waiting to be pushed</span>
-              <span className="mono">{fmt((accrued as bigint | undefined) ?? 0n, dec, 6)} {sym}</span>
-            </div>
+            <FeeFlow
+              legs={splitOf(data).map((l) => ({ key: l.leg, label: l.label, bps: l.bps }))}
+              token={data.token}
+              source={`fee on every trade`}
+              waiting={`${fmt((accrued as bigint | undefined) ?? 0n, dec, 6)} ${sym} waiting to be pushed`}
+            />
             <button className="btn btn-ghost mt-2 w-full text-xs"
               disabled={!me || ((accrued as bigint | undefined) ?? 0n) === 0n}
               onClick={() => writeContractAsync({
