@@ -29,9 +29,11 @@ contract AllowQuotes is Script {
         uint256[] memory thresholds = _uints(plan, ".lockThresholds");
         uint256[] memory startCaps = _uints(plan, ".startCaps");
         uint256[] memory graduationCaps = _uints(plan, ".graduationCaps");
+        // Not every quote the pad takes can carry a curve: see the note in scripts/quotes/plan.mjs.
+        bool[] memory curvePresets = vm.parseJsonBoolArray(plan, ".curvePresets");
         require(
             assets.length == thresholds.length && assets.length == startCaps.length
-                && assets.length == graduationCaps.length,
+                && assets.length == graduationCaps.length && assets.length == curvePresets.length,
             "the plan's columns are different lengths"
         );
 
@@ -44,7 +46,7 @@ contract AllowQuotes is Script {
                 factory.setPair(assets[i], true, thresholds[i]);
                 pairs++;
             }
-            if (!_hasPreset(factory, assets[i], startCaps[i], graduationCaps[i])) {
+            if (curvePresets[i] && !_hasPreset(factory, assets[i], startCaps[i], graduationCaps[i])) {
                 factory.addConfig(
                     CurveConfig({
                         pairToken: assets[i],

@@ -40,6 +40,17 @@ function readable(value) {
 }
 
 const units = (dollars, price) => readable(dollars / price);
+
+/// Every preset hands the curve one number for the opening price: the start cap spread over the
+/// supply, in the pair's own units. An asset whose smallest unit is worth more than a token at
+/// the open rounds that price to zero, which would be free tokens, so the factory refuses the
+/// preset outright. cbBTC is the live example: eight decimals at eighty five thousand dollars
+/// means one unit is worth a tenth of a cent, and a billion tokens opening at a few thousand
+/// dollars are worth a thousandth of that each. Such an asset still becomes a pair and a direct
+/// quote, where the price carries far more precision; it simply gets no curve preset.
+const TOTAL_SUPPLY = 1_000_000_000n * 10n ** 18n;
+const WAD = 10n ** 18n;
+const openingPrice = (startCapWei) => (BigInt(startCapWei) * WAD) / TOTAL_SUPPLY;
 const toWei = (whole, decimals) => {
   // whole may be fractional; go through a string so 0.1 with eighteen decimals is exact
   const [int, frac = ""] = String(whole).split(".");
@@ -70,15 +81,20 @@ for (const a of unique.slice(0, MAX)) {
   const bond = open * 10;
   const lock = units(LOCK_USD, a.usd);
   if (!(open > 0) || !(lock > 0)) continue;
+  const startCap = toWei(open, a.decimals);
+  const curve = openingPrice(startCap) > 0n;
   rows.push({
     address: a.address,
     symbol: a.symbol,
     decimals: a.decimals,
     usd: a.usd,
+    curve,
     lockThreshold: toWei(lock, a.decimals),
-    startCap: toWei(open, a.decimals),
+    startCap,
     graduationCap: toWei(bond, a.decimals),
-    reads: `opens at ${open} ${a.symbol} (about $${Math.round(open * a.usd).toLocaleString()}), graduates at ${bond}, ticker locks over ${lock} in a day`,
+    reads: curve
+      ? `opens at ${open} ${a.symbol} (about $${Math.round(open * a.usd).toLocaleString()}), graduates at ${bond}, ticker locks over ${lock} in a day`
+      : `pair and direct quote only: one ${a.symbol} unit is worth more than a token at the open, so the curve cannot price it`,
   });
 }
 
@@ -89,6 +105,7 @@ const plan = {
   lockUsd: LOCK_USD,
   assets: rows.map((r) => r.address),
   symbols: rows.map((r) => r.symbol),
+  curvePresets: rows.map((r) => r.curve),
   lockThresholds: rows.map((r) => r.lockThreshold),
   startCaps: rows.map((r) => r.startCap),
   graduationCaps: rows.map((r) => r.graduationCap),
@@ -97,4 +114,8 @@ const plan = {
 writeFileSync(join(ROOT, "deploy/quotes.plan.json"), `${JSON.stringify(plan, null, 2)}\n`);
 
 for (const r of rows) console.log(`${r.symbol.padEnd(10)} ${r.reads}`);
+const noCurve = rows.filter((r) => !r.curve);
 console.log(`\n${rows.length} assets -> deploy/quotes.plan.json (apply with script/AllowQuotes.s.sol)`);
+console.log(`${rows.length - noCurve.length} of them get a curve preset${
+  noCurve.length ? `; ${noCurve.map((r) => r.symbol).join(", ")} can only be a direct quote` : ""
+}`);
