@@ -1,3 +1,3 @@
 /* The stylesheet of the brand this build is, and only that one. Written by `npm run brand -- <id>`
    next to `brands/current.ts`, so a build never carries another brand's CSS. */
-@import "../brands/hood/theme.css";
+@import "../brands/ox/theme.css";

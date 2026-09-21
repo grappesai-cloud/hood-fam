@@ -27,6 +27,8 @@ contract AddStockPairs is Script {
     address internal constant NVDA = 0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC;
     address internal constant GME = 0x1b0E319c6A659F002271B69dB8A7df2F911c153E;
     address internal constant SPY = 0x117cc2133c37B721F49dE2A7a74833232B3B4C0C;
+    address internal constant SPCX = 0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa;
+    address internal constant AAPL = 0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9;
 
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
@@ -39,10 +41,14 @@ contract AddStockPairs is Script {
         _pair(factory, NVDA, 300e18, "NVDA");
         _pair(factory, GME, 3_000e18, "GME");
         _pair(factory, SPY, 90e18, "SPY");
+        _pair(factory, SPCX, 450e18, "SPCX");
+        _pair(factory, AAPL, 210e18, "AAPL");
 
         _preset(factory, NVDA, "NVDA", 12e18, 120e18);
         _preset(factory, GME, "GME", 120e18, 1_200e18);
         _preset(factory, SPY, "SPY", 3.5e18, 35e18);
+        _preset(factory, SPCX, "SPCX", 18e18, 180e18);
+        _preset(factory, AAPL, "AAPL", 8e18, 80e18);
 
         vm.stopBroadcast();
 
@@ -58,9 +64,22 @@ contract AddStockPairs is Script {
         console.log("allowed:", name);
     }
 
+    /// @dev Presets are append-only, so running this twice would leave the wizard showing the same
+    ///      shape twice. Skipped when an enabled preset for that pair and those caps already exists.
     function _preset(HoodFactory factory, address pairToken, string memory name, uint256 startCap, uint256 graduationCap)
         internal
     {
+        uint256 count = factory.configCount();
+        for (uint256 i; i < count; i++) {
+            CurveConfig memory existing = factory.getConfig(i);
+            if (
+                existing.enabled && existing.pairToken == pairToken && existing.startCap == startCap
+                    && existing.graduationCap == graduationCap
+            ) {
+                console.log("preset already there for", name);
+                return;
+            }
+        }
         uint256 id = factory.addConfig(
             CurveConfig({
                 pairToken: pairToken,

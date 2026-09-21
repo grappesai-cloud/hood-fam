@@ -40,6 +40,10 @@ const SECURITY_HEADERS = [
 /** @type {import('next').NextConfig} */
 export default {
   reactStrictMode: true,
+  // Local design work can run beside a production build or the screenshot harness. Giving the
+  // dev server its own dist directory prevents `next build` from replacing files underneath a
+  // running `next dev` process (which otherwise surfaces as a missing routes-manifest and a 500).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // The app talks to its own indexer, which is deployed beside it. No third party in the data path.
   env: { NEXT_PUBLIC_BUILD: new Date().toISOString() },
   async headers() {

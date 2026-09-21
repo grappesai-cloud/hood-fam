@@ -81,6 +81,14 @@ export const PAIR_ASSETS: Record<string, PairAsset> = {
     symbol: "SPY", decimals: 18,
     usdPool: { pool: "0xa7bb1ac63bbab0c44316e6c8c455213441689167", assetIsToken0: true },
   },
+  "0x4a0e65a3eccec6dbe60ae065f2e7bb85fae35eea": {
+    symbol: "SPCX", decimals: 18,
+    usdPool: { pool: "0xc61284332117c3fb23a2a56cceffd07f7af60029", assetIsToken0: true },
+  },
+  "0xaf3d76f1834a1d425780943c99ea8a608f8a93f9": {
+    symbol: "AAPL", decimals: 18,
+    usdPool: { pool: "0xaae0d815ee56e4092a5e5c2911e676fea50b2d6d", assetIsToken0: false },
+  },
 };
 
 const slot0Abi = parseAbiItem(
