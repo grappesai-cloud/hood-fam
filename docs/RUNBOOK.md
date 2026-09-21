@@ -170,6 +170,32 @@ The copycat lock threshold is set per pair (`setPair`) and is denominated in tha
 there is no oracle inside the trade path. 25 ETH of volume inside 24 hours locks a ticker and its
 artwork for 48 hours.
 
+## 2a. Pairs: what a launch can trade against
+
+A launch is quoted in one asset, holds its raise in it, and pays its creator in it. The factory's
+allow list decides which, and the app reads that list rather than carrying its own, so adding one
+is two owner calls and no deploy:
+
+```bash
+PRIVATE_KEY=... HOOD_FACTORY=... forge script script/AddStockPairs.s.sol --rpc-url robinhood --broadcast
+```
+
+That script is also the checklist for adding another asset. Before allowing anything, establish:
+
+- **it is an ERC-20 that will move.** Read `symbol()` and `decimals()` off the token, and simulate
+  a transfer to a contract (`cast call <token> "transfer(address,uint256)" <a contract> 1 --from
+  <a holder>`). A share that refuses to move to a contract can never sit in a curve.
+- **it can be priced.** Add it to `PAIR_ASSETS` in `apps/api/src/price.ts` with the pool it trades
+  against the dollar in, then run `npm run check:pairs`. A pair with no price is a pair whose
+  trades earn nobody any points, silently.
+- **it has a preset.** A preset's caps are in the pair's own units and are never edited, so each
+  asset needs its own, sized to a sane opening valuation. The wizard hides presets whose caps make
+  no sense for the chosen pair, which is also how a missing preset shows up: the pair is offered
+  and nothing can be launched on it.
+
+The ticker lock threshold is in that asset's units: pick roughly what a day of real volume looks
+like, the way 25 ETH and 100,000 USDG were picked.
+
 ## 3. The server
 
 One box, one compose file, own Postgres. Not a serverless platform: the indexer is a long-lived

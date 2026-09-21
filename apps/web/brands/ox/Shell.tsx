@@ -13,58 +13,48 @@ import { SupportChatMount } from "@/components/SupportChatMount";
 import { brand } from "@/brands";
 import { Wordmark } from "./Wordmark";
 
-const ICONS: Record<string, string> = {
-  "/": "⌂",
-  "/launch": "+",
-  "/portfolio": "◫",
-  "/leaderboard": "↗",
-  "/lock": "◇",
-  "/airdrop": "✦",
-  "/bridge": "⇄",
-};
+const PRIMARY_NAV = [
+  { href: "/", label: "Discover" },
+  { href: "/portfolio", label: "Portfolio" },
+  { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/lock", label: "Lock" },
+  { href: "/airdrop", label: "Drop" },
+] as const;
 
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
 
   return (
     <div className="ox-app-shell">
-      <aside className="ox-sidebar">
-        <Link href="/" className="ox-brand-link" aria-label={`${brand.name} home`}>
-          <Wordmark />
-        </Link>
+      <header className="ox-topbar">
+        <div className="ox-topbar-inner">
+          <Link href="/" className="ox-brand-link" aria-label={`${brand.name} home`}><Wordmark /></Link>
+          <span className="ox-product-name"><i aria-hidden="true" />Launchpad</span>
 
-        <nav className="ox-nav" aria-label="Main navigation">
-          {brand.nav.map((item) => {
-            const active = item.href === "/" ? path === "/" : path.startsWith(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={active ? "ox-nav-link active" : "ox-nav-link"}
-                aria-current={active ? "page" : undefined}
-              >
-                <span className="ox-nav-icon" aria-hidden="true">{ICONS[item.href] ?? "·"}</span>
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+          <nav className="ox-nav" aria-label="Launchpad navigation">
+            {PRIMARY_NAV.map((item) => {
+              const active = item.href === "/" ? path === "/" : path.startsWith(item.href);
+              return <Link key={item.href} href={item.href} className={active ? "ox-nav-link active" : "ox-nav-link"}>{item.label}</Link>;
+            })}
+          </nav>
 
-        <div className="ox-sidebar-bottom">
-          <div className="ox-chain-status">
-            <i aria-hidden="true" />
-            <span><b>Robinhood Chain</b><small>Network {robinhood.id}</small></span>
+          <div className="ox-top-actions">
+            <nav className="ox-app-switcher" aria-label="OX apps">
+              <Link href="/analytics">Analytics</Link>
+              <Link href="/bridge">Bridge</Link>
+            </nav>
+            <Link className="ox-launch-button" href="/launch"><span>＋</span>Launch token</Link>
+            <Wallet />
           </div>
-          <Wallet />
-          <p className="ox-side-note">Trade carefully. Tokens can lose all value.</p>
         </div>
-      </aside>
+
+        <div className="ox-network-line">
+          <span><i aria-hidden="true" /> Robinhood Chain <b>{robinhood.id}</b></span>
+          <span>Fair curves</span><span>Automatic graduation</span><span>Locked liquidity</span>
+        </div>
+      </header>
 
       <div className="ox-content-column">
-        <header className="ox-mobile-head">
-          <Link href="/" aria-label={`${brand.name} home`}><Wordmark /></Link>
-          <Wallet compact />
-        </header>
         <SafeStrip />
         <DemoBanner />
         <main className="site-main ox-main">{children}</main>
@@ -72,19 +62,25 @@ export function Shell({ children }: { children: ReactNode }) {
           <Wordmark />
           <p>Community tokens are volatile and may lose all value. Verify the contract address before trading. {brand.copy.footnote}</p>
           <nav aria-label="Legal">
-            <Link href="/analytics">Analytics</Link>
-            <Link href="/terms">Terms</Link>
-            <Link href="/privacy">Privacy</Link>
+            <Link href="/analytics">Analytics</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
           </nav>
         </footer>
       </div>
+
+      <nav className="ox-mobile-nav" aria-label="Mobile navigation">
+        <Link className={path === "/" ? "active" : ""} href="/"><span>⌂</span>Discover</Link>
+        <Link className={path.startsWith("/portfolio") ? "active" : ""} href="/portfolio"><span>◫</span>Portfolio</Link>
+        <Link className="create" href="/launch"><span>＋</span>Launch</Link>
+        <Link className={path.startsWith("/leaderboard") ? "active" : ""} href="/leaderboard"><span>↗</span>Board</Link>
+        <Link className={path.startsWith("/lock") ? "active" : ""} href="/lock"><span>◇</span>Lock</Link>
+      </nav>
 
       <SupportChatMount />
     </div>
   );
 }
 
-function Wallet({ compact = false }: { compact?: boolean }) {
+function Wallet() {
   const { address, isConnected } = useAccount();
   const { connect, isPending } = useConnect();
   const { disconnect } = useDisconnect();
@@ -95,18 +91,14 @@ function Wallet({ compact = false }: { compact?: boolean }) {
     return (
       <button className="ox-wallet" onClick={() => disconnect()} title="Disconnect wallet">
         <span className="ox-wallet-dot" aria-hidden="true" />
-        {safe && !compact ? `Safe ${safe.threshold}/${safe.owners.length} · ` : ""}{shortAddress(address)}
+        {safe ? `Safe ${safe.threshold}/${safe.owners.length} · ` : ""}{shortAddress(address)}
       </button>
     );
   }
 
   return (
-    <button
-      className="ox-wallet ox-wallet-connect"
-      disabled={isPending || !connector}
-      onClick={() => connector && connect({ connector })}
-    >
-      {isPending ? "Connecting…" : compact ? "Connect" : "Connect wallet"}
+    <button className="ox-wallet ox-wallet-connect" disabled={isPending || !connector} onClick={() => connector && connect({ connector })}>
+      {isPending ? "Connecting…" : "Connect"}
     </button>
   );
 }

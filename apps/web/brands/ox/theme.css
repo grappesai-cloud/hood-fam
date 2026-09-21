@@ -314,3 +314,129 @@ html[data-brand="ox"] .page-intro h1 em, html[data-brand="ox"] .page-panel-title
   .ox-footer { margin: 0 13px; }
   html[data-brand="ox"] .safe-strip, html[data-brand="ox"] .demo-strip { margin: 0 12px; }
 }
+
+/* -------------------------------------------------------------------------------- v2 chrome
+   The launchpad is now one product in the OX ecosystem. A horizontal product bar keeps that fact
+   visible and gives the market enough width for the dense board below. */
+.ox-topbar { position: sticky; z-index: 80; top: 0; border-bottom: 1px solid #ffffff12; background: #070805f2; backdrop-filter: blur(24px) saturate(145%); }
+.ox-topbar-inner { display: flex; width: min(100%, 1600px); height: 66px; align-items: center; gap: 15px; margin: 0 auto; padding: 0 25px; }
+.ox-topbar .ox-brand-link { min-height: 44px; padding: 0; }
+.ox-product-name { display: inline-flex; align-items: center; gap: 7px; min-height: 31px; border-left: 1px solid #ffffff17; padding-left: 15px; color: #c8cec1; font-size: 11px; font-weight: 650; }
+.ox-product-name i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-lime); box-shadow: 0 0 10px #b9ff36; }
+.ox-topbar .ox-nav { display: flex; align-items: stretch; gap: 0; margin: 0 0 0 10px; }
+.ox-topbar .ox-nav-link { min-height: 66px; border: 0; border-radius: 0; padding: 0 10px; color: #838a7d; font-size: 11px; }
+.ox-topbar .ox-nav-link:hover { background: transparent; color: #fff; transform: none; }
+.ox-topbar .ox-nav-link.active { border: 0; background: transparent; color: #fff; box-shadow: inset 0 -2px 0 var(--color-lime); }
+.ox-top-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.ox-app-switcher { display: flex; align-items: center; gap: 2px; border: 1px solid #ffffff14; border-radius: 12px; padding: 3px; background: #ffffff05; }
+.ox-app-switcher a { display: inline-flex; min-height: 30px; align-items: center; border-radius: 9px; padding: 0 9px; color: #81887b; font-size: 9px; font-weight: 650; }
+.ox-app-switcher a:hover { background: #ffffff09; color: #fff; }
+.ox-launch-button { display: inline-flex; min-height: 39px; align-items: center; gap: 6px; border: 1px solid var(--color-lime); border-radius: 11px; padding: 0 14px; background: var(--color-lime); color: #101700; font-size: 10px; font-weight: 760; box-shadow: 0 12px 30px -18px #b9ff36; }
+.ox-launch-button:hover { background: var(--color-lime-soft); }
+.ox-launch-button span { font-size: 15px; font-weight: 400; }
+.ox-topbar .ox-wallet { width: auto; min-width: 88px; min-height: 39px; }
+.ox-network-line { display: flex; min-height: 31px; align-items: center; gap: 23px; border-top: 1px solid #ffffff0b; padding: 0 max(25px, calc((100vw - 1550px) / 2)); color: #5f665b; font-size: 8px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
+.ox-network-line > span:first-child { color: #8e9688; }
+.ox-network-line i { display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: var(--color-lime); box-shadow: 0 0 7px #b9ff36; }
+.ox-network-line b { color: var(--color-lime); font-family: var(--font-mono); font-weight: 500; }
+.ox-content-column { margin-left: 0; }
+main.site-main.ox-main { padding-right: 25px; padding-left: 25px; }
+.ox-mobile-nav { display: none; }
+
+/* The fast tape is the market equivalent of a shop window: movement before explanation. */
+.ox-live-tape { display: flex; min-height: 43px; align-items: center; gap: 0; overflow: hidden; margin: 0 0 11px; border: 1px solid #ffffff12; border-top: 0; border-radius: 0 0 14px 14px; background: #090b07; }
+.ox-tape-label { display: inline-flex; align-self: stretch; align-items: center; gap: 6px; border-right: 1px solid #ffffff11; padding: 0 14px; color: #c4cbbd; font-family: var(--font-mono); font-size: 8px; font-weight: 700; }
+.ox-tape-label i { width: 5px; height: 5px; border-radius: 50%; background: var(--color-lime); box-shadow: 0 0 7px #b9ff36; }
+.ox-tape-run { display: flex; min-width: 0; flex: 1; overflow: hidden; }
+.ox-tape-run a { display: inline-flex; min-width: max-content; align-items: center; gap: 7px; border-right: 1px solid #ffffff0d; padding: 0 15px; color: #747b70; font-family: var(--font-mono); font-size: 8px; }
+.ox-tape-run a:hover { background: #ffffff05; color: #fff; }
+.ox-tape-run b { color: #d9ded3; font-size: 9px; }
+.ox-tape-run a:first-child b { color: var(--color-lime); }
+.ox-tape-action { display: inline-flex; align-self: stretch; align-items: center; gap: 7px; border-left: 1px solid #ffffff11; padding: 0 14px; color: #a8afa2; font-size: 9px; font-weight: 650; white-space: nowrap; }
+.ox-tape-action:hover, .ox-tape-action span { color: var(--color-lime); }
+.ox-live-tape + .ox-hero { border-top: 1px solid #ffffff11; border-radius: 30px; }
+
+/* Two ways to read the same market: scan a Flap-like board or browse a Pump-like card wall. */
+.ox-view-switch { display: flex; flex: none; gap: 3px; border: 1px solid #ffffff13; border-radius: 12px; padding: 4px; background: #0a0c08; }
+.ox-view-switch button { display: grid; width: 38px; height: 38px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #697064; font-size: 14px; cursor: pointer; }
+.ox-view-switch button:hover { color: #fff; }
+.ox-view-switch button.active { background: #ffffff0d; color: var(--color-lime); box-shadow: inset 0 0 0 1px #ffffff0c; }
+.ox-board-wrap { overflow-x: auto; border: 1px solid #ffffff15; border-radius: 17px; background: #080a07; scrollbar-color: #b9ff3630 transparent; }
+.ox-board-table { width: 100%; min-width: 1040px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.ox-board-table thead { background: #ffffff06; }
+.ox-board-table th { height: 44px; padding: 0 14px; color: #686f64; font-family: var(--font-mono); font-size: 8px; font-weight: 650; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+.ox-board-table tbody tr { position: relative; border-top: 1px solid #ffffff0d; transition: background .14s, box-shadow .14s; }
+.ox-board-table tbody tr:hover { background: #b9ff3606; box-shadow: inset 2px 0 0 var(--color-lime); }
+.ox-board-table td { height: 66px; padding: 0 14px; color: #dce1d7; font-family: var(--font-mono); font-size: 10px; white-space: nowrap; }
+.ox-board-table td > strong, .ox-board-progress-label b { display: block; color: #e8ece4; font-size: 10px; font-weight: 650; }
+.ox-board-table td > small, .ox-board-progress-label small { display: block; margin-top: 4px; color: #60675d; font-size: 8px; }
+.ox-board-token { display: flex; min-width: 190px; align-items: center; gap: 10px; }
+.ox-board-token img, .ox-board-token > div { border-radius: 10px !important; }
+.ox-board-token > div { display: grid; place-items: center; color: var(--color-lime); }
+.ox-board-token > span { display: grid; min-width: 0; gap: 4px; }
+.ox-board-token strong { color: #f2f5ef; font-family: Inter, sans-serif; font-size: 11px; }
+.ox-board-token small { max-width: 160px; overflow: hidden; color: #676e63; font-size: 8px; text-overflow: ellipsis; }
+.ox-board-progress-label { display: flex; align-items: baseline; justify-content: space-between; gap: 9px; }
+.ox-board-progress-label small { margin: 0; }
+.ox-board-progress { display: block; width: 115px; height: 4px; overflow: hidden; margin-top: 7px; border-radius: 100px; background: #ffffff0c; }
+.ox-board-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #76a900, var(--color-lime)); box-shadow: 0 0 8px #b9ff3650; }
+.ox-board-progress.done i { background: #8c9485; box-shadow: none; }
+.ox-board-trade { display: inline-flex; min-height: 30px; align-items: center; gap: 6px; border: 1px solid #b9ff3637; border-radius: 9px; padding: 0 10px; background: #b9ff360a; color: var(--color-lime); font-family: Inter, sans-serif; font-size: 9px; font-weight: 700; }
+.ox-board-trade:hover { background: var(--color-lime); color: #101700; }
+
+@media (max-width: 1180px) {
+  .ox-topbar .ox-nav-link { padding: 0 7px; }
+  .ox-app-switcher { display: none; }
+  .ox-product-name { display: none; }
+}
+
+@media (max-width: 900px) {
+  .ox-topbar-inner { height: 62px; padding: 0 15px; }
+  .ox-topbar .ox-nav { display: none; }
+  .ox-topbar .ox-brand-link { margin-right: auto; }
+  .ox-network-line { min-height: 28px; gap: 15px; overflow: hidden; padding: 0 15px; white-space: nowrap; }
+  .ox-network-line span:nth-child(n + 3) { display: none; }
+  main.site-main.ox-main { padding-right: 15px; padding-left: 15px; }
+  .ox-live-tape { margin-bottom: 8px; }
+  .ox-tape-action { display: none; }
+  .ox-discover-controls { flex-wrap: wrap; }
+  .ox-search { flex-basis: 100%; }
+  .ox-sort-tabs { flex: 1; }
+}
+
+@media (max-width: 640px) {
+  .ox-topbar-inner { padding: 0 11px; }
+  .ox-topbar .ox-wordmark-mark { width: 31px; }
+  .ox-topbar .ox-wordmark-name { font-size: 17px; }
+  .ox-topbar .ox-wallet { min-width: 72px; padding: 0 10px; }
+  .ox-launch-button { min-width: 39px; justify-content: center; padding: 0 10px; font-size: 0; }
+  .ox-launch-button span { font-size: 18px; }
+  .ox-network-line { font-size: 7px; }
+  main.site-main.ox-main { padding-right: 10px; padding-bottom: 105px; padding-left: 10px; }
+  .ox-live-tape { margin-right: -10px; margin-left: -10px; border-right: 0; border-left: 0; border-radius: 0; }
+  .ox-tape-run a { padding: 0 11px; }
+  .ox-live-tape + .ox-hero { border-radius: 22px; }
+  .ox-sort-tabs button { padding: 0 8px; }
+  .ox-view-switch button { width: 36px; }
+  .ox-board-table { min-width: 0; }
+  .ox-board-table th:nth-child(3), .ox-board-table td:nth-child(3),
+  .ox-board-table th:nth-child(4), .ox-board-table td:nth-child(4),
+  .ox-board-table th:nth-child(5), .ox-board-table td:nth-child(5),
+  .ox-board-table th:nth-child(7), .ox-board-table td:nth-child(7) { display: none; }
+  .ox-board-table th, .ox-board-table td { padding-right: 8px; padding-left: 8px; }
+  .ox-board-token { min-width: 132px; gap: 8px; }
+  .ox-board-token img, .ox-board-token > div { width: 36px !important; height: 36px !important; }
+  .ox-board-token small { max-width: 88px; }
+  .ox-board-progress { width: 76px; }
+  .ox-board-progress-label small { display: none; }
+  .ox-board-trade { min-width: 33px; justify-content: center; padding: 0 8px; font-size: 0; }
+  .ox-board-trade span { font-size: 12px; }
+  .ox-mobile-nav { position: fixed; z-index: 75; right: 8px; bottom: 8px; left: 8px; display: grid; grid-template-columns: repeat(5, 1fr); min-height: 62px; border: 1px solid #ffffff1b; border-radius: 17px; padding: 5px; background: #0a0c08eb; box-shadow: 0 20px 60px #000; backdrop-filter: blur(18px); }
+  .ox-mobile-nav a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-radius: 11px; color: #70776b; font-size: 7px; font-weight: 650; }
+  .ox-mobile-nav a span { font-size: 14px; }
+  .ox-mobile-nav a.active { background: #ffffff09; color: #fff; }
+  .ox-mobile-nav a.active span { color: var(--color-lime); }
+  .ox-mobile-nav a.create { margin: -12px 3px 2px; background: var(--color-lime); color: #101700; box-shadow: 0 10px 28px -12px #b9ff36; }
+  .ox-mobile-nav a.create span { font-size: 20px; }
+  .ox-footer { padding-bottom: 100px; }
+}

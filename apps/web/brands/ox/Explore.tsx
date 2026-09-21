@@ -20,6 +20,7 @@ type SortKey = (typeof SORTS)[number]["key"];
 export function Explore() {
   const [sort, setSort] = useState<SortKey>("new");
   const [q, setQ] = useState("");
+  const [view, setView] = useState<"board" | "cards">("board");
   const search = useRef<HTMLInputElement>(null);
   const query = SORTS.find((item) => item.key === sort)?.query ?? "sort=new";
 
@@ -54,6 +55,21 @@ export function Explore() {
 
   return (
     <div className="ox-home">
+      {trending.data?.tokens.length ? (
+        <div className="ox-live-tape" aria-label="Live market tape">
+          <span className="ox-tape-label"><i aria-hidden="true" /> LIVE</span>
+          <div className="ox-tape-run">
+            {trending.data.tokens.map((token) => (
+              <Link key={token.token} href={`/token/${token.token}`}>
+                <b>${token.symbol}</b>
+                <span>{compact(BigInt(token.volume_24h || "0"), pairDecimals(token.pair_token, token))} {pairSymbol(token.pair_token, token)} vol</span>
+              </Link>
+            ))}
+          </div>
+          <Link className="ox-tape-action" href="/launch">Launch yours <span>→</span></Link>
+        </div>
+      ) : null}
+
       <section className="ox-hero">
         <div className="ox-hero-copy">
           <div className="ox-live-pill"><i aria-hidden="true" /> Live on Robinhood Chain</div>
@@ -143,6 +159,10 @@ export function Explore() {
               </button>
             ))}
           </div>
+          <div className="ox-view-switch" aria-label="Market view">
+            <button type="button" aria-label="Table view" title="Table view" className={view === "board" ? "active" : ""} onClick={() => setView("board")}>☷</button>
+            <button type="button" aria-label="Card view" title="Card view" className={view === "cards" ? "active" : ""} onClick={() => setView("cards")}>▦</button>
+          </div>
         </div>
 
         {tokens.isError ? (
@@ -152,7 +172,7 @@ export function Explore() {
             {Array.from({ length: 8 }, (_, index) => <div className="ox-token-skeleton" key={index} />)}
           </div>
         ) : rows.length ? (
-          <div className="ox-token-grid">{rows.map((token) => <Token key={token.token} token={token} />)}</div>
+          view === "board" ? <MarketBoard tokens={rows} /> : <div className="ox-token-grid">{rows.map((token) => <Token key={token.token} token={token} />)}</div>
         ) : (
           <State
             title={q ? "No tokens found" : "No launches here yet"}
@@ -180,6 +200,51 @@ function TrendingCard({ token, rank }: { token: TokenRow; rank: number }) {
       <span className="ox-trending-name"><strong>{token.name}</strong><small>${token.symbol}</small></span>
       <span className="ox-trending-cap"><strong>{compact(cap, decimals)}</strong><small>{unit} MC</small></span>
     </Link>
+  );
+}
+
+function MarketBoard({ tokens }: { tokens: TokenRow[] }) {
+  return (
+    <div className="ox-board-wrap">
+      <table className="ox-board-table">
+        <thead>
+          <tr>
+            <th>Token</th><th>Market cap</th><th>24h volume</th><th>Trades</th>
+            <th>Liquidity</th><th>Graduation</th><th>Age</th><th aria-label="Trade" />
+          </tr>
+        </thead>
+        <tbody>{tokens.map((token) => <BoardRow key={token.token} token={token} />)}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function BoardRow({ token }: { token: TokenRow }) {
+  const decimals = pairDecimals(token.pair_token, token);
+  const unit = pairSymbol(token.pair_token, token);
+  const cap = (BigInt(token.price || "0") * BigInt(token.total_supply || "0")) / 10n ** 18n;
+  const progress = token.mode === "direct" || token.status === "graduated" ? 1 : launchProgress(token);
+  const done = progress >= 1;
+
+  return (
+    <tr>
+      <td>
+        <Link className="ox-board-token" href={`/token/${token.token}`}>
+          <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={42} rounded="rounded-lg" />
+          <span><strong>${token.symbol}</strong><small>{token.name} · {shortAddress(token.token)}</small></span>
+        </Link>
+      </td>
+      <td><strong>{compact(cap, decimals)}</strong><small>{unit}</small></td>
+      <td><strong>{compact(BigInt(token.volume_24h || "0"), decimals)}</strong><small>{unit}</small></td>
+      <td><strong>{token.trades_total.toLocaleString()}</strong><small>lifetime</small></td>
+      <td><strong>{compact(BigInt(token.reserve || "0"), decimals)}</strong><small>{unit}</small></td>
+      <td>
+        <span className="ox-board-progress-label"><b>{done ? "Pool live" : `${Math.round(progress * 100)}%`}</b><small>{done ? "graduated" : "to graduation"}</small></span>
+        <span className={done ? "ox-board-progress done" : "ox-board-progress"}><i style={{ width: `${Math.min(100, progress * 100)}%` }} /></span>
+      </td>
+      <td><strong>{ago(token.launched_at)}</strong><small>ago</small></td>
+      <td><Link className="ox-board-trade" href={`/token/${token.token}`}>Trade <span>↗</span></Link></td>
+    </tr>
   );
 }
 
