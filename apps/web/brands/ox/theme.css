@@ -889,16 +889,16 @@ html[data-brand="ox"] * {
    The source art is square, but the OX itself is wide. Enlarge and crop only the transparent
    canvas in the wordmark; no tile or coloured plate sits behind the icon. */
 html[data-brand="ox"] .ox-wordmark-mark {
-  width: 70px;
-  height: 46px;
+  width: 72px;
+  height: 44px;
   overflow: hidden;
 }
 
 html[data-brand="ox"] .ox-wordmark-mark img {
-  width: 140%;
-  height: 205%;
-  top: -52%;
-  left: -20%;
+  width: 128%;
+  height: 190%;
+  top: -48%;
+  left: -14%;
   object-fit: contain;
   filter: drop-shadow(0 0 10px #a8ff3442);
 }
@@ -948,7 +948,7 @@ html[data-brand="ox"] .ox-hero-visual > img {
 
 @media (max-width: 640px) {
   html[data-brand="ox"] .ox-topbar .ox-wordmark-mark {
-    width: 48px;
+    width: 54px;
     height: 34px;
   }
 }
