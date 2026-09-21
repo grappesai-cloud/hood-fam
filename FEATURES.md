@@ -36,6 +36,7 @@ and the agent surface.
 | Opening snipe tax decaying over seconds, 99% combined cap | in | quadratic decay; the launch's own buy and its own buybacks are the only exemptions, no per-launch lists |
 | Revenue split 10% protocol / 90% creator | in | `HoodRevenueSplitter`, the tenth is a constant |
 | Four creator destinations, allocations fixed at launch | in | creator, buyback, dividends, liquidity |
+| Separate creator-fee recipient | in | The launching wallet signs the terms, while `creatorFeeRecipient` can point the creator leg at a different wallet from block one. |
 | Pull-based per-share holder dividends | in | accumulator with the pool and system addresses excluded |
 | Non-custodial locker with permissionless harvest | in | `HoodLocker` |
 | Buyback as an external permissionless module | in | `HoodBuybackModule`, swaps straight against the PoolManager, at most ~3% price impact per run, the rest carried |
@@ -132,7 +133,7 @@ on every flush, so a launch can do several of these at once.
 
 | Feature | Status | Note |
 |---|---|---|
-| Web app | in | Board, token page with a market cap chart, launch wizard for both machines, portfolio, points, bridge. Write paths (connect, buy, sell with Permit2, stake, claim, launch) driven end to end against a fork from a real browser. |
+| Web app | in | Board with category chips, live FOMO feed, top-trader windows, graduation race, dev-lock badges, token page with chart, holder map and holder-gated chat, launch wizard for both machines, portfolio, points and bridge. Write paths (connect, buy, sell with Permit2, stake, claim, launch) driven end to end against a fork from a real browser. |
 | Indexer and API | in | Fastify and Postgres, built for a chain with 100ms blocks that refuses large log ranges. |
 | Solana | out | Deliberate: we launch on Robinhood Chain. |
 | Audit | out | Nothing here has had one. |

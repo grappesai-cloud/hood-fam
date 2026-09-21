@@ -61,6 +61,7 @@ export interface ResolvedQuote {
 
 export interface TokenRow {
   token: string; curve: string; creator: string; symbol: string; name: string; image: string;
+  fee_recipient?: string;
   description: string; website: string; twitter: string; telegram: string;
   pair_token: string; phase: number;
   /// What the pair calls itself and how many decimals it has, as the indexer read them off the
@@ -88,6 +89,31 @@ export interface TokenRow {
   max_hold_bps: number | null; max_buy_bps: number | null; restrictions_end_block: string | null;
   alloc_creator_bps: number | null; alloc_buyback_bps: number | null;
   alloc_dividends_bps: number | null; alloc_liquidity_bps: number | null;
+}
+
+export interface ActivityRow {
+  side: "buy" | "sell";
+  trader: string;
+  pair_amount: string;
+  token_amount: string;
+  ts: string;
+  tx: string;
+  log_index: number;
+  token: string;
+  symbol: string;
+  name: string;
+  pair_token: string;
+  pair_symbol: string | null;
+  pair_decimals: number | null;
+}
+
+export interface TopTraderRow {
+  address: string;
+  volume_usd: string;
+  bought_usd: string;
+  sold_usd: string;
+  net_usd: string;
+  trades: number;
 }
 
 export interface TokenDetail extends TokenRow {

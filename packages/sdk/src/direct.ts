@@ -106,6 +106,8 @@ export interface DirectLaunchInput {
   description?: string;
   socials?: { twitter?: string; telegram?: string; discord?: string; website?: string; farcaster?: string };
   quote?: Address;
+  /// Who claims the creator allocation. Defaults to the launching wallet.
+  creatorFeeRecipient?: Address;
   supply?: bigint;
   poolFee?: number;
   tickSpacing?: number;
@@ -219,6 +221,7 @@ export function createDirectClient({
         farcaster: input.socials?.farcaster ?? "",
       },
       quote: input.quote ?? zeroAddress,
+      creatorFeeRecipient: input.creatorFeeRecipient ?? account().address,
       supply: input.supply ?? DEFAULTS.supply,
       poolFee: input.poolFee ?? DEFAULTS.poolFee,
       tickSpacing: spacing,

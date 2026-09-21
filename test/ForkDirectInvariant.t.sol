@@ -182,7 +182,7 @@ contract DirectForkInvariant is StdInvariant, Test {
         });
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
             name: "Inv", symbol: "INV", logo: "", description: "",
-            socials: Socials("", "", "", "", ""), quote: address(0), supply: SUPPLY,
+            socials: Socials("", "", "", "", ""), quote: address(0), creatorFeeRecipient: creator, supply: SUPPLY,
             poolFee: POOL_FEE, tickSpacing: SPACING, config: config, salt: bytes32(uint256(1)), initialBuy: 0
         });
         vm.prank(creator);

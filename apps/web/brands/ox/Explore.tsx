@@ -7,12 +7,19 @@ import { api, type TokenRow } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { ago, compact, imageUrl, launchProgress, pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
+import { GraduationRace } from "@/components/GraduationRace";
+import { FomoFeed } from "@/components/FomoFeed";
+import { TopTraders } from "@/components/TopTraders";
 
 const SORTS = [
-  { key: "new", label: "New", query: "sort=new" },
-  { key: "volume", label: "Trending", query: "sort=volume" },
-  { key: "graduating", label: "Graduating", query: "sort=progress&status=graduating" },
-  { key: "graduated", label: "Graduated", query: "sort=graduated&status=graduated" },
+  { key: "volume", label: "🔥 Trending", query: "sort=volume" },
+  { key: "new", label: "◆ Seed alpha", query: "sort=new&category=new" },
+  { key: "stocks", label: "Stocks", query: "sort=volume&category=stocks" },
+  { key: "graduating", label: "🚀 Bonding", query: "sort=progress&status=graduating" },
+  { key: "graduated", label: "Listed", query: "sort=graduated&status=graduated" },
+  { key: "culture", label: "Culture pairs", query: "sort=volume&category=culture" },
+  { key: "direct", label: "Direct pool", query: "sort=volume&category=direct" },
+  { key: "locked", label: "Low risk", query: "sort=volume&category=locked" },
 ] as const;
 
 type SortKey = (typeof SORTS)[number]["key"];
@@ -99,6 +106,8 @@ export function Explore() {
         <MarketStat label="Active traders" value={stats.data?.traders ?? "—"} />
       </section>
 
+      <div className="ox-race-wrap"><GraduationRace /></div>
+
       {trending.data?.tokens.length ? (
         <section className="ox-trending-section" aria-labelledby="trending-title">
           <div className="ox-section-heading compact">
@@ -110,6 +119,11 @@ export function Explore() {
           </div>
         </section>
       ) : null}
+
+      <div className="ox-social-grid">
+        <FomoFeed />
+        <TopTraders />
+      </div>
 
       <section className="ox-how" id="how-it-works" aria-labelledby="how-title">
         <div className="ox-how-intro">
@@ -195,7 +209,7 @@ function TrendingCard({ token, rank }: { token: TokenRow; rank: number }) {
     <Link href={`/token/${token.token}`} className="ox-trending-card">
       <span className="ox-rank">{String(rank).padStart(2, "0")}</span>
       <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={48} rounded="rounded-full" />
-      <span className="ox-trending-name"><strong>{token.name}</strong><small>${token.symbol}</small></span>
+      <span className="ox-trending-name"><strong>{token.name}</strong><small>${token.symbol} {isDevLocked(token) ? <em className="ox-dev-lock">🔒 DEV</em> : null}</small></span>
       <span className="ox-trending-cap"><strong>{compact(cap, decimals)}</strong><small>{unit} MC</small></span>
     </Link>
   );
@@ -229,7 +243,7 @@ function BoardRow({ token }: { token: TokenRow }) {
       <td>
         <Link className="ox-board-token" href={`/token/${token.token}`}>
           <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={42} rounded="rounded-lg" />
-          <span><strong>${token.symbol}</strong><small>{token.name} · {shortAddress(token.token)}</small></span>
+          <span><strong>${token.symbol} {isDevLocked(token) ? <em className="ox-dev-lock">🔒 DEV LOCKED</em> : null}</strong><small>{token.name} · {shortAddress(token.token)}</small></span>
         </Link>
       </td>
       <td><strong>{compact(cap, decimals)}</strong><small>{unit}</small></td>
@@ -238,7 +252,7 @@ function BoardRow({ token }: { token: TokenRow }) {
       <td><strong>{compact(BigInt(token.reserve || "0"), decimals)}</strong><small>{unit}</small></td>
       <td>
         <span className="ox-board-progress-label"><b>{done ? "Pool live" : `${Math.round(progress * 100)}%`}</b><small>{done ? "graduated" : "to graduation"}</small></span>
-        <span className={done ? "ox-board-progress done" : "ox-board-progress"}><i style={{ width: `${Math.min(100, progress * 100)}%` }} /></span>
+        <span className={`${done ? "ox-board-progress done" : "ox-board-progress"}${progress >= .85 && !done ? " hot" : ""}`}><i style={{ width: `${Math.min(100, progress * 100)}%` }} /></span>
       </td>
       <td><strong>{ago(token.launched_at)}</strong><small>ago</small></td>
       <td><Link className="ox-board-trade" href={`/token/${token.token}`}>Trade <span>↗</span></Link></td>
@@ -259,6 +273,7 @@ function Token({ token }: { token: TokenRow }) {
       <div className="ox-token-art">
         <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={180} rounded="rounded-none" />
         <span className={done ? "ox-status done" : "ox-status"}>{status}</span>
+        {isDevLocked(token) ? <span className="ox-card-lock">🔒 Dev locked</span> : null}
         <span className="ox-age">{ago(token.launched_at)} ago</span>
       </div>
       <div className="ox-token-body">
@@ -269,11 +284,16 @@ function Token({ token }: { token: TokenRow }) {
           <span><small>24h volume</small><strong>{compact(BigInt(token.volume_24h || "0"), decimals)} {unit}</strong></span>
         </div>
         <div className="ox-progress-label"><span>{done ? "Liquidity pool live" : "Graduation progress"}</span><b>{Math.round(progress * 100)}%</b></div>
-        <div className={done ? "ox-progress done" : "ox-progress"}><i style={{ width: `${Math.min(100, progress * 100)}%` }} /></div>
+        <div className={`${done ? "ox-progress done" : "ox-progress"}${progress >= .85 && !done ? " hot" : ""}`}><i style={{ width: `${Math.min(100, progress * 100)}%` }} /></div>
         <div className="ox-token-foot"><span>{shortAddress(token.token)}</span><b>Trade token →</b></div>
       </div>
     </Link>
   );
+}
+
+function isDevLocked(token: TokenRow) {
+  if (BigInt(token.first_buy_locked || "0") === 0n) return false;
+  return !token.first_buy_unlock_at || new Date(token.first_buy_unlock_at).getTime() > Date.now();
 }
 
 function State({ title, body, action }: { title: string; body: string; action?: React.ReactNode }) {

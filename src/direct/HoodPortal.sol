@@ -162,6 +162,8 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         string description;
         Socials socials;
         address quote;
+        /// Address allowed to claim the creator leg of the trading tax. Zero means msg.sender.
+        address creatorFeeRecipient;
         uint256 supply;
         uint24 poolFee;
         int24 tickSpacing;
@@ -347,7 +349,7 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         // and excluded from dividends BEFORE the supply is deposited into it, or the token's own
         // anti-snipe cap rejects its own liquidity and the dividend accumulator counts the pool as
         // the largest holder alive.
-        _wire(p, out, key, tokenIsZero);
+        _wire(p, out, key, tokenIsZero, p.creatorFeeRecipient == address(0) ? msg.sender : p.creatorFeeRecipient);
 
         // The token and the hook are CREATE2 addresses derived from a salt that is public the
         // moment the launch transaction is, so somebody watching can compute this pool's key and
@@ -501,7 +503,13 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         positionManager.modifyLiquidities(abi.encode(actions, params), block.timestamp);
     }
 
-    function _wire(LaunchInput calldata p, Addresses memory out, PoolKey memory key, bool tokenIsZero) internal {
+    function _wire(
+        LaunchInput calldata p,
+        Addresses memory out,
+        PoolKey memory key,
+        bool tokenIsZero,
+        address creatorFeeRecipient
+    ) internal {
         HoodLaunchHook.InitParams memory hp;
         hp.token = out.token;
         hp.quote = p.quote;
@@ -517,7 +525,7 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         hp.key = key;
         HoodLaunchHook(out.hook).initialize(hp);
 
-        HoodRevenueSplitter(payable(out.splitter)).initialize(msg.sender, out.locker, p.config.allocations);
+        HoodRevenueSplitter(payable(out.splitter)).initialize(creatorFeeRecipient, out.locker, p.config.allocations);
         HoodRevenueSplitter(payable(out.splitter)).exclude(address(poolManager));
         HoodRevenueSplitter(payable(out.splitter)).exclude(out.hook);
 

@@ -383,6 +383,16 @@ async function onDirectLaunched(log: Log & { args: Record<string, unknown> }) {
   const splitter = (a.splitter as string).toLowerCase();
   const locker = (a.locker as string).toLowerCase();
   const when = await blockTime(log.blockNumber!);
+  let feeRecipient = (a.creator as string).toLowerCase();
+  try {
+    feeRecipient = ((await client.readContract({
+      address: splitter as Address,
+      abi: [parseAbiItem("function creator() view returns (address)")],
+      functionName: "creator",
+    })) as string).toLowerCase();
+  } catch (err) {
+    console.warn(`direct launch ${token}: could not read fee recipient`, err instanceof Error ? err.message : err);
+  }
 
   // The launch transaction says what the supply is: the clone mints all of it to the portal, and
   // the portal burns the dust the liquidity maths could not place. It is read off the receipt
@@ -420,11 +430,11 @@ async function onDirectLaunched(log: Log & { args: Record<string, unknown> }) {
     `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id,
        name, symbol, launched_at, block, tx, mode, hook, splitter, locker, restrictions_end_block,
        total_supply, burned, pair_symbol, pair_decimals)
-     values ($1,$2,$3,$3,$4,0,'','',$5,$6,$7,'direct',$8,$9,$10,$11,$12,$13,$14,$15)
+     values ($1,$2,$3,$4,$5,0,'','',$6,$7,$8,'direct',$9,$10,$11,$12,$13,$14,$15,$16)
      on conflict (token) do nothing
      returning token`,
     [
-      token, zeroAddress, (a.creator as string).toLowerCase(), quote, when,
+      token, zeroAddress, (a.creator as string).toLowerCase(), feeRecipient, quote, when,
       log.blockNumber!.toString(), log.transactionHash, hook, splitter, locker,
       (a.restrictionsEndBlock as bigint).toString(), (minted - burned).toString(), burned.toString(),
       // The direct machine takes the same quotes as the curve, so its rows need the same scale on

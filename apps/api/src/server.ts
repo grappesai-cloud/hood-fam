@@ -14,7 +14,7 @@ const gzip = promisify(gzipCb);
 const GZIP_MIN_BYTES = 1024;
 
 import { pool, currentSeason } from "./db.js";
-import { pairAsset, robinhood } from "@hood/sdk";
+import { pairAsset, PAIR_ASSETS as PAIR_CATALOG, robinhood } from "@hood/sdk";
 import { PAIR_ASSETS as PRICEABLE, pairUsdPrice } from "./price.js";
 import { resolveQuote } from "./quote-resolver.js";
 import { nativeQuoteRoute } from "./uniswap-route.js";
@@ -54,6 +54,14 @@ const PROGRESS = `case when mode = 'direct' then
                        when phase >= 2 then 1
                        when curve_supply = 0 then 0
                        else least(1, sold / curve_supply) end`;
+
+/// Protocol contracts produce real swaps (first buys, buybacks and harvests), but a social tape
+/// and a trader board are about people. Keep the exclusion in one place so both surfaces count the
+/// same population as /stats.
+const SYSTEM_TRADERS = [
+  process.env.HOOD_FACTORY, process.env.HOOD_FEE_ROUTER, process.env.HOOD_STAKING, process.env.HOOD_GRADUATOR,
+  process.env.HOOD_PORTAL, process.env.HOOD_BUYBACK_MODULE,
+].filter(Boolean).map((a) => a!.toLowerCase());
 
 /// How much of X-Forwarded-For to believe. A count of hops, never the whole header.
 /// @dev proxy-addr walks the header from the right and asks this about each address; true means
@@ -117,6 +125,8 @@ export async function buildServer() {
     [/^\/tokens\/:token\/candles$/, "public, s-maxage=3, stale-while-revalidate=30"],
     [/^\/tokens\/:token\/trades$/, "public, s-maxage=2, stale-while-revalidate=10"],
     [/^\/tokens\/:token\/holders$/, "public, s-maxage=5, stale-while-revalidate=30"],
+    [/^\/activity$/, "public, s-maxage=2, stale-while-revalidate=8"],
+    [/^\/top-traders$/, "public, s-maxage=5, stale-while-revalidate=20"],
     [/^\/stakes\/:owner$/, "public, s-maxage=5, stale-while-revalidate=30"],
     [/^\/leaderboard$/, "public, s-maxage=5, stale-while-revalidate=30"],
     [/^\/seasons$/, "public, s-maxage=10, stale-while-revalidate=60"],
@@ -251,6 +261,17 @@ export async function buildServer() {
     const params: unknown[] = [];
     if (q.creator) { params.push(q.creator.toLowerCase()); where.push(`creator = $${params.length}`); }
     if (q.phase) { params.push(Number(q.phase)); where.push(`phase = $${params.length}`); }
+    if (q.category === "new") where.push(`launched_at >= now() - interval '24 hours'`);
+    if (q.category === "stocks") {
+      params.push(PAIR_CATALOG.filter((asset) => asset.share).map((asset) => asset.address.toLowerCase()));
+      where.push(`pair_token = any($${params.length}::text[])`);
+    }
+    if (q.category === "culture") {
+      params.push(PAIR_CATALOG.map((asset) => asset.address.toLowerCase()));
+      where.push(`pair_token <> all($${params.length}::text[])`);
+    }
+    if (q.category === "direct") where.push(`mode = 'direct'`);
+    if (q.category === "locked") where.push(`first_buy_locked > 0 and (first_buy_unlock_at is null or first_buy_unlock_at > now())`);
     // `graduating` is the screener's "about to": at least halfway there and not there yet.
     if (q.status === "graduating") where.push(`(${PROGRESS}) >= 0.5 and (${STATUS}) <> 'graduated'`);
     else if (q.status === "curve" || q.status === "sold_out" || q.status === "graduated") {
@@ -341,6 +362,47 @@ export async function buildServer() {
       [token.toLowerCase()],
     );
     return { holders: rows };
+  });
+
+  /// The global FOMO tape: newest human trades with enough launch metadata to render without a
+  /// request per row. The token page keeps its deeper, token-specific tape.
+  app.get("/activity", async (req) => {
+    const { limit } = req.query as { limit?: string };
+    const { rows } = await pool.query(
+      `select t.side, t.trader, t.pair_amount, t.token_amount, t.ts, t.tx, t.log_index,
+              l.token, l.symbol, l.name, l.pair_token, l.pair_symbol, l.pair_decimals
+       from trades t join launches l on l.token = t.token
+       where t.trader <> all($1::text[])
+       order by t.ts desc limit $2`,
+      [SYSTEM_TRADERS, clampInt(limit, 24, 80, 1)],
+    );
+    return { activity: rows };
+  });
+
+  /// A trader board with real time windows. `netUsd` is cash flow (sells minus buys), deliberately
+  /// not called profit: unrealised holdings need a cost-basis ledger and pretending otherwise is
+  /// worse than showing the honest number. The UI lets the reader rank by this or by volume.
+  app.get("/top-traders", async (req) => {
+    const q = req.query as Record<string, string | undefined>;
+    const hours = q.window === "24h" ? 24 : q.window === "30d" ? 24 * 30 : q.window === "all" ? 0 : 24 * 7;
+    const order = q.sort === "net" ? "net_usd desc" : "volume_usd desc";
+    const n = clampInt(q.limit, 20, 100, 1);
+    const { rows } = await pool.query(
+      `select address,
+              coalesce(sum(usd), 0)::numeric(20,2) as volume_usd,
+              coalesce(sum(usd) filter (where kind = 'trade_buy'), 0)::numeric(20,2) as bought_usd,
+              coalesce(sum(usd) filter (where kind = 'trade_sell'), 0)::numeric(20,2) as sold_usd,
+              (coalesce(sum(usd) filter (where kind = 'trade_sell'), 0)
+               - coalesce(sum(usd) filter (where kind = 'trade_buy'), 0))::numeric(20,2) as net_usd,
+              count(*)::int as trades
+       from points
+       where kind in ('trade_buy','trade_sell')
+         and address <> all($1::text[])
+         and ($2::int = 0 or ts >= now() - ($2::int * interval '1 hour'))
+       group by address order by ${order} limit $3`,
+      [SYSTEM_TRADERS, hours, n],
+    );
+    return { window: q.window ?? "7d", sort: q.sort === "net" ? "net" : "volume", traders: rows };
   });
 
   app.get("/stakes/:owner", async (req) => {
@@ -569,11 +631,6 @@ export async function buildServer() {
 
   /// Our own contracts trade too (a buyback, a harvest, the portal's first buy on a creator's
   /// behalf). They are trades, but they are not traders.
-  const system = [
-    process.env.HOOD_FACTORY, process.env.HOOD_FEE_ROUTER, process.env.HOOD_STAKING, process.env.HOOD_GRADUATOR,
-    process.env.HOOD_PORTAL, process.env.HOOD_BUYBACK_MODULE,
-  ].filter(Boolean).map((a) => a!.toLowerCase());
-
   app.get("/stats", async () => {
     // `count(distinct trader)` over the whole trades table is the expensive one, and the headline
     // numbers move slowly. Ten seconds of cache makes a repeated hit a map lookup.
@@ -589,7 +646,7 @@ export async function buildServer() {
               (select count(*) from trades where trader <> all($1::text[])) as trades,
               (select count(distinct trader) from trades where trader <> all($1::text[])) as traders
        from launches`,
-      [system],
+      [SYSTEM_TRADERS],
     );
     return rows[0];
     });

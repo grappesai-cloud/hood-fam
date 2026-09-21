@@ -13,6 +13,7 @@ import { TradeBox } from "@/components/TradeBox";
 import { Tape } from "@/components/Tape";
 import { Sound } from "@/components/Sound";
 import { GraduationRace } from "@/components/GraduationRace";
+import { GraduationCelebration } from "@/components/GraduationCelebration";
 import { HolderMap } from "@/components/HolderMap";
 import { TokenChat } from "@/components/TokenChat";
 import { DirectTradeBox } from "@/components/DirectTradeBox";
@@ -115,6 +116,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
 
   return (
     <div className="token-shell">
+    <GraduationCelebration token={data.token} symbol={data.symbol} />
     <div className="token-breadcrumb"><Link href="/">← ALL LAUNCHES</Link><span>/</span><span>$</span><span>{data.symbol}</span></div>
         <header className="panel token-hero flex flex-wrap items-center gap-4 p-4">
           <Artwork src={imageUrl(data.image)} symbol={data.symbol} size={64} rounded="rounded-xl" />
@@ -314,8 +316,8 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
           <div className="panel p-4 text-sm">
             <h3 className="font-semibold">You printed this</h3>
             <p className="mt-1 text-xs dim">
-              The fee stream points at {shortAddress(data.creator)}. You can hand it to somebody else, in one step,
-              and only you can.
+              The fee stream points at {shortAddress(data.fee_recipient ?? data.creator)}.
+              {isDirect ? " That recipient was fixed in the signed launch transaction." : " You can hand it to somebody else, in one step, and only you can."}
             </p>
             <Link className="btn btn-ghost mt-2 block text-center text-xs" href={`/portfolio`}>manage</Link>
           </div>

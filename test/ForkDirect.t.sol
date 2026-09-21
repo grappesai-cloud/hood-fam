@@ -141,6 +141,7 @@ contract ForkDirectTest is Test {
             description: "the fam takes the fee",
             socials: Socials("@hoodfam", "t.me/hoodfam", "discord.gg/hoodfam", "https://hood.fam", "hoodfam.eth"),
             quote: address(0),
+            creatorFeeRecipient: alice,
             supply: SUPPLY,
             poolFee: POOL_FEE,
             tickSpacing: SPACING,
@@ -157,6 +158,7 @@ contract ForkDirectTest is Test {
         token = HoodLaunchToken(out.token);
         hook = HoodLaunchHook(out.hook);
         splitter = HoodRevenueSplitter(payable(out.splitter));
+        assertEq(splitter.creator(), alice, "the launcher's fee recipient is independent from the launcher");
         locker = HoodLocker(payable(out.locker));
         key = PoolKey({
             currency0: Currency.wrap(address(0)),
@@ -255,7 +257,7 @@ contract ForkDirectTest is Test {
             });
             HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
                 name: "Shared", symbol: "SHARED", logo: "ipfs://shared", description: "one registry",
-                socials: Socials("", "", "", "", ""), quote: address(0), supply: SUPPLY,
+                socials: Socials("", "", "", "", ""), quote: address(0), creatorFeeRecipient: creator, supply: SUPPLY,
                 poolFee: POOL_FEE, tickSpacing: SPACING, config: config, salt: bytes32(uint256(7)),
                 initialBuy: 0
             });
@@ -318,7 +320,7 @@ contract ForkDirectTest is Test {
         });
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
             name: "Dollar", symbol: "USDFAM", logo: "", description: "",
-            socials: Socials("", "", "", "", ""), quote: address(usd), supply: SUPPLY,
+            socials: Socials("", "", "", "", ""), quote: address(usd), creatorFeeRecipient: creator, supply: SUPPLY,
             poolFee: POOL_FEE, tickSpacing: SPACING, config: config, salt: tokenSalt,
             initialBuy: 500e6
         });
@@ -469,7 +471,7 @@ contract ForkDirectTest is Test {
         });
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
             name: "Greedy", symbol: expectFail ? "GREED" : "FAIR", logo: "", description: "",
-            socials: Socials("", "", "", "", ""), quote: address(0), supply: SUPPLY,
+            socials: Socials("", "", "", "", ""), quote: address(0), creatorFeeRecipient: address(0), supply: SUPPLY,
             poolFee: POOL_FEE, tickSpacing: SPACING, config: config, salt: tokenSalt,
             initialBuy: amount
         });
@@ -725,7 +727,7 @@ contract ForkDirectTest is Test {
     function _honeypotInput() internal pure returns (HoodPortal.LaunchInput memory) {
         return HoodPortal.LaunchInput({
             name: "Trap", symbol: "TRAP", logo: "", description: "",
-            socials: Socials("", "", "", "", ""), quote: address(0), supply: SUPPLY,
+            socials: Socials("", "", "", "", ""), quote: address(0), creatorFeeRecipient: address(0), supply: SUPPLY,
             poolFee: POOL_FEE, tickSpacing: SPACING,
             config: DirectConfig({
                 buyTaxBps: 100, sellTaxBps: 100, snipeTaxBps: 9_800, snipeDecaySeconds: 3,

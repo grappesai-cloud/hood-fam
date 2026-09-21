@@ -168,7 +168,7 @@ function schedule() {
 /// shell runs a tape of its own on ["pit-tape"]. A token page holds ["token"], ["trades"] and
 /// ["holders"], all keyed by address, and the chart adds ["candles"]. Inventing new keys here would
 /// leave the old ones to their timers and refresh nothing anybody is looking at.
-const BOARD_QUERIES = new Set(["tokens", "stats", "tape", "pit-tape"]);
+const BOARD_QUERIES = new Set(["tokens", "stats", "tape", "pit-tape", "activity", "top-traders"]);
 const TOKEN_QUERIES = new Set(["token", "trades", "holders", "candles"]);
 
 /// A busy launch trades several times a second. Refetching on each one would redraw the board under

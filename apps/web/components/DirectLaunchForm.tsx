@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { erc20Abi, formatUnits, keccak256, parseUnits, stringToHex, zeroAddress, type Address } from "viem";
+import { erc20Abi, formatUnits, getAddress, isAddress, keccak256, parseUnits, stringToHex, zeroAddress, type Address } from "viem";
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
 import { directTicks, hoodPortalAbi, hoodDirectDeployerAbi, mineFreeHookSalt, predictDirectToken, uniswapV4 } from "@hood/sdk";
 import { directAddresses } from "@/lib/config";
 import { api, type PairRow } from "@/lib/api";
-import { pairDecimals, pairSymbol } from "@/lib/format";
+import { pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
 import { Choice, Field, LaunchBar, PairChooser, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
@@ -37,6 +37,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     buyTax: 5, sellTax: 5, snipeTax: 50, snipeSeconds: 3,
     restrictionBlocks: 30, maxHold: 5, maxBuy: 5.5,
     creatorBps: 25, buybackBps: 25, dividendsBps: 40, liquidityBps: 10,
+    feeRecipient: "",
     firstBuy: "",
   });
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
@@ -100,6 +101,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const ready = Boolean(address && directAddresses.portal && initCodeHash)
     && form.name.length > 0 && form.symbol.length > 0
     && allocationSum === 100
+    && (form.creatorBps === 0 || form.feeRecipient === "" || isAddress(form.feeRecipient))
     && Number(form.bondFdv) > Number(form.openFdv);
 
   useEffect(() => {
@@ -132,6 +134,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           website: form.website, farcaster: form.farcaster,
         },
         quote: form.quote,
+        creatorFeeRecipient: form.feeRecipient ? getAddress(form.feeRecipient) : address,
         supply: parseUnits(String(SUPPLY), 18),
         poolFee: 10_000,
         tickSpacing: SPACING,
@@ -205,6 +208,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : !form.symbol ? "Step 2 needs a ticker."
     : !priceDone ? "Step 3: the bonding valuation has to be above the opening one."
     : !splitDone ? `Step 5: the four shares add up to ${allocationSum}%. They have to make 100.`
+    : form.creatorBps > 0 && form.feeRecipient !== "" && !isAddress(form.feeRecipient) ? "Step 5 needs a valid creator fee recipient."
     : !initCodeHash ? "Still reading the deployer. One moment."
     : undefined;
 
@@ -285,7 +289,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               <Slider label={`Opening surcharge ${form.snipeTax}%`} hint="An extra tax at the very open, on top of the buy tax." min={0} max={89} step={1} value={form.snipeTax} onChange={(v) => set("snipeTax", v)} />
               <Slider label={`Gone after ${form.snipeSeconds}s`} hint="The surcharge falls to nothing over this many seconds." min={0} max={30} step={1} value={form.snipeSeconds} onChange={(v) => set("snipeSeconds", v)} />
             </div>
-            <DirectSim buyTax={form.buyTax} sellTax={form.sellTax} snipeTax={form.snipeTax} snipeSeconds={form.snipeSeconds} />
+            <DirectSim buyTax={form.buyTax} sellTax={form.sellTax} snipeTax={form.snipeTax} snipeSeconds={form.snipeSeconds}
+              openFdv={Number(form.openFdv)} bondFdv={Number(form.bondFdv)} quoteSymbol={quoteSym} />
           </Step>
 
           <Step n={5} title="Where your nine tenths go" purpose="The protocol keeps a tenth of the tax, always. You decide what happens to the rest, once, here. The four shares have to add up to 100." done={splitDone}>
@@ -298,6 +303,14 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             <p className={splitDone ? "field-note good" : "field-note bad"}>
               {splitDone ? "Adds up to 100." : `Adds up to ${allocationSum}%. It has to be 100.`}
             </p>
+            {form.creatorBps > 0 ? (
+              <Field label="Creator fee recipient"
+                error={form.feeRecipient && !isAddress(form.feeRecipient) ? "Paste a valid 0x address." : undefined}
+                help="Optional. The creator share is claimable only by this address. Leave blank to use your connected wallet.">
+                <input className="input mono" value={form.feeRecipient}
+                  onChange={(e) => set("feeRecipient", e.target.value.trim())} placeholder={address ?? "0x…"} />
+              </Field>
+            ) : null}
           </Step>
 
           <Step n={6} title="The opening, and your first buy" purpose="How hard it is for one wallet to take the whole open. Selling is never restricted, and every limit here expires by itself." done>
@@ -341,6 +354,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           <div className="flex justify-between"><span className="dim">Quoted in</span><span className="mono">{quoteSym}</span></div>
           <div className="flex justify-between"><span className="dim">Opens at</span><span className="mono">{form.openFdv || "0"} {quoteSym}</span></div>
           <div className="flex justify-between"><span className="dim">Buy / sell tax</span><span className="mono">{form.buyTax}% / {form.sellTax}%</span></div>
+          <div className="flex justify-between"><span className="dim">Creator fees to</span><span className="mono">{shortAddress(form.feeRecipient || address || zeroAddress)}</span></div>
           <div className="flex justify-between"><span className="dim">Launch fee</span><span className="mono">{formatUnits(fee, 18)} ETH</span></div>
         </div>
         <WhatHappens items={[
@@ -353,4 +367,3 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     </div>
   );
 }
-

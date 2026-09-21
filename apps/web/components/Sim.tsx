@@ -79,14 +79,20 @@ export function CurveSim({ p0, p1, curveSupply, totalSupply, dec, sym, feeBps, t
 }
 
 /// The other machine's dials: a tax that never changes and a surcharge that is gone in seconds.
-export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds }: {
+export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds, openFdv, bondFdv, quoteSymbol }: {
   buyTax: number; sellTax: number; snipeTax: number; snipeSeconds: number;
+  openFdv: number; bondFdv: number; quoteSymbol: string;
 }) {
   const [t, setT] = useState(0);
+  const [poolProgress, setPoolProgress] = useState(25);
   const span = Math.max(snipeSeconds, 10);
   const surcharge = snipeBpsAt(snipeTax * 100, snipeSeconds, t) / 100;
   const onBuy = buyTax + surcharge;
   const roundTrip = 100 - (100 - onBuy) * (100 - sellTax) / 100;
+  const validOpen = Math.max(openFdv || 0, 0.000001);
+  const validBond = Math.max(bondFdv || validOpen, validOpen);
+  const currentFdv = validOpen * Math.pow(validBond / validOpen, poolProgress / 100);
+  const priceMultiple = currentFdv / validOpen;
 
   const x = (s: number) => 8 + (s / span) * 300;
   const y = (pct: number) => 104 - (pct / Math.max(1, snipeTax + buyTax)) * 86;
@@ -109,10 +115,19 @@ export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds }: {
         hint="The surcharge falls away by itself. Nobody has to switch it off."
         min={0} max={span} step={1} value={t} onChange={setT} />
 
+      <div className="sim-journey">
+        <div className="sim-journey-line"><i style={{ width: `${poolProgress}%` }}><b /></i></div>
+        <div className="sim-journey-labels"><span>open<br /><b>{openFdv || 0} {quoteSymbol}</b></span><span>bonded<br /><b>{bondFdv || 0} {quoteSymbol}</b></span></div>
+      </div>
+      <Slider label={`Pool price journey ${poolProgress}%`}
+        hint="Move the pool from its opening valuation to the bonding valuation. This is a price path, not a countdown."
+        min={0} max={100} step={1} value={poolProgress} onChange={setPoolProgress} />
+
       <div className="sim-out">
         <SimRow label="that buy pays" value={`${onBuy.toFixed(2)}%`} note={surcharge > 0.01 ? `${buyTax}% tax plus ${surcharge.toFixed(2)}% surcharge` : `${buyTax}% tax, the surcharge is gone`} strong />
         <SimRow label="1 ETH in" value={`${((100 - onBuy) / 100).toFixed(4)} ETH of token`} note="the rest is split the way you set below" />
         <SimRow label="straight back out" value={`${roundTrip.toFixed(2)}%`} note="what a buy and an immediate sell costs" />
+        <SimRow label="pool valuation" value={`${currentFdv.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${quoteSymbol}`} note={`${priceMultiple.toFixed(2)}x the opening price · ${(100 - poolProgress).toFixed(0)}% of the price path left`} strong />
       </div>
       <p className="sim-note">
         The surcharge is quadratic: half the window in, it is already a quarter of what it started
