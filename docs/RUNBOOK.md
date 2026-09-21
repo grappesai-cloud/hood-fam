@@ -219,6 +219,18 @@ The API prices anything `deploy/quotes.json` names, which is why that file ships
 quote allowed after a release still gets a dollar price instead of a silent zero, and a pair with
 no price is a pair whose trades earn nobody any points.
 
+Two things that bit on the day this was built, both worth knowing before the next asset is added:
+
+- **the scale is the two decimals.** A pool reports its price in raw units, so dollars per whole
+  unit is that price times `10**(assetDecimals - 6)`. Assuming eighteen because most things here
+  are eighteen priced cbBTC, which has eight, at eight hundred and fifty three trillion dollars.
+  `npm run check:pairs` now refuses any price over a million for that reason.
+- **ask the factory in batches.** `/pairs` reads two values per asset, which at eighty assets is
+  three hundred and seventy four reads. One at a time means a busy node silently drops assets out
+  of the menu, each looking like a deliberate refusal; all of them in a single multicall means the
+  node declines the call and the menu comes back empty. Sixty at a time, and an asset the chain
+  will not answer for keeps its last known answer.
+
 After a redeploy the plan has to be applied again: the allow list and the presets live on the
 factory, and a new factory starts empty.
 
