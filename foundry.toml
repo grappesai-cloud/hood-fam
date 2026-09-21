@@ -17,6 +17,9 @@ fs_permissions = [
     { access = "read", path = "node_modules/@uniswap/v4-core/out" },
     # Safe v1.4.1 runtime code, copied from 4663 (identical on Base), so the Safe suite needs no RPC.
     { access = "read", path = "test/fixtures" },
+    # what the owner is about to allow as a quote: written by scripts/quotes/plan.mjs, read by
+    # script/AllowQuotes.s.sol, and read only because a script should never write the plan it applies.
+    { access = "read", path = "deploy" },
 ]
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
