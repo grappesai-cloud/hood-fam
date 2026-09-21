@@ -11,7 +11,7 @@ import { api, type PairRow } from "@/lib/api";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
-import { Choice, Field, LaunchBar, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
+import { Choice, Field, LaunchBar, PairChooser, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 import { CurveSim } from "@/components/Sim";
 import { useBatch } from "@/lib/safe";
 
@@ -317,20 +317,8 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           </Step>
 
           <Step n={4} title="What it trades against, and the curve" purpose="Every trade is priced in this, the raise is held in it, and the fee reaches you in it. Then how much supply trades on the curve, and whether you want the first buy in the same transaction." done>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {pairs.map((p) => (
-                <Choice key={p.address} selected={form.pairToken.toLowerCase() === p.address.toLowerCase()}
-                  onClick={() => { set("pairToken", p.address as Address); set("firstBuy", ""); set("configId", 0); }}
-                  title={p.symbol}
-                  body={p.share
-                    ? `A tokenised share. Buyers pay in ${p.symbol}, the raise is held in ${p.symbol}, and your share of the fee arrives in ${p.symbol}.`
-                    : p.symbol === "ETH"
-                      ? "The chain's own currency. No approval and no second transaction."
-                      : "The dollar on this chain. A price that does not move underneath you."}
-                  meta={p.usd > 0 ? `$${p.usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : undefined} />
-              ))}
-              {pairs.length === 0 && <p className="text-xs dim">Reading what this deployment takes as a pair.</p>}
-            </div>
+            <PairChooser pairs={pairs} value={form.pairToken}
+              onPick={(address) => { set("pairToken", address); set("firstBuy", ""); set("configId", 0); }} />
 
             <div className="grid gap-2">
               {((configs ?? []) as { result?: CurvePreset }[]).map((c, i) => {
