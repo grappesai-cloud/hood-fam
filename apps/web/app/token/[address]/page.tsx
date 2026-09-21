@@ -293,7 +293,8 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
           />
         ) : (
           <TradeBox token={data.token as Address} curve={data.curve as Address}
-            pairToken={data.pair_token as Address} symbol={data.symbol} phase={data.phase} />
+            pairToken={data.pair_token as Address} pairDecimals={dec} pairSymbol={sym}
+            symbol={data.symbol} phase={data.phase} />
         )}
 
         {!isDirect && data.phase === 1 && (
@@ -322,7 +323,9 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
 
         <div className="panel p-4 text-xs dim">
           <p className="mb-1 font-semibold text-[var(--color-text)]">Pair</p>
-          <p>{data.pair_token === zeroAddress ? "ETH, the chain's own gas token" : "USDG, so the chart does not move with ETH"}</p>
+          <p>{data.pair_token === zeroAddress
+            ? "ETH, the chain's own gas token"
+            : `${sym}, the quote token this market raises and graduates against`}</p>
         </div>
       </aside>
     </div>

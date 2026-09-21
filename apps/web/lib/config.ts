@@ -41,7 +41,10 @@ export const wagmiConfig = createConfig({
       ? [safeTracking(walletConnect({ projectId: walletConnectProjectId, showQrModal: true }))]
       : []),
   ],
-  transports: { [robinhood.id]: safeAware(http(process.env.NEXT_PUBLIC_RPC ?? robinhood.rpcUrls.default.http[0])) },
+  // The chain's public RPC currently emits invalid duplicate CORS headers. The same-origin route
+  // forwards a deliberately small read-only JSON-RPC surface, while a deployment may still point
+  // NEXT_PUBLIC_RPC at its own browser-safe node.
+  transports: { [robinhood.id]: safeAware(http(process.env.NEXT_PUBLIC_RPC || "/api/rpc")) },
   ssr: true,
 });
 

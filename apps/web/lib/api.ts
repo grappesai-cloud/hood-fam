@@ -19,6 +19,18 @@ export interface NativeQuoteRoute {
   requestId: string;
 }
 
+export interface HealthStatus {
+  ok: boolean;
+  indexedBlock: string | null;
+  integrations: {
+    assistant: boolean;
+    art: boolean;
+    relay: boolean;
+    routing?: boolean;
+    storage: boolean;
+  };
+}
+
 /// What this pad takes as a pair, as the API reports it: the factory's allow list, each asset's
 /// own scale, and what one of it is worth in dollars right now.
 export interface PairRow {

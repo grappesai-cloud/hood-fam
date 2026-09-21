@@ -23,6 +23,9 @@ export const integrations = () => ({
   assistant: Boolean(process.env.ANTHROPIC_API_KEY),
   art: Boolean(process.env.OPENROUTER_API_KEY),
   relay: Boolean(process.env.RELAY_API_KEY),
+  /// The 1-click ETH -> quote -> launch-token path needs both halves. Advertising it when only
+  /// the on-chain router exists leaves a button that can never obtain calldata from Uniswap.
+  routing: Boolean(process.env.UNISWAP_API_KEY && process.env.HOOD_CURVE_ROUTER),
   /// false means /uploads/image answers 501 and the wizards fall back to the artwork URL field.
   storage: storageConfigured(),
 });
@@ -34,6 +37,7 @@ export const contracts = () => ({
   feeRouter: process.env.HOOD_FEE_ROUTER ?? null,
   staking: process.env.HOOD_STAKING ?? null,
   graduator: process.env.HOOD_GRADUATOR ?? null,
+  curveRouter: process.env.HOOD_CURVE_ROUTER ?? null,
   bridgeFactory: process.env.HOOD_BRIDGE_FACTORY ?? null,
   portal: process.env.HOOD_PORTAL ?? null,
   directDeployer: process.env.HOOD_DIRECT_DEPLOYER ?? null,

@@ -83,7 +83,7 @@ services:
       args:
         BRAND: ${BRAND:-ox}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-        NEXT_PUBLIC_RPC: ${HOOD_RPC}
+        NEXT_PUBLIC_RPC: /api/rpc
         NEXT_PUBLIC_FACTORY: ${HOOD_FACTORY}
         NEXT_PUBLIC_FEE_ROUTER: ${HOOD_FEE_ROUTER}
         NEXT_PUBLIC_STAKING: ${HOOD_STAKING}
@@ -102,6 +102,7 @@ services:
     depends_on: [api]
     environment:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      HOOD_RPC: ${HOOD_RPC}
     ports:
       - "127.0.0.1:4665:4665"
 

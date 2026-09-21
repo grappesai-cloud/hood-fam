@@ -102,8 +102,8 @@ const quotes = new Map<string, string>(); // token -> quote, so PoolOpened can t
 async function loadKnown() {
   const { rows } = await pool.query<{
     token: string; curve: string | null; pair_token: string; mode: string;
-    hook: string | null; splitter: string | null; pool_id: string | null;
-  }>(`select token, curve, pair_token, mode, hook, splitter, pool_id from launches`);
+    hook: string | null; splitter: string | null; pool_id: string | null; pair_decimals: number | null;
+  }>(`select token, curve, pair_token, mode, hook, splitter, pool_id, pair_decimals from launches`);
   for (const r of rows) {
     const token = r.token.toLowerCase();
     tokens.add(token);
@@ -112,7 +112,9 @@ async function loadKnown() {
       curves.set(r.curve.toLowerCase(), {
         token,
         pairToken: r.pair_token.toLowerCase(),
-        decimals: r.pair_token === zeroAddress ? 18 : 6,
+        // Old rows predate this column. Their only non-native pair was USDG, which has six
+        // decimals; new arbitrary pairs keep the scale read at launch.
+        decimals: r.pair_decimals ?? (r.pair_token === zeroAddress ? 18 : 6),
       });
     }
     if (r.hook) hooks.set(r.hook.toLowerCase(), token);
@@ -237,7 +239,7 @@ async function onLaunched(log: Log & { args: Record<string, unknown> }) {
   curves.set(curve, {
     token,
     pairToken: (a.pairToken as string).toLowerCase(),
-    decimals: (a.pairToken as string).toLowerCase() === zeroAddress ? 18 : 6,
+    decimals: pairMeta.decimals,
   });
   tokens.add(token);
   // The 500 for printing is not paid here: see creditLaunch. A token nobody ever trades pays

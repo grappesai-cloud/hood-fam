@@ -14,7 +14,7 @@
 # no wildcard on grappes.dev.
 x-web-build-args: &web-build-args
   NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-  NEXT_PUBLIC_RPC: ${HOOD_RPC}
+  NEXT_PUBLIC_RPC: /api/rpc
   NEXT_PUBLIC_FACTORY: ${HOOD_FACTORY}
   NEXT_PUBLIC_FEE_ROUTER: ${HOOD_FEE_ROUTER}
   NEXT_PUBLIC_STAKING: ${HOOD_STAKING}
@@ -34,6 +34,7 @@ x-brand-web: &brand-web
   depends_on: [api]
   environment:
     OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+    HOOD_RPC: ${HOOD_RPC}
   networks: [default, proxy]
 
 services:

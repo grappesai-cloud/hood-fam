@@ -1,14 +1,14 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useEffect, useMemo, useState } from "react";
 import { encodeFunctionData, parseUnits, formatUnits, maxUint256, zeroAddress, type Address } from "viem";
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract, useBalance, useReadContracts, usePublicClient } from "wagmi";
 import { hoodCurveAbi, hoodCurveRouterAbi } from "@hood/sdk";
-import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
+import { fmt, pairDecimals as knownPairDecimals, pairSymbol as knownPairSymbol } from "@/lib/format";
 import { useBatch } from "@/lib/safe";
-import { api, type NativeQuoteRoute } from "@/lib/api";
+import { api, type HealthStatus, type NativeQuoteRoute } from "@/lib/api";
 import { addresses } from "@/lib/config";
 
 const erc20 = [
@@ -17,8 +17,8 @@ const erc20 = [
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
 ] as const;
 
-export function TradeBox({ token, curve, pairToken, symbol, phase }: {
-  token: Address; curve: Address; pairToken: Address; symbol: string; phase: number;
+export function TradeBox({ token, curve, pairToken, pairDecimals, pairSymbol, symbol, phase }: {
+  token: Address; curve: Address; pairToken: Address; pairDecimals?: number; pairSymbol?: string; symbol: string; phase: number;
 }) {
   const { address } = useAccount();
   const [side, setSide] = useState<"buy" | "sell">("buy");
@@ -33,15 +33,27 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
   const publicClient = usePublicClient();
   const { canBatch, batch } = useBatch();
   const queryClient = useQueryClient();
+  const { data: health } = useQuery({
+    queryKey: ["health"],
+    queryFn: () => api<HealthStatus>("/health"),
+    staleTime: 60_000,
+    retry: false,
+  });
   useEffect(() => {
     // the transaction landed: every number on this page is stale until it is read again
     if (receipt.isSuccess) void queryClient.invalidateQueries();
   }, [receipt.isSuccess, queryClient]);
 
   const isNative = pairToken === zeroAddress;
-  const oneClick = side === "buy" && !isNative && payWithEth;
-  const pairDec = pairDecimals(pairToken);
-  const pairSym = pairSymbol(pairToken);
+  // The address proves the contract exists in this build; /health proves the API can obtain a
+  // swap route. Both are required before offering a path that promises to be one click.
+  const oneClickAvailable = Boolean(addresses.curveRouter && health?.integrations.routing);
+  const oneClick = side === "buy" && !isNative && oneClickAvailable && payWithEth;
+  const pairDec = pairDecimals ?? knownPairDecimals(pairToken);
+  const pairSym = pairSymbol || knownPairSymbol(pairToken);
+  useEffect(() => {
+    if (!oneClickAvailable && payWithEth) setPayWithEth(false);
+  }, [oneClickAvailable, payWithEth]);
 
   const amountWei = useMemo(() => {
     try { return parseUnits(amount || "0", side === "buy" ? (oneClick ? 18 : pairDec) : 18); } catch { return 0n; }
@@ -177,7 +189,7 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
         ))}
       </div>
 
-      {side === "buy" && !isNative && addresses.curveRouter && (
+      {side === "buy" && !isNative && oneClickAvailable && (
         <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
           <button className={`rounded-lg border px-2 py-2 ${!payWithEth ? "border-[var(--color-lime)] text-[var(--color-lime)]" : "border-[var(--color-line)] dim"}`}
             onClick={() => { setPayWithEth(false); setAmount(""); }}>
