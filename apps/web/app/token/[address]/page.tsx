@@ -92,8 +92,8 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
     );
   }
 
-  const dec = pairDecimals(data.pair_token);
-  const sym = pairSymbol(data.pair_token);
+  const dec = pairDecimals(data.pair_token, data);
+  const sym = pairSymbol(data.pair_token, data);
   const progress = launchProgress(data);
   // total_supply is what is left after burns; the cap is price times that, not times what was printed
   const totalSupply = BigInt(data.total_supply || "0");

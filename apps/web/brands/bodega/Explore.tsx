@@ -196,14 +196,14 @@ function plainAge(short: string): string {
 /// person already knows; "1.98M" is a reading taken off an instrument, and this front is for the
 /// people who would rather not be handed the instrument.
 function worthSentence(t: TokenRow): string {
-  const decimals = pairDecimals(t.pair_token);
+  const decimals = pairDecimals(t.pair_token, t);
   // The same sum the cards do, worked the same way, so no two places in this app ever quote one
   // launch at two different sizes.
   const mcap = (BigInt(t.price || "0") * BigInt(t.total_supply || "0")) / 10n ** 18n;
   if (mcap === 0n) return "Nobody has paid anything for it yet.";
   const words = inWords(Number(mcap) / 10 ** decimals);
   const figure = words ?? compact(mcap, decimals);
-  return `Worth about ${figure} ${pairSymbol(t.pair_token)} altogether.`;
+  return `Worth about ${figure} ${pairSymbol(t.pair_token, t)} altogether.`;
 }
 
 const SMALL = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];

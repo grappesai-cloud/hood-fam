@@ -123,8 +123,8 @@ function Launch({ t, me }: { t: TokenRow; me: Address }) {
 
   const direct = t.mode === "direct";
   const graduated = t.status === "graduated" || t.bonded;
-  const dec = pairDecimals(t.pair_token);
-  const sym = pairSymbol(t.pair_token);
+  const dec = pairDecimals(t.pair_token, t);
+  const sym = pairSymbol(t.pair_token, t);
   const progress = launchProgress(t);
   const isCreator = same(t.creator, me);
   // The creator leg pays a wallet, which is what makes the flush their claim and the recipient

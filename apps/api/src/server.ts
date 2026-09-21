@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
-import { isAddress } from "viem";
+import { createPublicClient, http, isAddress, parseAbi, type Address } from "viem";
 import { z } from "zod";
 
 const gzip = promisify(gzipCb);
@@ -14,6 +14,16 @@ const gzip = promisify(gzipCb);
 const GZIP_MIN_BYTES = 1024;
 
 import { pool, currentSeason } from "./db.js";
+import { PAIR_ASSETS, robinhood } from "@hood/sdk";
+import { pairUsdPrice } from "./price.js";
+
+/// The two views the pair list asks the factory for. A client of its own rather than the
+/// indexer's, because this one answers a request and must not wait behind a block scan.
+const chain = createPublicClient({ chain: robinhood, transport: http(process.env.HOOD_RPC ?? robinhood.rpcUrls.default.http[0]!) });
+const pairViewAbi = parseAbi([
+  "function pairAllowed(address) view returns (bool)",
+  "function lockThreshold(address) view returns (uint256)",
+]);
 import { leaderboard, pointsFor, RANKS, POINTS } from "./points.js";
 import { chatMessage, registerChat } from "./chat.js";
 import { registerStream } from "./events.js";
@@ -347,7 +357,8 @@ export async function buildServer() {
     const a = address.toLowerCase();
     const [{ rows: held }, { rows: stakes }, { rows: created }] = await Promise.all([
       pool.query(
-        `select b.token, b.balance, l.symbol, l.name, l.image, l.price, l.pair_token, l.phase
+        `select b.token, b.balance, l.symbol, l.name, l.image, l.price, l.pair_token, l.phase,
+                l.pair_symbol, l.pair_decimals
          from balances b join launches l on l.token = b.token
          where b.address = $1 and b.balance > 0 order by b.balance desc`, [a]),
       pool.query(`select * from stakes where owner = $1 and active`, [a]),
@@ -444,6 +455,43 @@ export async function buildServer() {
     if (!proof) return reply.code(404).send({ error: "no claim for that address in that season" });
     return { ...proof, claimed: null };
   });
+
+  /// What a launch may trade against, and therefore what its creator can be paid in.
+  ///
+  /// The factory's allow list is the authority, so this asks it rather than answering from a
+  /// constant: an asset the owner adds is offered by the wizard the moment it is added, and one
+  /// they withdraw stops being offered without a deploy. The dollar price comes with it, because
+  /// a creator picking a share as their pair is picking a number they think in dollars.
+  app.get("/pairs", async () => cached("pairs", 60_000, async () => {
+    const factory = process.env.HOOD_FACTORY as Address | undefined;
+    const rows = await Promise.all(PAIR_ASSETS.map(async (asset) => {
+      let allowed = false;
+      let lockThreshold = "0";
+      if (factory) {
+        try {
+          const [ok, lock] = await Promise.all([
+            chain.readContract({ address: factory, abi: pairViewAbi, functionName: "pairAllowed", args: [asset.address] }),
+            chain.readContract({ address: factory, abi: pairViewAbi, functionName: "lockThreshold", args: [asset.address] }),
+          ]);
+          allowed = ok as boolean;
+          lockThreshold = (lock as bigint).toString();
+        } catch {
+          // A factory that cannot be read is not a reason to serve a wrong list: nothing is
+          // offered until it answers again.
+        }
+      }
+      return {
+        address: asset.address,
+        symbol: asset.symbol,
+        decimals: asset.decimals,
+        share: Boolean(asset.share),
+        allowed,
+        lockThreshold,
+        usd: await pairUsdPrice(asset.address),
+      };
+    }));
+    return { pairs: rows.filter((p) => p.allowed) };
+  }));
 
   /// Our own contracts trade too (a buyback, a harvest, the portal's first buy on a creator's
   /// behalf). They are trades, but they are not traders.

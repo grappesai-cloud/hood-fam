@@ -9,7 +9,7 @@ import { Artwork } from "./Artwork";
 /// go, and the one action.
 export function TokenCard({ t, spotlight, flag }: { t: TokenRow; spotlight?: boolean; flag?: string }) {
   const progress = launchProgress(t);
-  const decimals = pairDecimals(t.pair_token);
+  const decimals = pairDecimals(t.pair_token, t);
   const mcap = (BigInt(t.price || "0") * BigInt(t.total_supply || "0")) / 10n ** 18n;
   const graduated = t.status === "graduated";
   const direct = t.mode === "direct";
@@ -40,7 +40,7 @@ export function TokenCard({ t, spotlight, flag }: { t: TokenRow; spotlight?: boo
 
         <div className="token-figure">
           <strong>{compact(mcap, decimals)}</strong>
-          <small>{pairSymbol(t.pair_token)} MC</small>
+          <small>{pairSymbol(t.pair_token, t)} MC</small>
         </div>
 
         <div className={fill >= 1 ? "card-progress done" : "card-progress"} role="img"

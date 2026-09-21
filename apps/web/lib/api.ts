@@ -7,10 +7,26 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/// What this pad takes as a pair, as the API reports it: the factory's allow list, each asset's
+/// own scale, and what one of it is worth in dollars right now.
+export interface PairRow {
+  address: string;
+  symbol: string;
+  decimals: number;
+  /// A tokenised share rather than a currency.
+  share: boolean;
+  allowed: boolean;
+  lockThreshold: string;
+  usd: number;
+}
+
 export interface TokenRow {
   token: string; curve: string; creator: string; symbol: string; name: string; image: string;
   description: string; website: string; twitter: string; telegram: string;
   pair_token: string; phase: number;
+  /// What the pair calls itself and how many decimals it has, as the indexer read them off the
+  /// asset at launch. Null on rows written before the pad took anything but ETH and the dollar.
+  pair_symbol?: string | null; pair_decimals?: number | null;
   /// Where the creator leg of the fee goes, in basis points, adding up to 10,000 on a curve launch.
   /// A direct launch is four zeros: its own splitter divides its tax, so the split does not apply.
   split_stakers_bps: number; split_buyback_bps: number; split_liquidity_bps: number; split_creator_bps: number;

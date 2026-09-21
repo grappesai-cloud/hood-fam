@@ -121,8 +121,8 @@ export default function Explore() {
 /// One launch, as a ticket. The ticker is the ticket: it is set as large as the block allows,
 /// because on a floor the thing you shout is the symbol. Everything else is small print around it.
 function Ticket({ t, lead }: { t: TokenRow; lead?: boolean }) {
-  const decimals = pairDecimals(t.pair_token);
-  const symbol = pairSymbol(t.pair_token);
+  const decimals = pairDecimals(t.pair_token, t);
+  const symbol = pairSymbol(t.pair_token, t);
   const mcap = (BigInt(t.price || "0") * BigInt(t.total_supply || "0")) / 10n ** 18n;
   const progress = launchProgress(t);
   const done = t.mode === "direct" || t.status === "graduated";

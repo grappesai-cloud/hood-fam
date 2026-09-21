@@ -170,3 +170,32 @@ export function addressesFromEnv(env: Record<string, string | undefined> = proce
     bridgeFactory: env.HOOD_BRIDGE_FACTORY as `0x${string}` | undefined,
   };
 }
+
+/// What a launch can trade against on 4663, and therefore what its creator is paid in.
+///
+/// The chain's own currency, the dollar, and the tokenised shares that have real liquidity here.
+/// Kept in the SDK because three different programs need the same answer to "how many decimals is
+/// this pair, and what is it called": the app, the indexer and the MCP server. The factory's allow
+/// list is the authority on which of them may be used; this is only the names and the scales.
+export interface PairAsset {
+  address: `0x${string}`;
+  symbol: string;
+  decimals: number;
+  /// A share of a company rather than a currency. The app says so, because a creator choosing to
+  /// be paid in NVDA is choosing something with a market that closes.
+  share?: true;
+}
+
+export const PAIR_ASSETS: PairAsset[] = [
+  { address: "0x0000000000000000000000000000000000000000", symbol: "ETH", decimals: 18 },
+  { address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", symbol: "USDG", decimals: 6 },
+  { address: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", symbol: "NVDA", decimals: 18, share: true },
+  { address: "0x1b0E319c6A659F002271B69dB8A7df2F911c153E", symbol: "GME", decimals: 18, share: true },
+  { address: "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C", symbol: "SPY", decimals: 18, share: true },
+];
+
+const byAddress = new Map(PAIR_ASSETS.map((p) => [p.address.toLowerCase(), p]));
+
+export function pairAsset(address?: string): PairAsset | undefined {
+  return address ? byAddress.get(address.toLowerCase()) : undefined;
+}

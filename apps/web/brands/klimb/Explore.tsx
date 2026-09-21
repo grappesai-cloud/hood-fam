@@ -158,8 +158,8 @@ function priceOf(price: bigint, decimals: number, unit: string): { value: string
 }
 
 function Row({ t, rank }: { t: TokenRow; rank: number }) {
-  const decimals = pairDecimals(t.pair_token);
-  const unit = pairSymbol(t.pair_token);
+  const decimals = pairDecimals(t.pair_token, t);
+  const unit = pairSymbol(t.pair_token, t);
   const done = t.status === "graduated";
   // A graduated launch has nowhere left to climb, so its ladder reads full rather than stalled at
   // whatever the curve said on the block it bonded.

@@ -150,6 +150,11 @@ create index if not exists stakes_token on stakes (token);
 -- stays the total in the chain's own currency; this one carries every asset, keyed by address,
 -- as decimal strings so a uint256 survives the trip through JSON.
 alter table stakes add column if not exists claimed_by_asset jsonb not null default '{}'::jsonb;
+
+-- What a launch trades against, as the token itself reports it. Five assets today and more when
+-- the owner allows them, so the scale cannot be a constant in the app any more.
+alter table launches add column if not exists pair_symbol text;
+alter table launches add column if not exists pair_decimals smallint;
 -- How far a position has been paid for being locked. Null means "since it was created": a database
 -- from before points accrued over time starts every open position from its own beginning.
 alter table stakes add column if not exists points_through timestamptz;

@@ -183,7 +183,7 @@ function marquee(tokens: TokenRow[]) {
 /// one screen showing different market caps for one token is worse than showing none.
 function cap(t: TokenRow) {
   const mcap = (BigInt(t.price || "0") * BigInt(t.total_supply || "0")) / 10n ** 18n;
-  return `${compact(mcap, pairDecimals(t.pair_token))} ${pairSymbol(t.pair_token)}`;
+  return `${compact(mcap, pairDecimals(t.pair_token, t))} ${pairSymbol(t.pair_token, t)}`;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

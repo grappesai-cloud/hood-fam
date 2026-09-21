@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { isAddress, parseEther, parseUnits, zeroAddress, type Address } from "viem";
+import { useQuery } from "@tanstack/react-query";
+import { encodeFunctionData, erc20Abi, isAddress, parseUnits, zeroAddress, type Address } from "viem";
 import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { hoodFactoryAbi, hoodStakingAbi, BPS, FEE_LEG_LABEL, LOCK_TIERS } from "@hood/sdk";
 import { addresses } from "@/lib/config";
-import { fmt } from "@/lib/format";
+import { api, type PairRow } from "@/lib/api";
+import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
 import { Choice, Field, LaunchBar, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 import { CurveSim } from "@/components/Sim";
+import { useBatch } from "@/lib/safe";
 
 interface CurvePreset {
   totalSupply: bigint; curveSupplyBps: number; startCap: bigint; graduationCap: bigint;
@@ -82,6 +85,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const { address } = useAccount();
   const router = useRouter();
   const { writeContractAsync, isPending } = useWriteContract();
+  const { canBatch, batch } = useBatch();
   const [hash, setHash] = useState<`0x${string}` | undefined>();
   const receipt = useWaitForTransactionReceipt({ hash });
 
@@ -122,6 +126,15 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
       : f));
   }, [houseToken, canPayStakers]);
 
+  // What this pad will take as a pair today. The factory's allow list decides it, so an asset the
+  // owner adds shows up here without a deploy, and one they withdraw disappears the same way.
+  const { data: pairData } = useQuery({
+    queryKey: ["pairs"],
+    queryFn: () => api<{ pairs: PairRow[] }>("/pairs"),
+    staleTime: 60_000,
+  });
+  const pairs = pairData?.pairs ?? [];
+
   const { data: launchFee } = useReadContract({
     address: addresses.factory, abi: hoodFactoryAbi, functionName: "launchFee",
   });
@@ -141,11 +154,34 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     }
   }, [receipt.isSuccess, receipt.data, router]);
 
-  const chosen = ((configs ?? []) as { result?: CurvePreset }[])[form.configId]?.result;
   const isNative = form.pairToken === zeroAddress;
-  const pair = isNative ? "ETH" : "USDG";
-  const firstBuyWei = form.firstBuy ? (isNative ? parseEther(form.firstBuy) : parseUnits(form.firstBuy, 6)) : 0n;
+  const chosenPair = pairs.find((p) => p.address.toLowerCase() === form.pairToken.toLowerCase());
+  const pairDec = chosenPair?.decimals ?? pairDecimals(form.pairToken);
+  const pair = chosenPair?.symbol ?? pairSymbol(form.pairToken);
+  const pairUsd = chosenPair?.usd ?? 0;
+  const firstBuyWei = form.firstBuy ? parseUnits(form.firstBuy, pairDec) : 0n;
+  // Only the chain's own currency travels with the transaction. Everything else is pulled from the
+  // wallet, which is why an ERC-20 first buy needs an approval before the launch, below.
   const value = (launchFee as bigint | undefined ?? 0n) + (isNative ? firstBuyWei : 0n);
+
+  // A first buy in anything but the chain's own currency is pulled from the wallet, so the factory
+  // needs an allowance before the launch. Read here so the bar can say which transaction it is on.
+  const { data: pairAllowance } = useReadContract({
+    address: form.pairToken, abi: erc20Abi, functionName: "allowance",
+    args: [address ?? zeroAddress, addresses.factory],
+    query: { enabled: !isNative && firstBuyWei > 0n && Boolean(address) },
+  });
+  const needsApproval = !isNative && firstBuyWei > 0n && ((pairAllowance as bigint | undefined) ?? 0n) < firstBuyWei;
+
+  // Which presets belong to the chosen pair, by the same rule the list below draws them with.
+  const presetFits = (cfg?: CurvePreset) => {
+    if (!cfg?.enabled) return false;
+    if (pairUsd <= 0) return true;
+    const openUsd = (Number(cfg.startCap) / 10 ** pairDec) * pairUsd;
+    return openUsd >= 1_500 && openUsd <= 10_000;
+  };
+  const presetsForPair = ((configs ?? []) as { result?: CurvePreset }[]).filter((c) => presetFits(c.result)).length;
+  const chosen = ((configs ?? []) as { result?: CurvePreset }[])[form.configId]?.result;
   const tokenDone = form.name.length > 0 && form.symbol.length > 0 && symbolFree !== false;
   const splitTotal = form.stakers + form.buyback + form.liquidity + form.creator;
   // The address the creator leg pays. Empty means the wallet doing the launching, which is what it
@@ -177,22 +213,38 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   async function launch() {
     if (!address) return;
     const salt = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32))).map((b) => b.toString(16).padStart(2, "0")).join("")}` as `0x${string}`;
+    if (needsApproval) {
+      // The wallet has to let the factory take the first buy. A Safe does both in one signature
+      // round; anything else approves now and launches on the next press.
+      const approve = { to: form.pairToken, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [addresses.factory, firstBuyWei] }) };
+      if (canBatch) {
+        const id = await batch([approve, { to: addresses.factory, data: encodeFunctionData({ abi: hoodFactoryAbi, functionName: "launch", args: [launchArgs(salt)] }), value }]);
+        if (id) return setHash(id);
+      }
+      return setHash(await writeContractAsync({
+        address: form.pairToken, abi: erc20Abi, functionName: "approve", args: [addresses.factory, firstBuyWei],
+      }));
+    }
     setHash(await writeContractAsync({
       address: addresses.factory, abi: hoodFactoryAbi, functionName: "launch",
-      args: [{
-        name: form.name, symbol: form.symbol, image: form.image, description: form.description,
-        website: form.website, twitter: form.twitter, telegram: form.telegram,
-        pairToken: form.pairToken, configId: BigInt(form.configId),
-        feeSplit: {
-          stakersBps: form.stakers * 100, buybackBps: form.buyback * 100,
-          liquidityBps: form.liquidity * 100, creatorBps: form.creator * 100,
-        },
-        creatorFeeRecipient: (recipient || address) as Address,
-        firstBuy: firstBuyWei, firstBuyLock: BigInt(form.firstBuyLock),
-        salt, econ: (econ as `0x${string}`) ?? `0x${"0".repeat(64)}`,
-      }],
+      args: [launchArgs(salt)],
       value,
     }));
+  }
+
+  function launchArgs(salt: `0x${string}`) {
+    return {
+      name: form.name, symbol: form.symbol, image: form.image, description: form.description,
+      website: form.website, twitter: form.twitter, telegram: form.telegram,
+      pairToken: form.pairToken, configId: BigInt(form.configId),
+      feeSplit: {
+        stakersBps: form.stakers * 100, buybackBps: form.buyback * 100,
+        liquidityBps: form.liquidity * 100, creatorBps: form.creator * 100,
+      },
+      creatorFeeRecipient: (recipient || address ) as Address,
+      firstBuy: firstBuyWei, firstBuyLock: BigInt(form.firstBuyLock),
+      salt, econ: (econ as `0x${string}`) ?? `0x${"0".repeat(64)}`,
+    } as const;
   }
 
   // No factory address means this build is not wired to the chain: a preview, or a box whose
@@ -264,20 +316,49 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             )}
           </Step>
 
-          <Step n={4} title="The curve, and your first buy" purpose="How much supply trades on the curve, what valuation it starts and graduates at, and whether you want the first buy in the same transaction." done>
+          <Step n={4} title="What it trades against, and the curve" purpose="Every trade is priced in this, the raise is held in it, and the fee reaches you in it. Then how much supply trades on the curve, and whether you want the first buy in the same transaction." done>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {pairs.map((p) => (
+                <Choice key={p.address} selected={form.pairToken.toLowerCase() === p.address.toLowerCase()}
+                  onClick={() => { set("pairToken", p.address as Address); set("firstBuy", ""); set("configId", 0); }}
+                  title={p.symbol}
+                  body={p.share
+                    ? `A tokenised share. Buyers pay in ${p.symbol}, the raise is held in ${p.symbol}, and your share of the fee arrives in ${p.symbol}.`
+                    : p.symbol === "ETH"
+                      ? "The chain's own currency. No approval and no second transaction."
+                      : "The dollar on this chain. A price that does not move underneath you."}
+                  meta={p.usd > 0 ? `$${p.usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : undefined} />
+              ))}
+              {pairs.length === 0 && <p className="text-xs dim">Reading what this deployment takes as a pair.</p>}
+            </div>
+
             <div className="grid gap-2">
               {((configs ?? []) as { result?: CurvePreset }[]).map((c, i) => {
                 const cfg = c.result;
                 if (!cfg?.enabled) return null;
-                const dec = isNative ? 18 : 6;
+                const dec = pairDec;
+                // A preset's caps are in the pair's own units, so one written for ETH reads as
+                // nonsense against a share. Anything outside a sane opening valuation belongs to
+                // another pair, and hiding it beats letting somebody launch at a thousandth of
+                // what they meant.
+                const openUsd = (Number(cfg.startCap) / 10 ** dec) * pairUsd;
+                if (pairUsd > 0 && (openUsd < 1_500 || openUsd > 10_000)) return null;
                 return (
                   <Choice key={i} selected={form.configId === i} onClick={() => set("configId", i)}
                     title={`Starts at ${fmt(cfg.startCap, dec, 3)} ${pair}, graduates at ${fmt(cfg.graduationCap, dec, 3)} ${pair}`}
-                    body={`${cfg.curveSupplyBps / 100}% of the supply trades on the curve. The rest goes into the pool at graduation, locked.`}
+                    body={`${cfg.curveSupplyBps / 100}% of the supply trades on the curve. The rest goes into the pool at graduation, locked.${
+                      pairUsd > 0 ? ` About $${Math.round((Number(cfg.startCap) / 10 ** dec) * pairUsd).toLocaleString()} at the open, $${Math.round((Number(cfg.graduationCap) / 10 ** dec) * pairUsd).toLocaleString()} at graduation.` : ""
+                    }`}
                     meta={`${(cfg.protocolFeeBps + cfg.creatorFeeBps) / 100}% per trade`} />
                 );
               })}
             </div>
+            {presetsForPair === 0 && (
+              <p className="text-xs text-[var(--color-red)]">
+                No preset is denominated in {pair} yet. Pick another pair, or ask for one: a preset
+                is fixed forever once it exists, so they are added rather than edited.
+              </p>
+            )}
             {chosen && (
               <CurveSim
                 p0={(chosen.startCap * 10n ** 18n) / chosen.totalSupply}
@@ -314,12 +395,14 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           </Step>
 
           <LaunchBar
-            cost={`${fmt(value, 18, 6)} ETH`}
-            costLabel={form.firstBuy ? `${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} fee plus your ${form.firstBuy} first buy` : "launch fee, plus gas"}
+            cost={`${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} ETH`}
+            costLabel={form.firstBuy
+              ? `launch fee, plus your ${form.firstBuy} ${pair} first buy${isNative ? "" : `, taken from your wallet in ${pair}`}`
+              : "launch fee, plus gas"}
             blocked={blocked}
             busy={isPending || receipt.isLoading}
             busyLabel={receipt.isLoading ? "waiting for the chain" : "confirm in your wallet"}
-            label="Create the token"
+            label={needsApproval ? `Approve ${pair}` : "Create the token"}
             onClick={launch}
           />
         </div>

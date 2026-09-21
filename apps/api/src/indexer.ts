@@ -1,8 +1,8 @@
 import {
-  createPublicClient, encodeAbiParameters, http, keccak256, parseAbiItem, toEventSelector, zeroAddress,
+  createPublicClient, encodeAbiParameters, erc20Abi, http, keccak256, parseAbiItem, toEventSelector, zeroAddress,
   type Address, type Log,
 } from "viem";
-import { robinhood } from "@hood/sdk";
+import { pairAsset, robinhood } from "@hood/sdk";
 
 import { pool, getCursor, getCursorHash, setCursor } from "./db.js";
 import { notify } from "./events.js";
@@ -166,6 +166,32 @@ async function announce(row: { token: string; symbol: string; name: string; crea
   );
 }
 
+/// What a launch trades against, asked of the asset itself. A pad that lets a creator be paid in
+/// a tokenised share has to read the scale rather than assume it: six decimals for the dollar,
+/// eighteen for a share, and an asset allowed after this code shipped still has to come out right.
+const pairMeta = new Map<string, { symbol: string; decimals: number }>();
+async function pairMetadata(pairToken: string): Promise<{ symbol: string; decimals: number }> {
+  if (pairToken === zeroAddress) return { symbol: "ETH", decimals: 18 };
+  const cached = pairMeta.get(pairToken);
+  if (cached) return cached;
+  const known = pairAsset(pairToken);
+  if (known) {
+    pairMeta.set(pairToken, { symbol: known.symbol, decimals: known.decimals });
+    return pairMeta.get(pairToken)!;
+  }
+  try {
+    const [symbol, decimals] = await Promise.all([
+      client.readContract({ address: pairToken as Address, abi: erc20Abi, functionName: "symbol" }),
+      client.readContract({ address: pairToken as Address, abi: erc20Abi, functionName: "decimals" }),
+    ]);
+    pairMeta.set(pairToken, { symbol: symbol as string, decimals: Number(decimals) });
+  } catch {
+    // An asset that will not say. The row keeps nulls and the app falls back to its own registry.
+    pairMeta.set(pairToken, { symbol: "", decimals: 18 });
+  }
+  return pairMeta.get(pairToken)!;
+}
+
 async function onLaunched(log: Log & { args: Record<string, unknown> }) {
   const a = log.args;
   const token = (a.token as string).toLowerCase();
@@ -175,17 +201,21 @@ async function onLaunched(log: Log & { args: Record<string, unknown> }) {
   const split = a.feeSplit as { stakersBps: number; buybackBps: number; liquidityBps: number; creatorBps: number };
   // The prose (name, symbol, artwork, links) arrives in LaunchMetadata, emitted in the same
   // transaction right after this one. The row is created here and filled in there.
+  const pair = (a.pairToken as string).toLowerCase();
+  const pairMeta = await pairMetadata(pair);
   const { rows: created } = await pool.query<{ token: string }>(
     `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id,
        split_stakers_bps, split_buyback_bps, split_liquidity_bps, split_creator_bps,
+       pair_symbol, pair_decimals,
        name, symbol, launched_at, block, tx, mode)
-     values ($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,'','',$10,$11,$12,'curve')
+     values ($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,$10,$11,'','',$12,$13,$14,'curve')
      on conflict (token) do nothing
      returning token`,
     [
-      token, curve, (a.creator as string).toLowerCase(), (a.pairToken as string).toLowerCase(),
+      token, curve, (a.creator as string).toLowerCase(), pair,
       Number(a.configId),
       Number(split.stakersBps), Number(split.buybackBps), Number(split.liquidityBps), Number(split.creatorBps),
+      pairMeta.symbol, pairMeta.decimals,
       await blockTime(log.blockNumber!), log.blockNumber!.toString(), log.transactionHash,
     ],
   );

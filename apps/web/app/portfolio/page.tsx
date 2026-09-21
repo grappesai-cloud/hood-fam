@@ -12,7 +12,7 @@ import { Artwork } from "@/components/Artwork";
 
 interface Portfolio {
   address: string;
-  holdings: { token: string; balance: string; symbol: string; name: string; image: string; price: string; pair_token: string; phase: number }[];
+  holdings: { token: string; balance: string; symbol: string; name: string; image: string; price: string; pair_token: string; phase: number; pair_symbol?: string | null; pair_decimals?: number | null }[];
   stakes: { position_id: string; token: string; amount: string; unlock_at: string; weight_bps: number; claimed: string }[];
   launches: { token: string; symbol: string; name: string; phase: number; volume_total: string }[];
   points: { points: number; rank: string; multiplier: number; position: number; volumeUsd: number };
@@ -83,7 +83,7 @@ function PortfolioInner() {
               <Link key={h.token} href={`/token/${h.token}`} className="row">
                 <span className="row-art"><Artwork src={imageUrl(h.image)} symbol={h.symbol} size={36} rounded="rounded-none" /></span>
                 <span className="row-name"><strong>{h.name}</strong><span>${h.symbol} · {compact(BigInt(h.balance))} held</span></span>
-                <span className="row-num"><strong>{compact(h.value, pairDecimals(h.pair_token))}</strong><span>{pairSymbol(h.pair_token)}</span></span>
+                <span className="row-num"><strong>{compact(h.value, pairDecimals(h.pair_token, h))}</strong><span>{pairSymbol(h.pair_token, h)}</span></span>
                 <span className="row-meter"><i style={{ width: `${biggest > 0n ? Number((h.value * 100n) / biggest) : 0}%` }} /></span>
               </Link>
             ))}

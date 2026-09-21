@@ -1,5 +1,5 @@
 export { fmt, compact, shortAddress, timeUntil, LOCK_TIERS } from "@hood/sdk";
-import { FEE_LEG_LABEL, type FeeLeg } from "@hood/sdk";
+import { FEE_LEG_LABEL, pairAsset, type FeeLeg } from "@hood/sdk";
 
 /// A launch's fee split as the app reads it off a row: the legs that pay something, largest first.
 /// A direct launch is four zeros, because its own splitter divides its tax, and that is not the
@@ -35,13 +35,20 @@ export const paysStakers = (row: SplitRow) => (row.split_stakers_bps ?? 0) > 0;
 
 export const PHASE_LABEL = ["on the curve", "sold out", "graduated"] as const;
 
-export function pairDecimals(pairToken: string) {
-  return pairToken === "0x0000000000000000000000000000000000000000" ? 18 : 6;
+/// The scale and the name of whatever a launch trades against. Two of the five are currencies and
+/// three are tokenised shares, and they are not all six decimals: reading them off a registry
+/// rather than off a guess is the difference between 224 NVDA and 224,000,000,000,000 of them.
+/// A row from the indexer carries its own answer (`pair_symbol`, `pair_decimals`), which wins,
+/// because a pair added on chain after this build shipped is still a pair the board has to show.
+export function pairDecimals(pairToken: string, row?: { pair_decimals?: number | null }) {
+  return row?.pair_decimals ?? pairAsset(pairToken)?.decimals ?? 18;
 }
 
-export function pairSymbol(pairToken: string) {
-  return pairToken === "0x0000000000000000000000000000000000000000" ? "ETH" : "USDG";
+export function pairSymbol(pairToken: string, row?: { pair_symbol?: string | null }) {
+  return row?.pair_symbol ?? pairAsset(pairToken)?.symbol ?? "the pair";
 }
+
+export { PAIR_ASSETS, pairAsset } from "@hood/sdk";
 
 export function ago(iso: string) {
   // Never negative. A chain's clock is its own: 4663 stamps blocks from its sequencer, a fork runs

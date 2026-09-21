@@ -170,8 +170,8 @@ function MarketStat({ label, value, hot = false }: { label: string; value: strin
 }
 
 function TrendingCard({ token, rank }: { token: TokenRow; rank: number }) {
-  const decimals = pairDecimals(token.pair_token);
-  const unit = pairSymbol(token.pair_token);
+  const decimals = pairDecimals(token.pair_token, token);
+  const unit = pairSymbol(token.pair_token, token);
   const cap = (BigInt(token.price || "0") * BigInt(token.total_supply || "0")) / 10n ** 18n;
   return (
     <Link href={`/token/${token.token}`} className="ox-trending-card">
@@ -184,8 +184,8 @@ function TrendingCard({ token, rank }: { token: TokenRow; rank: number }) {
 }
 
 function Token({ token }: { token: TokenRow }) {
-  const decimals = pairDecimals(token.pair_token);
-  const unit = pairSymbol(token.pair_token);
+  const decimals = pairDecimals(token.pair_token, token);
+  const unit = pairSymbol(token.pair_token, token);
   const cap = (BigInt(token.price || "0") * BigInt(token.total_supply || "0")) / 10n ** 18n;
   const progress = token.mode === "direct" || token.status === "graduated" ? 1 : launchProgress(token);
   const done = progress >= 1;
