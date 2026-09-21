@@ -589,3 +589,25 @@ hook, splitter and pool id, so an integrator can replay every event above agains
 and clients for both machines: `createDirectClient(...).graduationStatus(token)`, `.getLaunch`,
 `.taxes(hook)`, `.buckets(splitter)`, `.pendingDividends`, and `mineHookSalt` for a launch. The
 `apps/api/src/indexer.ts` file is a complete, working reference for everything in this guide.
+
+## Pairs
+
+`GET /pairs` is what a launch may be quoted in, taken from the factory's allow list rather than
+from a constant, so it changes the moment the owner changes it.
+
+```json
+{ "pairs": [
+  { "address": "0x0000000000000000000000000000000000000000", "symbol": "ETH", "decimals": 18,
+    "share": false, "allowed": true, "lockThreshold": "25000000000000000000", "usd": 2722.83 },
+  { "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", "symbol": "NVDA", "decimals": 18,
+    "share": true, "allowed": true, "lockThreshold": "300000000000000000000", "usd": 224.64 }
+] }
+```
+
+`share` marks a tokenised share rather than a currency. `usd` is one whole unit in dollars, read
+off the pool that asset trades against USDG in, and `lockThreshold` is the 24 hour volume, in that
+asset's own units, above which a launch locks its ticker and artwork for 48 hours.
+
+Every launch row carries `pair_symbol` and `pair_decimals` for the same reason: a pair allowed
+after your integration shipped still has to display with the right number of zeros. Fall back to
+the pair address only when they are null.
