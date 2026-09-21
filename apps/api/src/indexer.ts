@@ -388,6 +388,7 @@ async function onDirectLaunched(log: Log & { args: Record<string, unknown> }) {
   // buyback burn that came later, and the Transfer handler would then take those off twice. The
   // same receipt says whether the portal announced the pool's shape, or whether the hook has to
   // be asked the way launches from before that event were.
+  const quoteMeta = await pairMetadata(quote);
   const receipt = await client.getTransactionReceipt({ hash: log.transactionHash! });
   let minted = 0n;
   let burned = 0n;
@@ -416,14 +417,17 @@ async function onDirectLaunched(log: Log & { args: Record<string, unknown> }) {
   const { rows: created } = await pool.query<{ token: string }>(
     `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id,
        name, symbol, launched_at, block, tx, mode, hook, splitter, locker, restrictions_end_block,
-       total_supply, burned)
-     values ($1,$2,$3,$3,$4,0,'','',$5,$6,$7,'direct',$8,$9,$10,$11,$12,$13)
+       total_supply, burned, pair_symbol, pair_decimals)
+     values ($1,$2,$3,$3,$4,0,'','',$5,$6,$7,'direct',$8,$9,$10,$11,$12,$13,$14,$15)
      on conflict (token) do nothing
      returning token`,
     [
       token, zeroAddress, (a.creator as string).toLowerCase(), quote, when,
       log.blockNumber!.toString(), log.transactionHash, hook, splitter, locker,
       (a.restrictionsEndBlock as bigint).toString(), (minted - burned).toString(), burned.toString(),
+      // The direct machine takes the same quotes as the curve, so its rows need the same scale on
+      // them: six decimals for the dollar, eighteen for a share, and the board has to know which.
+      quoteMeta.symbol, quoteMeta.decimals,
     ],
   );
   if (created[0]) unannounced.add(token);
