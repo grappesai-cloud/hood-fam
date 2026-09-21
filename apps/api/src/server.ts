@@ -484,21 +484,26 @@ export async function buildServer() {
       share: Boolean(pairAsset(address)?.share),
     }));
 
-    // One read, not four hundred. Asking the factory asset by asset meant a flaky moment dropped
-    // assets out of the menu one at a time, each one looking exactly like a deliberate refusal.
-    let allowed: readonly { status: string; result?: unknown }[] = [];
+    // A handful of reads, not four hundred. Asking the factory asset by asset meant a flaky moment
+    // dropped assets out of the menu one at a time, each one looking exactly like a deliberate
+    // refusal. All of them in ONE multicall is the other failure: the node refuses a call that
+    // large and the menu comes back empty. So: batches, each one able to fail on its own.
+    const calls = known.flatMap((asset) => [
+      { address: factory!, abi: pairViewAbi, functionName: "pairAllowed", args: [asset.address] },
+      { address: factory!, abi: pairViewAbi, functionName: "lockThreshold", args: [asset.address] },
+    ]);
+    const allowed: { status: string; result?: unknown }[] = [];
     if (factory) {
-      try {
-        allowed = await chain.multicall({
-          allowFailure: true,
-          contracts: known.flatMap((asset) => [
-            { address: factory, abi: pairViewAbi, functionName: "pairAllowed", args: [asset.address] },
-            { address: factory, abi: pairViewAbi, functionName: "lockThreshold", args: [asset.address] },
-          ]) as never,
-        }) as never;
-      } catch {
-        // The whole batch failed: serve what the chain last said rather than an empty pad.
-        if (lastPairs) return { pairs: lastPairs };
+      const BATCH = 60;
+      for (let i = 0; i < calls.length; i += BATCH) {
+        const chunk = calls.slice(i, i + BATCH);
+        try {
+          const read = await chain.multicall({ allowFailure: true, contracts: chunk as never }) as unknown as { status: string; result?: unknown }[];
+          allowed.push(...read);
+        } catch {
+          // This batch is unreadable; the rows it covers keep whatever was last known about them.
+          allowed.push(...chunk.map(() => ({ status: "failure" as const })));
+        }
       }
     }
 
