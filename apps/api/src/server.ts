@@ -466,43 +466,64 @@ export async function buildServer() {
   /// constant: an asset the owner adds is offered by the wizard the moment it is added, and one
   /// they withdraw stops being offered without a deploy. The dollar price comes with it, because
   /// a creator picking a share as their pair is picking a number they think in dollars.
+  /// The last list the chain answered with. A menu that shrinks because a node was busy for a
+  /// second is worse than a menu a minute out of date: a creator would simply not see the asset
+  /// they came for, and nothing would look broken.
+  interface PairRow {
+    address: Address; symbol: string; decimals: number; share: boolean;
+    allowed: boolean; lockThreshold: string; usd: number;
+  }
+  let lastPairs: PairRow[] | null = null;
+
   app.get("/pairs", async () => cached("pairs", 60_000, async () => {
     const factory = process.env.HOOD_FACTORY as Address | undefined;
-    // Everything the indexer can price, which is the built in table plus whatever the discovery
-    // found and the owner allowed. The factory still decides which of them may actually be used.
     const known = Object.entries(PRICEABLE).map(([address, a]) => ({
       address: address as Address,
       symbol: a.symbol,
       decimals: a.decimals,
       share: Boolean(pairAsset(address)?.share),
     }));
-    const rows = await Promise.all(known.map(async (asset) => {
-      let allowed = false;
-      let lockThreshold = "0";
-      if (factory) {
-        try {
-          const [ok, lock] = await Promise.all([
-            chain.readContract({ address: factory, abi: pairViewAbi, functionName: "pairAllowed", args: [asset.address] }),
-            chain.readContract({ address: factory, abi: pairViewAbi, functionName: "lockThreshold", args: [asset.address] }),
-          ]);
-          allowed = ok as boolean;
-          lockThreshold = (lock as bigint).toString();
-        } catch {
-          // A factory that cannot be read is not a reason to serve a wrong list: nothing is
-          // offered until it answers again.
-        }
+
+    // One read, not four hundred. Asking the factory asset by asset meant a flaky moment dropped
+    // assets out of the menu one at a time, each one looking exactly like a deliberate refusal.
+    let allowed: readonly { status: string; result?: unknown }[] = [];
+    if (factory) {
+      try {
+        allowed = await chain.multicall({
+          allowFailure: true,
+          contracts: known.flatMap((asset) => [
+            { address: factory, abi: pairViewAbi, functionName: "pairAllowed", args: [asset.address] },
+            { address: factory, abi: pairViewAbi, functionName: "lockThreshold", args: [asset.address] },
+          ]) as never,
+        }) as never;
+      } catch {
+        // The whole batch failed: serve what the chain last said rather than an empty pad.
+        if (lastPairs) return { pairs: lastPairs };
       }
+    }
+
+    const rows = await Promise.all(known.map(async (asset, i) => {
+      const ok = allowed[i * 2];
+      const lock = allowed[i * 2 + 1];
       return {
-        address: asset.address,
-        symbol: asset.symbol,
-        decimals: asset.decimals,
-        share: asset.share,
-        allowed,
-        lockThreshold,
+        ...asset,
+        allowed: ok?.status === "success" ? Boolean(ok.result) : false,
+        readable: ok?.status === "success",
+        lockThreshold: lock?.status === "success" ? String(lock.result) : "0",
         usd: await pairUsdPrice(asset.address),
       };
     }));
-    return { pairs: rows.filter((p) => p.allowed) };
+
+    // A read that failed is not a refusal, so a pair the chain would not answer for keeps whatever
+    // the last good answer said about it.
+    const previous = new Map((lastPairs ?? []).map((p) => [p.address, p]));
+    const pairs: PairRow[] = rows.map(({ readable, ...rest }) => {
+      if (readable) return rest;
+      const remembered = previous.get(rest.address);
+      return remembered ? { ...remembered, usd: rest.usd } : rest;
+    }).filter((r) => r.allowed);
+    if (rows.every((r) => r.readable)) lastPairs = pairs;
+    return { pairs };
   }));
 
   /// Our own contracts trade too (a buyback, a harvest, the portal's first buy on a creator's
