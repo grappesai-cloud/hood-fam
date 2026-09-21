@@ -214,7 +214,8 @@ export function PairChooser({ pairs, value, onPick }: {
             onChange={(e) => setQuery(e.target.value)} />
           <div className="mt-2 grid gap-1.5">
             {matches.slice(0, 12).map((p) => (
-              <button key={p.address} type="button" className="pair-row" onClick={() => onPick(p.address as `0x${string}`)}>
+              <button key={p.address} type="button" className="pair-row"
+                onClick={() => { setQuery(""); onPick(p.address as `0x${string}`); }}>
                 <span className="pair-row-symbol">{p.symbol}</span>
                 <span className="pair-row-price mono">{p.usd > 0 ? `$${p.usd.toLocaleString(undefined, { maximumFractionDigits: 4 })}` : "no price"}</span>
               </button>
