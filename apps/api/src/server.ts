@@ -16,7 +16,6 @@ const GZIP_MIN_BYTES = 1024;
 import { pool, currentSeason } from "./db.js";
 import { pairAsset, robinhood } from "@hood/sdk";
 import { PAIR_ASSETS as PRICEABLE, pairUsdPrice } from "./price.js";
-import { resolveQuote } from "./quote-resolver.js";
 
 /// The two views the pair list asks the factory for. A client of its own rather than the
 /// indexer's, because this one answers a request and must not wait behind a block scan.
@@ -460,17 +459,6 @@ export async function buildServer() {
   /// Resolves a pasted ERC-20 directly from Robinhood Chain and checks its deepest USDG v3 pool.
   /// This endpoint never mutates the allow list: launchCustom is permissionless and the contract is
   /// still the final authority on decimals and transfer behaviour.
-  app.get("/pairs/resolve/:address", async (req, reply) => {
-    const { address } = req.params as { address: string };
-    if (!isAddress(address) || address.toLowerCase() === zeroAddress) {
-      return reply.code(400).send({ error: "not an ERC-20 address" });
-    }
-    try {
-      return await resolveQuote(address);
-    } catch (e) {
-      return reply.code(422).send({ error: e instanceof Error ? e.message : "could not resolve token" });
-    }
-  });
 
   /// What a launch may trade against, and therefore what its creator can be paid in.
   ///
