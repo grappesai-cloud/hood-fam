@@ -884,3 +884,71 @@ html[data-brand="ox"] * {
   html[data-brand="ox"] .launch-preview { position: static; padding: 20px; border-radius: 22px; }
   html[data-brand="ox"] .launch-preview-details { margin-right: -20px; margin-left: -20px; padding-right: 20px; padding-left: 20px; }
 }
+
+/* -------------------------------------------------------------------------------- logo cleanup
+   The source art is square, but the OX itself is wide. Enlarge and crop only the transparent
+   canvas in the wordmark; no tile or coloured plate sits behind the icon. */
+html[data-brand="ox"] .ox-wordmark-mark {
+  width: 70px;
+  height: 46px;
+  overflow: hidden;
+}
+
+html[data-brand="ox"] .ox-wordmark-mark img {
+  width: 140%;
+  height: 205%;
+  top: -52%;
+  left: -20%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px #a8ff3442);
+}
+
+/* A continuous hero field reads cleaner than a logo sitting inside a second rectangular scene. */
+html[data-brand="ox"] .ox-hero {
+  background:
+    radial-gradient(ellipse 48% 82% at 73% 48%, #9cff1c1c 0, #5ba7000a 42%, transparent 72%),
+    radial-gradient(ellipse 90% 100% at 7% -22%, #efffc516 0, transparent 55%),
+    linear-gradient(108deg, #040604 0, #050805 52%, #061005 76%, #030503 100%);
+}
+
+html[data-brand="ox"] .ox-hero::before {
+  right: 12%;
+  background: radial-gradient(circle at 44% 45%, #b9ff3619 0, #72d0000b 35%, transparent 70%);
+  filter: blur(52px);
+}
+
+html[data-brand="ox"] .ox-hero::after { display: none; }
+html[data-brand="ox"] .ox-hero-orbit { display: none; }
+
+html[data-brand="ox"] .ox-hero-visual::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  width: min(72%, 560px);
+  aspect-ratio: 1.25;
+  top: 50%;
+  left: 50%;
+  border-radius: 48% 52% 57% 43% / 46% 40% 60% 54%;
+  background: radial-gradient(ellipse at 42% 36%, #caff5920, #7fe6000c 40%, transparent 72%);
+  filter: blur(18px);
+  transform: translate(-50%, -50%) rotate(-7deg);
+}
+
+html[data-brand="ox"] .ox-hero-visual::after {
+  background: radial-gradient(ellipse at 50% 50%, transparent 48%, #03050326 76%, #03050366 100%);
+}
+
+html[data-brand="ox"] .ox-hero-visual > img {
+  width: 105%;
+  height: 92%;
+  top: 4%;
+  left: -2.5%;
+  filter: saturate(1.04) contrast(1.02) drop-shadow(0 24px 46px #63b9002e);
+}
+
+@media (max-width: 640px) {
+  html[data-brand="ox"] .ox-topbar .ox-wordmark-mark {
+    width: 48px;
+    height: 34px;
+  }
+}
