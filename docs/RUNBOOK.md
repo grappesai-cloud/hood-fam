@@ -215,6 +215,23 @@ liquidity is virtual, so a tight range reports billions where there are thousand
 a hook refuses to be quoted by anyone but its own router. The second sizes a preset per asset from
 the price on the day. The third applies it to both machines and is idempotent.
 
+#### The chain's own shares are in by identity, not by volume
+
+Volume is the wrong question for a tokenised share. Every one of them on 4663 is a clone of a
+single beacon proxy, so one codehash (`0x6c1fdd40…`) separates the issuer's own tokens from the
+copies that borrow the name: of the three hundred and eighteen tokens on this chain whose name ends
+in "Robinhood Token", a hundred and twenty two are somebody else's contract, and five of them
+answer to NVDA. The discovery reads the name of every asset that has a dollar pool, checks the code
+of the ones that claim the issuer, and takes those on identity: a share of Boeing that saw no swap
+in the last hour is still a share of Boeing, and the only thing it still has to prove is that its
+price is readable. `--no-equities` turns that pass off.
+
+The other half of the menu is unchanged and stays closed on a re-run: a token that is not a share
+is only planned if it is already on chain, or if `plan.mjs` is given `--open-memes`. And a plan
+never re-prices an asset it planned before, because a preset is written once and never edited:
+re-pricing would not move the preset that is already there, it would add a second one beside it and
+put the same asset in the menu twice.
+
 The API prices anything `deploy/quotes.json` names, which is why that file ships in the image: a
 quote allowed after a release still gets a dollar price instead of a silent zero, and a pair with
 no price is a pair whose trades earn nobody any points.
@@ -225,10 +242,10 @@ Two things that bit on the day this was built, both worth knowing before the nex
   unit is that price times `10**(assetDecimals - 6)`. Assuming eighteen because most things here
   are eighteen priced cbBTC, which has eight, at eight hundred and fifty three trillion dollars.
   `npm run check:pairs` now refuses any price over a million for that reason.
-- **ask the factory in batches.** `/pairs` reads two values per asset, which at eighty assets is
-  three hundred and seventy four reads. One at a time means a busy node silently drops assets out
-  of the menu, each looking like a deliberate refusal; all of them in a single multicall means the
-  node declines the call and the menu comes back empty. Sixty at a time, and an asset the chain
+- **ask the factory in batches.** `/pairs` reads two values per asset, which at two hundred and
+  forty assets is four hundred and eighty reads. One at a time means a busy node silently drops
+  assets out of the menu, each looking like a deliberate refusal; all of them in a single multicall
+  means the node declines the call and the menu comes back empty. Sixty at a time, and an asset the chain
   will not answer for keeps its last known answer.
 - **not every quote can carry a curve.** A preset hands the curve one number for the opening
   price: the start cap spread over the supply, in the pair's own units. cbBTC has eight decimals
@@ -765,6 +782,43 @@ Two things that bite in this order, both measured the first time this was done f
   say the feed is down, because the API refuses an origin it was never told about.
 - **DNS only (grey cloud) for a new name**, so Traefik answers the ACME challenge itself and gets a
   certificate the way the existing names did. Proxying can be turned on afterwards.
+
+## 3k. The social pad: quests, races, referrals, follows and alerts
+
+All of it sits behind the chat's session (one signature, a week long, `CHAT_SECRET`), and none of it
+can move money: every route writes a row in our own database.
+
+**Nothing new to configure.** The tables are created by the same `migrate()` as everything else
+(`referrals`, `follows`, `watchlist`, `trade_positions`, `races`), so a deploy picks them up on boot.
+
+**Opening a race.** A race is a named window over the points the board already keeps; the prize is a
+line you write, never a number this code can pay.
+
+```bash
+curl -X POST https://api.hood.grappes.dev/admin/races \
+  -H "authorization: Bearer $HOOD_ADMIN_TOKEN" -H "content-type: application/json" \
+  -d '{"name":"Weekend race","metric":"volume","prize":"what we announced in the group",
+       "starts":"2026-09-26T00:00:00Z","ends":"2026-09-29T00:00:00Z"}'
+curl https://api.hood.grappes.dev/races/current        # standings, live
+curl -X DELETE https://api.hood.grappes.dev/admin/races/<id> -H "authorization: Bearer $HOOD_ADMIN_TOKEN"
+```
+
+**The profit board** needs a cost basis, and the basis is written by the indexer as trades arrive
+(`trade_positions`). A database indexed before this existed has no history to go on: the board fills
+up from the first trade after the deploy, and a full reindex from the start block rebuilds it.
+
+**One-click buy with ETH.** `HOOD_CURVE_ROUTER` is the half that cannot be worked around. With
+`UNISWAP_API_KEY` the route comes from Uniswap's routing service (every venue, every hop); without
+one the pad builds the single v4 hop itself, which exists for the dollar and for the liquid shares
+but not for every asset. The app asks `/pairs/route/<pair>` before it offers the button, so a pair
+with no route never shows one.
+
+**Verifying it.** Against any running API with the demo world seeded:
+
+```bash
+npm run e2e:social        # 41 checks: sessions, referrals, follows, watchlist, quests, races, profit
+npm run check:referral    # 5 checks: the tenth is paid, on top, once, and only after the binding
+```
 
 ## 4. Opening omnichain routes
 

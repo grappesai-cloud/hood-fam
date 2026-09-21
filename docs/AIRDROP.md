@@ -1,7 +1,7 @@
 # The season drop
 
-The house takes a tenth. Most of it goes back to the fam at the end of every season, split by
-points. This page is the whole policy: what the pool is, how it is earned, how it is paid, and what
+The protocol takes a small cut of every trade. A published share of that cut, 30% today, goes back
+to the fam at the end of every season, split by points. This page is the whole policy: what the pool is, how it is earned, how it is paid, and what
 is deliberately not promised. The calculator at `/airdrop` runs the same numbers live.
 
 ## The pool is revenue, not a promise
@@ -34,6 +34,12 @@ Points are earned by using the place, and the rules are the ones the indexer act
 | Buy | 2 per dollar |
 | Sell | 1 per dollar |
 | Lock | 10 per dollar per 30 days it stays locked, times the lock (1x none, 1.25x 7 days, 1.5x 30 days, 2x 90 days, 2.5x 180 days) |
+| Bring somebody | a tenth of what the wallet you brought earns by trading, paid on top of theirs rather than out of it, and only for trades made after the two were tied together |
+| Finish a quest | the amount on the card, once per wallet per season, claimed from `/quests` |
+
+Referral and quest points are points like any other: they land in the same table, count towards the
+same season and are paid out of the same pool. They are **not** multiplied by rank — a referral is
+already a share of somebody else's multiplied points, and a quest is a fixed number on a card.
 
 **Trading against yourself does not score.** A trade by the wallet a launch's fee comes back to (the
 creator, or whoever the creator pointed the fee at) earns no points and does not count towards the

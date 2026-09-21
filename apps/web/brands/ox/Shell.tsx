@@ -16,6 +16,8 @@ import { Wordmark } from "./Wordmark";
 const PRIMARY_NAV = [
   { href: "/", label: "Discover" },
   { href: "/portfolio", label: "Portfolio" },
+  { href: "/following", label: "Following" },
+  { href: "/quests", label: "Quests" },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/lock", label: "Lock" },
   { href: "/airdrop", label: "Drop" },
@@ -40,6 +42,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
           <div className="ox-top-actions">
             <nav className="ox-app-switcher" aria-label="OX apps">
+              <Link href="/refer">Refer</Link>
               <Link href="/analytics">Analytics</Link>
               <Link href="/bridge">Bridge</Link>
             </nav>

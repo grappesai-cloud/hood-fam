@@ -17,6 +17,12 @@ export const POINTS = {
   perDollarStakedPerMonth: 10,
 } as const;
 
+/// What bringing somebody is worth: a tenth of what they earn by trading, paid on top rather than
+/// taken out of their share, so a referral never costs the person who was referred anything. It is
+/// capped by being a share of somebody else's real volume: there is no bonus for the introduction
+/// itself, only for a wallet that actually trades, which is the only referral worth paying for.
+export const REFERRAL_SHARE = 0.1;
+
 /// What "per month" means, everywhere: thirty days.
 export const STAKE_MONTH_DAYS = 30;
 
@@ -49,7 +55,7 @@ export async function volumeUsd30d(address: string): Promise<number> {
 
 interface AwardInput {
   address: string;
-  kind: "launch" | "trade_buy" | "trade_sell" | "stake";
+  kind: "launch" | "trade_buy" | "trade_sell" | "stake" | "referral" | "quest";
   token?: string;
   /// Dollars: traded, for a trade; locked, for a stake. It is what the row stores, and for trades
   /// it is also what rank is bought with, so it stays the plain dollar figure in both cases.
@@ -58,6 +64,8 @@ interface AwardInput {
   /// stake row is dollars times months times the lock multiplier; everything else ignores these.
   months?: number;
   lockMultiplier?: number;
+  /// Referrals and quests only: the points themselves, already worked out by the caller.
+  flat?: number;
   ref: string;
   ts: Date;
 }
@@ -71,15 +79,45 @@ export async function award(input: AwardInput) {
     input.kind === "launch" ? POINTS.launch
     : input.kind === "trade_buy" ? input.usd * POINTS.perDollarBuy
     : input.kind === "trade_sell" ? input.usd * POINTS.perDollarSell
+    // A referral and a quest are already a finished number of points: they are not bought with
+    // dollars, so they are not multiplied by a rank either. Paying them through the same table is
+    // what puts them in the season, in the leaderboard and in the drop without a second ledger.
+    : input.kind === "referral" || input.kind === "quest" ? input.flat ?? 0
     : input.usd * POINTS.perDollarStakedPerMonth * (input.months ?? 0) * (input.lockMultiplier ?? 1);
 
-  const amount = base * rank.multiplier;
+  const amount = input.kind === "referral" || input.kind === "quest" ? base : base * rank.multiplier;
   await pool.query(
     `insert into points (address, season, kind, token, amount, usd, ref, ts)
      values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (kind, ref) do nothing`,
     [input.address.toLowerCase(), season, input.kind, input.token ?? null, amount.toFixed(2), input.usd.toFixed(2), input.ref, input.ts],
   );
+  if (input.kind === "trade_buy" || input.kind === "trade_sell") await payReferrer(input, amount);
   return { amount, rank: rank.name, multiplier: rank.multiplier };
+}
+
+/// The person who brought this trader, if anyone did, earns their share of the same trade. The ref
+/// carries the trade's own ref, so the unique index makes a re-read of the range pay nothing twice,
+/// and a wallet that somehow points at itself is refused here as well as at the moment of binding.
+async function payReferrer(input: AwardInput, earned: number) {
+  if (earned <= 0) return;
+  const referee = input.address.toLowerCase();
+  const { rows } = await pool.query<{ referrer: string; bound_at: Date }>(
+    `select referrer, bound_at from referrals where referee = $1`, [referee],
+  );
+  const row = rows[0];
+  if (!row || row.referrer === referee) return;
+  // Only trades made after the two were tied together. Binding a referral to a wallet with a
+  // history and being paid for that history is the obvious way to farm this.
+  if (input.ts < row.bound_at) return;
+  await award({
+    address: row.referrer,
+    kind: "referral",
+    token: input.token,
+    usd: 0,
+    flat: earned * REFERRAL_SHARE,
+    ref: `referral:${input.ref}`,
+    ts: input.ts,
+  });
 }
 
 /// Staking pays for how long the lock is, which is exactly what the multiplier on chain says.

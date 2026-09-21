@@ -8,7 +8,7 @@ import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteCont
 import { hoodCurveAbi, hoodCurveRouterAbi } from "@hood/sdk";
 import { fmt, pairDecimals as knownPairDecimals, pairSymbol as knownPairSymbol } from "@/lib/format";
 import { useBatch } from "@/lib/safe";
-import { api, type HealthStatus, type NativeQuoteRoute } from "@/lib/api";
+import { api, type HealthStatus, type NativeQuoteRoute, type RouteAvailability } from "@/lib/api";
 import { addresses } from "@/lib/config";
 
 const erc20 = [
@@ -47,7 +47,17 @@ export function TradeBox({ token, curve, pairToken, pairDecimals, pairSymbol, sy
   const isNative = pairToken === zeroAddress;
   // The address proves the contract exists in this build; /health proves the API can obtain a
   // swap route. Both are required before offering a path that promises to be one click.
-  const oneClickAvailable = Boolean(addresses.curveRouter && health?.integrations.routing);
+  // Whether ETH can reach THIS pair in one transaction. The pad answers per pair, because without
+  // a routing service it builds the hop itself and there is not one for every asset. Asking here
+  // is what keeps the button from appearing on a pair where it would fail at the last step.
+  const { data: routeProbe } = useQuery({
+    queryKey: ["route", pairToken],
+    queryFn: () => api<RouteAvailability>(`/pairs/route/${pairToken}`),
+    enabled: pairToken !== zeroAddress && Boolean(health?.integrations.routing),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const oneClickAvailable = Boolean(addresses.curveRouter && health?.integrations.routing && routeProbe?.available);
   const oneClick = side === "buy" && !isNative && oneClickAvailable && payWithEth;
   const pairDec = pairDecimals ?? knownPairDecimals(pairToken);
   const pairSym = pairSymbol || knownPairSymbol(pairToken);
@@ -122,13 +132,29 @@ export function TradeBox({ token, curve, pairToken, pairDecimals, pairSymbol, sy
         });
         const expectedTokens = curveQuote[0];
         const minTokens = (expectedTokens * BigInt(10_000 - slippage * 100)) / 10_000n;
-        setHash(await writeContractAsync({
-          address: addresses.curveRouter,
-          abi: hoodCurveRouterAbi,
-          functionName: "buyWithNativeCalldata",
-          args: [curve, minQuote, minTokens, address, route.routerCalldata],
-          value: amountWei,
-        }));
+        if (route.routerCalldata) {
+          setHash(await writeContractAsync({
+            address: addresses.curveRouter,
+            abi: hoodCurveRouterAbi,
+            functionName: "buyWithNativeCalldata",
+            args: [curve, minQuote, minTokens, address, route.routerCalldata],
+            value: amountWei,
+          }));
+        } else if (route.commands && route.inputs) {
+          // The deadline comes from the chain's own clock, not the browser's: a machine a few
+          // minutes behind would sign a transaction the router refuses as already expired, and the
+          // failure reads as an unknown selector rather than as a wrong clock.
+          const block = await publicClient.getBlock();
+          setHash(await writeContractAsync({
+            address: addresses.curveRouter,
+            abi: hoodCurveRouterAbi,
+            functionName: "buyWithNative",
+            args: [curve, minQuote, minTokens, address, route.commands, route.inputs, block.timestamp + 1800n],
+            value: amountWei,
+          }));
+        } else {
+          throw new Error("the route came back without anything to execute");
+        }
       } finally {
         setIsRouting(false);
       }

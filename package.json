@@ -20,7 +20,9 @@
     "check:pairs": "node scripts/checks/pair-prices.mjs",
     "check:ticks": "node scripts/checks/direct-ticks.mjs",
     "check:cursor": "node scripts/checks/indexer-cursor.mjs",
-    "brand": "node scripts/brand.mjs"
+    "brand": "node scripts/brand.mjs",
+    "check:referral": "node scripts/checks/referral-share.mjs",
+    "e2e:social": "node scripts/e2e/social.mjs"
   },
   "keywords": [],
   "author": "",

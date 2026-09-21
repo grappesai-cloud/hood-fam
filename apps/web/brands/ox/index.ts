@@ -19,7 +19,10 @@ export const brand: Brand = {
     { href: "/lock", label: "Lock" },
     { href: "/airdrop", label: "Season drop" },
     { href: "/bridge", label: "Bridge" },
-  ],
+      { href: "/quests", label: "Quests" },
+    { href: "/refer", label: "Refer" },
+    { href: "/following", label: "Following" },
+],
   copy: {
     create: "Create token",
     heroAction: "Launch a token on Robinhood Chain",

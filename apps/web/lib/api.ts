@@ -11,12 +11,25 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/// Two shapes, one meaning. Uniswap's routing service hands back finished router calldata; the
+/// pad's own single-hop builder hands back the actions, which the curve router executes itself.
+/// Whichever arrives, `minQuoteOut` is the floor the trade is signed against.
 export interface NativeQuoteRoute {
-  routerCalldata: `0x${string}`;
+  routerCalldata?: `0x${string}`;
+  commands?: `0x${string}`;
+  inputs?: `0x${string}`[];
+  source?: "local";
+  pool?: { fee: number; tickSpacing: number };
   value: string;
   quoteOut: string;
   minQuoteOut: string;
-  requestId: string;
+  requestId?: string;
+}
+
+export interface RouteAvailability {
+  token: string;
+  available: boolean;
+  configured: boolean;
 }
 
 export interface HealthStatus {
@@ -36,6 +49,9 @@ export interface HealthStatus {
 export interface PairRow {
   address: string;
   symbol: string;
+  /// The company or fund behind the ticker, for the chain's own shares. Null for a currency, and
+  /// for any asset the scan could only read a ticker off.
+  name?: string | null;
   decimals: number;
   /// A tokenised share rather than a currency.
   share: boolean;
@@ -109,11 +125,16 @@ export interface ActivityRow {
 
 export interface TopTraderRow {
   address: string;
-  volume_usd: string;
-  bought_usd: string;
-  sold_usd: string;
-  net_usd: string;
-  trades: number;
+  /// The volume board fills these; the profit board fills the three below instead, because they
+  /// are different queries answering different questions and neither pretends to be the other.
+  volume_usd?: string;
+  bought_usd?: string;
+  sold_usd?: string;
+  net_usd?: string;
+  trades?: number;
+  realizedUsd?: number;
+  unrealizedUsd?: number;
+  totalUsd?: number;
 }
 
 export interface TokenDetail extends TokenRow {

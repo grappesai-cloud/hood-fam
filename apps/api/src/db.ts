@@ -294,6 +294,66 @@ create table if not exists messages (
 -- or an operator deciding whether it is a person or a machine.
 create index if not exists messages_token_id on messages (token, id desc);
 create index if not exists messages_author on messages (author, created_at desc);
+
+-- Who brought whom. One row per referred wallet, written once and never rewritten: a referral that
+-- could be re-pointed later is a referral worth farming, and the reward is paid as points on the
+-- referee's own trades, so the row has to outlive any single session. The code is the referrer's
+-- own address; there is no separate namespace to squat, and a wallet can always be checked on chain
+-- before anyone clicks.
+create table if not exists referrals (
+  referee  text primary key,
+  referrer text not null,
+  bound_at timestamptz not null default now()
+);
+create index if not exists referrals_referrer on referrals (referrer);
+
+-- Follows, for reading somebody else's trades as they happen. Nothing here can spend: following is
+-- a subscription to a public feed, and the copy button fills a form the follower still signs.
+create table if not exists follows (
+  follower   text not null,
+  followed   text not null,
+  created_at timestamptz not null default now(),
+  primary key (follower, followed)
+);
+create index if not exists follows_followed on follows (followed);
+
+-- Tokens a wallet asked to be told about. The alerts themselves are drawn by the browser from the
+-- same stream the board reads, so this table is only the list; nothing is pushed from here.
+create table if not exists watchlist (
+  address    text not null,
+  token      text not null references launches(token) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (address, token)
+);
+create index if not exists watchlist_token on watchlist (token);
+
+-- Cost basis, kept from trades on this pad alone. A token that arrived by plain transfer has no
+-- price we know, so it enters at zero cost and shows up as profit when it is sold: that is stated
+-- on the page rather than hidden, because the alternative is inventing a number. qty is token wei,
+-- the two dollar columns are what was paid and what has been realised.
+create table if not exists trade_positions (
+  token        text not null references launches(token) on delete cascade,
+  address      text not null,
+  qty          numeric(78,0) not null default 0,
+  cost_usd     numeric(20,2) not null default 0,
+  realized_usd numeric(20,2) not null default 0,
+  updated_at   timestamptz not null default now(),
+  primary key (token, address)
+);
+create index if not exists trade_positions_address on trade_positions (address);
+
+-- A race is a window with a name: the standings are the same points the board already keeps, read
+-- between two timestamps. No prize is stored as money, only the line the operator announced, so
+-- nothing here can promise what the treasury has not got.
+create table if not exists races (
+  id     bigserial primary key,
+  name   text not null,
+  starts timestamptz not null,
+  ends   timestamptz not null,
+  prize  text not null default '',
+  metric text not null default 'points'
+);
+create index if not exists races_window on races (ends desc);
 `;
 
 export async function migrate() {

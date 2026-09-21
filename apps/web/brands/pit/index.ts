@@ -23,7 +23,10 @@ export const brand: Brand = {
     { href: "/leaderboard", label: "Standings" },
     { href: "/lock", label: "Hold" },
     { href: "/airdrop", label: "The cut" },
-  ],
+      { href: "/quests", label: "Tickets" },
+    { href: "/refer", label: "Bring one" },
+    { href: "/following", label: "Your crowd" },
+],
   copy: {
     create: "Print a ticker",
     heroAction: "Print a ticker. Let the floor fight over it.",

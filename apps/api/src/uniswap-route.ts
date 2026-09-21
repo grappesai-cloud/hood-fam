@@ -1,5 +1,11 @@
-import { getAddress, isAddress, zeroAddress, type Address, type Hex } from "viem";
-import { robinhood, uniswapV4 } from "@hood/sdk";
+import { createPublicClient, getAddress, http, isAddress, zeroAddress, type Address, type Hex } from "viem";
+import { buildSwap, poolIdOf, robinhood, stateViewAbi, uniswapV4, v4QuoterAbi, type PoolKey } from "@hood/sdk";
+
+/// Its own reader: this answers a request and must not queue behind the indexer's block scan.
+const chain = createPublicClient({
+  chain: robinhood,
+  transport: http(process.env.HOOD_RPC ?? robinhood.rpcUrls.default.http[0]),
+});
 
 const API = "https://trade-api.gateway.uniswap.org/v1";
 
@@ -99,4 +105,115 @@ export async function nativeQuoteRoute(tokenOut: Address, amount: string, slippa
     minQuoteOut,
     requestId: String(quoted.requestId ?? built.requestId ?? ""),
   };
+}
+
+// --------------------------------------------------------------- the local route
+
+/// The same one click, without a routing service.
+///
+/// Uniswap's own routing API needs a key we may not have, and a pad whose best feature is dark
+/// because of a missing key is a pad without that feature. But the route people actually need is
+/// small: ETH into the asset a launch is priced in. On 4663 the deepest of those live in Uniswap v4
+/// pools with no hook, which is exactly the shape the SDK already builds swaps for and the quoter
+/// already prices, so this finds the pool, asks the quoter what the swap pays, and hands the
+/// UniversalRouter actions straight to `HoodCurveRouter.buyWithNative`.
+///
+/// It is deliberately one hop. A two hop route through the dollar would have to leave the middle
+/// leg inside the router between swaps, which is a different encoding on this chain's fork of the
+/// router and cannot be guessed at safely. So a pair with no ETH pool is reported as having no
+/// route rather than being sent down a path nobody has run: the app then offers the plain two step,
+/// which works for every pair.
+const FEE_TIERS: { fee: number; tickSpacing: number }[] = [
+  { fee: 100, tickSpacing: 1 },
+  { fee: 500, tickSpacing: 10 },
+  { fee: 3000, tickSpacing: 60 },
+  { fee: 10_000, tickSpacing: 200 },
+];
+
+/// Pools do not move. A miss is cached for a shorter while than a hit, so an asset that gets a pool
+/// tomorrow starts routing without a restart.
+const pools = new Map<string, { key: PoolKey | null; at: number }>();
+const POOL_HIT_MS = 60 * 60 * 1000;
+const POOL_MISS_MS = 10 * 60 * 1000;
+
+async function ethPoolFor(token: Address): Promise<PoolKey | null> {
+  const cached = pools.get(token.toLowerCase());
+  if (cached && Date.now() - cached.at < (cached.key ? POOL_HIT_MS : POOL_MISS_MS)) return cached.key;
+
+  let found: PoolKey | null = null;
+  for (const tier of FEE_TIERS) {
+    // Native ETH is currency0 in v4: it is address zero, which sorts below every token.
+    const key: PoolKey = {
+      currency0: zeroAddress, currency1: getAddress(token),
+      fee: tier.fee, tickSpacing: tier.tickSpacing, hooks: zeroAddress,
+    };
+    try {
+      const id = poolIdOf(key);
+      const [slot0, liquidity] = await Promise.all([
+        chain.readContract({ address: uniswapV4.stateView, abi: stateViewAbi, functionName: "getSlot0", args: [id] }),
+        chain.readContract({ address: uniswapV4.stateView, abi: stateViewAbi, functionName: "getLiquidity", args: [id] }),
+      ]);
+      if ((slot0 as readonly bigint[])[0] > 0n && (liquidity as bigint) > 0n) { found = key; break; }
+    } catch {
+      // A tier that does not exist reads as a revert or a zero; either way, try the next one.
+    }
+  }
+  pools.set(token.toLowerCase(), { key: found, at: Date.now() });
+  return found;
+}
+
+export interface LocalRoute {
+  source: "local";
+  commands: Hex;
+  inputs: Hex[];
+  value: string;
+  quoteOut: string;
+  minQuoteOut: string;
+  pool: { fee: number; tickSpacing: number };
+}
+
+export async function localNativeRoute(tokenOut: Address, amount: string, slippageTolerance: number): Promise<LocalRoute> {
+  const key = await ethPoolFor(tokenOut);
+  if (!key) throw new Error("no direct ETH pool for this pair on Robinhood Chain");
+  const amountIn = BigInt(amount);
+  if (amountIn <= 0n) throw new Error("the amount has to be above zero");
+
+  // The quoter runs the swap for real inside `unlock` and reverts with the number, so this is the
+  // price the swap would get in this block rather than a reading of the curve around it.
+  const { result } = await chain.simulateContract({
+    address: uniswapV4.quoter,
+    abi: v4QuoterAbi,
+    functionName: "quoteExactInputSingle",
+    args: [{ poolKey: key, zeroForOne: true, exactAmount: amountIn, hookData: "0x" }],
+  });
+  const quoteOut = (result as readonly bigint[])[0];
+  if (!quoteOut || quoteOut <= 0n) throw new Error("that pool quoted nothing for this amount");
+
+  // Slippage arrives as a percentage, the way the routing service takes it.
+  const bps = BigInt(Math.round(Math.min(Math.max(slippageTolerance, 0.05), 50) * 100));
+  const minQuoteOut = (quoteOut * (10_000n - bps)) / 10_000n;
+  const { commands, inputs } = buildSwap({
+    key, zeroForOne: true, amountIn, minAmountOut: minQuoteOut,
+    tokenIn: zeroAddress, tokenOut: getAddress(tokenOut),
+  });
+
+  return {
+    source: "local",
+    commands, inputs,
+    value: amountIn.toString(),
+    quoteOut: quoteOut.toString(),
+    minQuoteOut: minQuoteOut.toString(),
+    pool: { fee: key.fee, tickSpacing: key.tickSpacing },
+  };
+}
+
+/// Is there any path at all for this pair? The app asks before it offers the button, because an
+/// offer that fails at the last step is worse than one that was never made.
+export async function hasNativeRoute(tokenOut: Address): Promise<boolean> {
+  if (process.env.UNISWAP_API_KEY?.trim()) return true;
+  try {
+    return Boolean(await ethPoolFor(tokenOut));
+  } catch {
+    return false;
+  }
 }

@@ -2,14 +2,37 @@
 
 A token launchpad on chain 4663. You print a market in one transaction, it trades from the first
 block, and the fees it earns are split by rules that are fixed at launch and cannot be changed
-afterwards by anyone, including us. A tenth of what the protocol earns goes back to the people who
-used it, every season, split by points.
+afterwards by anyone, including us. A published share of what the protocol earns, 30% today, goes
+back to the people who used it at the end of every season, split by points.
 
 This paper is the whole design: the two ways to launch, where every unit of money goes, how points
 and seasons work, what is guaranteed by the absence of a function rather than by a promise, and what
 is deliberately not promised at all. Every number here is one the code applies. The contracts are in
 `src/`, the rules the server reads are in `apps/api/src/`, and the deeper walk-throughs are in
 `docs/ARCHITECTURE.md`, `docs/AIRDROP.md` and `docs/RUNBOOK.md`.
+
+## What a trade costs
+
+One number per launch, fixed before the first buy and never editable afterwards:
+
+| Machine | Every trade pays | The protocol keeps | The launch's own split gets |
+|---|---|---|---|
+| Curve | 1% (30 bps + 70 bps; every preset on the pad today) | 30 bps | 70 bps |
+| Direct | 1% to 10% per side, chosen by the creator | a tenth of it | the other nine tenths |
+
+How big the fee is lives in the preset (curve) or in the launch parameters (direct). The split only
+says where the launch's own share goes: four legs that must add up to 10,000 bps, chosen at launch
+and never switchable.
+
+The default this pad proposes on the curve is half of that share to the creator and half to the fam:
+**35 bps to the creator, 35 bps to whoever locked the house coin, 30 bps to the protocol.** One
+percent a trade, split three ways, and 30% of the protocol's third is paid back to users at the end
+of the season. A creator who wants to charge nothing picks a preset whose creator fee is zero, and
+then only the 30 bps is ever paid.
+
+On the direct machine the fam is paid without locking anything: the dividend leg pays holders pro
+rata while they hold. On the curve the same money reaches them through the one vault, which pays
+lockers of the house coin instead of the holders of each launch.
 
 ## The chain
 
@@ -119,6 +142,12 @@ against, so what a position is owed is a list of assets rather than a single num
 A creator's locked first buy is not in this vault. It sits in a separate contract that pays nothing
 and releases nothing early: it is a statement about the creator, not a yield.
 
+The house coin is launched through this pad like any other launch, and named into the vault once by
+`setHouseToken`. Until it is named the vault holds nothing, and the factory rejects any launch whose
+split promises a stakers leg, so the promise can never run ahead of the thing that pays it. Naming
+it is the only act reserved to the owner here, it happens once, and this paper promises that coin no
+price, no yield and no schedule.
+
 ## Points
 
 Points are earned by using the place. The rules are the ones the indexer applies:
@@ -129,8 +158,12 @@ Points are earned by using the place. The rules are the ones the indexer applies
 | Buy | 2 per dollar |
 | Sell | 1 per dollar |
 | Lock | 10 per dollar per 30 days locked, times the lock weight (1x none, 1.25x at 7 days, 1.5x at 30, 2x at 90, 2.5x at 180) |
+| Bring somebody | a tenth of what they earn by trading, on top of theirs, for trades after the two wallets were tied together |
+| Finish a quest | what the card says, once per wallet per season |
 
-Everything is multiplied by rank, and rank is re-earned from rolling 30 day volume, not kept:
+Everything bought with dollars is multiplied by rank, and rank is re-earned from rolling 30 day
+volume, not kept. A referral share and a quest are not: the first is already a slice of somebody
+else's multiplied points, and the second is a fixed number printed on the card.
 
 | Rank | 30 day volume from | Multiplier |
 |---|---|---|
@@ -152,8 +185,9 @@ direct machine up to 90% of the tax they pay comes straight back to them.
 
 ## Seasons and the revenue-share airdrop
 
-The house takes a tenth. Most of it goes back to the fam at the end of every season, split by
-points.
+The protocol's take is the 30 bps, the tenth of every direct tax and the graduation fee set out
+above. A published share of that take, 30% today, goes back to the fam at the end of every season,
+split by points.
 
 A season's pool is a share of what the protocol actually earned during that season: a tenth of every
 direct-machine tax, 30 bps of every curve trade, and the part of each raise that does not enter the
@@ -208,7 +242,9 @@ one.
 
 ## What this paper does not promise
 
-- No hood.fam token, now or on a schedule.
+- No token sale, no presale and no allocation to us. The house coin is launched through the pad on
+  the same terms as anything else, and nothing here promises it a price or a date.
+- No newly minted token behind the season drop: it pays in the assets the protocol already earned.
 - No fixed season pool beyond the one announced before each season; a quiet season pays little.
 - No yield, no return, nothing that behaves like a security. Points buy a pro-rata share of revenue
   the protocol already earned, and nothing else.

@@ -7,6 +7,7 @@ import { creditLaunch, refreshRollingVolume } from "./indexer.js";
 import { usdValue } from "./price.js";
 import { accrueStakePoints } from "./stake-accrual.js";
 import { award } from "./points.js";
+import { recordBasis } from "./pnl.js";
 import { tokenArt } from "./demo-art.js";
 import { storageConfigured, storeImage } from "./uploads.js";
 
@@ -478,6 +479,10 @@ export async function seedDemo(options: SeedOptions = {}): Promise<SeedSummary> 
       address: t.trader, kind: t.side === "buy" ? "trade_buy" : "trade_sell", token: t.token,
       usd, ref: `${t.tx}:${t.logIndex}`, ts: t.ts,
     });
+    // The same cost basis the indexer keeps, written by the same function, so the demo world has a
+    // profit board rather than a column of zeros. In chronological order for the same reason the
+    // points are: an average cost depends on the order the buys arrived in.
+    await recordBasis({ token: t.token, address: t.trader, side: t.side, tokenAmount: t.tokenAmount, usd, at: t.ts });
     pointsRows++;
     await creditLaunch(t.token, usd, t.ts);
   }

@@ -529,6 +529,27 @@ main.site-main > :not(.home-shell) { padding-top: 44px; }
 .choice-meta { flex: 0 1 auto; margin-left: auto; color: #8f958a; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
 .choice-body { display: block; margin-top: 5px; color: #8f958a; font-size: 12.5px; line-height: 1.5; }
 .choice.on .choice-body { color: #a9b09e; }
+/* The rest of the menu. Two hundred and forty assets cannot be two hundred and forty cards, so the
+   ones most launches use stay as cards and everything else is a row behind a search box. A row is a
+   grid and not three spaced spans, because the ticker, the company and the price only line up down
+   the column if they are columns. */
+.pair-more summary { padding: 4px 2px; color: #8f958a; font-size: 12.5px; cursor: pointer; list-style: none; }
+.pair-more summary::-webkit-details-marker { display: none; }
+.pair-more summary::before { content: "+"; margin-right: 8px; color: var(--color-lime); font-family: var(--font-mono); }
+.pair-more[open] summary::before { content: "\2212"; }
+.pair-more summary:hover { color: #e4e8dc; }
+.pair-row {
+  display: grid; grid-template-columns: minmax(64px, auto) minmax(0, 1fr) auto;
+  align-items: baseline; gap: 10px; width: 100%; padding: 9px 12px;
+  border: 1px solid var(--glass-line); border-radius: 13px; background: #ffffff05;
+  text-align: left; transition: border-color .18s, background .18s;
+}
+.pair-row:hover { border-color: var(--glass-hover-line); background: #ffffff0a; }
+.pair-row-symbol { color: #fff; font-size: 13px; font-weight: 700; }
+/* The company, when the asset is one of the chain's own shares. It is the part that gets long, so
+   it is the part that truncates. */
+.pair-row-name { overflow: hidden; color: #8f958a; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.pair-row-price { color: #b7bdac; font-size: 11px; white-space: nowrap; }
 .choice-mark { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 19px; height: 19px; border: 1px solid var(--glass-line); border-radius: 50%; color: #0d1100; font-size: 11px; }
 .choice.on .choice-mark { border-color: var(--color-lime); background: var(--color-lime); box-shadow: 0 0 18px -4px #ccff00cc; }
 
@@ -1143,3 +1164,70 @@ a.race-lead:hover .race-go { color: var(--color-lime); }
 @keyframes gradToast { from { opacity: 0; transform: translate(-50%, -14px) scale(.92); } }
 @keyframes gradParticle { to { opacity: 0; transform: rotate(var(--angle)) translateY(-145px) rotate(520deg); } }
 @media (prefers-reduced-motion: reduce) { .graduation-celebration, .graduation-burst i { animation: none; } }
+
+/* ---------------------------------------------------------------- the social pad
+   Quests, the race, referrals, follows and the watchlist. Built out of the primitives every
+   brand already restyles (.panel, .btn, .input), so a face that never heard of these pages
+   still serves them in its own colours rather than in the default ones. */
+
+.quests-shell, .refer-shell, .following-shell, .trader-shell { display: grid; gap: 22px; }
+
+.quest-claim { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px !important; }
+.quest-claim strong { font-size: 18px; }
+
+.quest-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.quest-card { display: grid; gap: 10px; padding: 18px 20px !important; }
+.quest-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.quest-card h3 { font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
+.quest-reward { flex: none; color: var(--color-lime); font-family: var(--font-mono); font-size: 11px; }
+.quest-card p { font-size: 13.5px; line-height: 1.5; }
+.quest-bar { height: 8px; border-radius: 999px; background: #ffffff12; overflow: hidden; }
+.quest-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #78ad17, var(--color-lime)); }
+.quest-card footer { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; }
+.quest-card.is-claimed { opacity: .62; }
+
+.race-panel { display: grid; gap: 14px; padding: 22px !important; }
+.race-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; }
+.race-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -.025em; }
+.race-board { display: grid; gap: 2px; list-style: none; }
+.race-board li { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--glass-line); font-size: 14px; }
+.race-board li:last-child { border-bottom: 0; }
+.race-position { color: #8a9083; font-family: var(--font-mono); font-size: 12px; }
+.race-score { font-family: var(--font-mono); }
+
+.refer-link { display: grid; gap: 10px; padding: 20px 22px !important; }
+.refer-row { display: flex; gap: 10px; }
+.refer-row .input { flex: 1; min-width: 0; }
+.refer-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.refer-head h2 { font-size: 18px; font-weight: 700; letter-spacing: -.025em; }
+.refer-pending, .refer-prompt { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 20px !important; }
+.refer-prompt-actions { display: flex; gap: 8px; }
+
+.trader-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.watch-panel { padding: 20px 22px !important; }
+.watch-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.watch-chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--glass-line); border-radius: 999px; padding: 7px 14px; background: #ffffff08; font-size: 13px; }
+.watch-chip img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.watch-initials { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: 50%; background: #ffffff14; font-size: 9px; }
+.watch-button { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; border: 1px solid var(--glass-line); border-radius: 999px; padding: 8px 14px; background: #ffffff08; color: var(--color-text); font-size: 12px; font-weight: 600; }
+.watch-button.is-watching { border-color: #ccff0055; color: var(--color-lime); }
+.watch-button:disabled { opacity: .5; }
+
+.feed-list { display: grid; gap: 2px; list-style: none; }
+.feed-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--glass-line); font-size: 14px; }
+.feed-list li:last-child { border-bottom: 0; }
+.feed-watch { margin-left: auto; }
+
+@media (max-width: 640px) {
+  .quest-claim, .refer-pending, .refer-prompt { flex-direction: column; align-items: stretch; }
+  .refer-row { flex-direction: column; }
+  .feed-watch { margin-left: 0; }
+}
+
+/* Tables on the social pages. The leaderboard has its own; these are the plain ones on a profile
+   and on the referral list, and without this they arrive as unspaced browser default. */
+.trader-shell table, .refer-shell table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.trader-shell th, .refer-shell th { padding: 11px 10px; color: #8a9083; font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: .06em; text-align: left; text-transform: uppercase; }
+.trader-shell td, .refer-shell td { padding: 11px 10px; border-top: 1px solid var(--glass-line); }
+.trader-shell td .btn, .refer-shell td .btn { padding: 7px 14px; font-size: 12px; }

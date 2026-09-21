@@ -23,9 +23,13 @@ export const integrations = () => ({
   assistant: Boolean(process.env.ANTHROPIC_API_KEY),
   art: Boolean(process.env.OPENROUTER_API_KEY),
   relay: Boolean(process.env.RELAY_API_KEY),
-  /// The 1-click ETH -> quote -> launch-token path needs both halves. Advertising it when only
-  /// the on-chain router exists leaves a button that can never obtain calldata from Uniswap.
-  routing: Boolean(process.env.UNISWAP_API_KEY && process.env.HOOD_CURVE_ROUTER),
+  /// The 1-click ETH -> quote -> launch-token path. The on-chain router is the half that cannot be
+  /// worked around: without it there is nothing to spend the swapped quote on the curve. The other
+  /// half is either Uniswap's routing service (every venue, every hop) or, with no key, the single
+  /// v4 hop the pad builds itself, which exists for most pairs but not for all. So this says the
+  /// path is offered, and `routingSource` says who builds it; the app asks per pair before offering.
+  routing: Boolean(process.env.HOOD_CURVE_ROUTER),
+  routingSource: process.env.UNISWAP_API_KEY ? "uniswap" : "local",
   /// false means /uploads/image answers 501 and the wizards fall back to the artwork URL field.
   storage: storageConfigured(),
 });

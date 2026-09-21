@@ -11,10 +11,18 @@ import { Ticker } from "@/components/Ticker";
 import { compact, imageUrl, launchProgress, pairDecimals, pairSymbol } from "@/lib/format";
 import { brand } from "@/brands";
 import { GraduationRace } from "@/components/GraduationRace";
+import { ReferralPrompt } from "@/components/Social";
 
+/// The same doors the ox front has, on the shared board: the filters are real queries the API
+/// answers (the pair decides what is a share and what is culture, the lock decides "dev locked"),
+/// so a tab here is a fact about the launches rather than a label over the same list.
 const SORTS = [
   { key: "new", label: "Newest", query: "sort=new" },
   { key: "volume", label: "Trending", query: "sort=volume" },
+  { key: "stocks", label: "Stocks", query: "sort=volume&category=stocks" },
+  { key: "culture", label: "Culture pairs", query: "sort=volume&category=culture" },
+  { key: "direct", label: "Direct pool", query: "sort=volume&category=direct" },
+  { key: "locked", label: "Dev locked", query: "sort=volume&category=locked" },
   { key: "graduating", label: "Near graduation", query: "sort=progress&status=graduating" },
   { key: "graduated", label: "Graduated", query: "sort=graduated&status=graduated" },
 ] as const;
@@ -77,18 +85,20 @@ function Board() {
   return (
     <div className="home-shell">
       {/* The race to the pool is the loop this place runs on, so it sits where a reader lands. */}
+      <ReferralPrompt />
       <GraduationRace />
       <section className="hero" aria-labelledby="explore-title">
         <div className="hero-copy">
-          <span className="eyebrow">Live on Robinhood Chain</span>
-          <h1 id="explore-title"><span>Print a coin.</span><span>Let the fam trade it.</span></h1>
+          <span className="eyebrow">A cut of the fees comes back</span>
+          <h1 id="explore-title"><span>Launch. Trade.</span><span>Share the fees.</span></h1>
           <p>
-            Every launch on chain 4663, on one board. Buy on the curve, watch it graduate into a
-            pool nobody can pull, and take your cut of what the house collects.
+            Eligible launches, trades and locks earn season points. A published cut of the fees
+            hood.fam actually collects funds the drop, split by those points. Creators choose the
+            wallet that receives their token&apos;s fee share.
           </p>
           <div className="hero-actions">
             <Link className="btn" href="/launch">Create token</Link>
-            <Link className="btn btn-ghost" href="/airdrop">See the drop</Link>
+            <Link className="btn btn-ghost" href="/airdrop">See the fee pool</Link>
           </div>
         </div>
         <div className="hero-object" aria-hidden="true">

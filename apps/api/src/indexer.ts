@@ -7,6 +7,7 @@ import { pairAsset, robinhood } from "@hood/sdk";
 import { pool, getCursor, getCursorHash, setCursor } from "./db.js";
 import { notify } from "./events.js";
 import { award } from "./points.js";
+import { recordBasis } from "./pnl.js";
 import { usdValue } from "./price.js";
 import { SYSTEM } from "./system.js";
 import { accrueStakePoints, settleStake } from "./stake-accrual.js";
@@ -308,6 +309,9 @@ async function onTrade(log: Log & { args: Record<string, unknown> }, side: "buy"
   const scorer = side === "buy" ? recipient : trader;
   const usd = await usdValue(curve.pairToken, pairAmount);
   const selfDealt = await paysItself(curve.token, scorer);
+  // Cost basis follows the tokens, not the points: a wallet that pays itself still bought
+  // something, and its profit page should say so even though the trade scores nothing.
+  if (written[0]) await recordBasis({ token: curve.token, address: scorer, side, tokenAmount, usd, at: when });
   if (!SYSTEM.has(scorer) && !selfDealt) {
     await award({
       address: scorer, kind: side === "buy" ? "trade_buy" : "trade_sell", token: curve.token,
@@ -670,6 +674,7 @@ async function onV4Swap(log: Log & { args: Record<string, unknown> }) {
 
   const usd = await usdValue(launch.quote, quoteAmount);
   const selfDealt = await paysItself(launch.token, trader);
+  if (written[0]) await recordBasis({ token: launch.token, address: trader, side, tokenAmount, usd, at: when });
   if (!SYSTEM.has(trader) && !selfDealt) {
     await award({
       address: trader, kind: side === "buy" ? "trade_buy" : "trade_sell", token: launch.token,

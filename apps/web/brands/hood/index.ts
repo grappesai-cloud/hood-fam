@@ -18,7 +18,10 @@ export const brand: Brand = {
     { href: "/leaderboard", label: "Leaderboard" },
     { href: "/lock", label: "Lock" },
     { href: "/airdrop", label: "The drop" },
-  ],
+      { href: "/quests", label: "Quests" },
+    { href: "/refer", label: "Refer" },
+    { href: "/following", label: "Following" },
+],
   copy: {
     create: "Create token",
     heroAction: "Print a coin. Let the fam trade it.",

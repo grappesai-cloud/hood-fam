@@ -20,6 +20,9 @@ interface CurvePreset {
   pairToken: `0x${string}`;
   totalSupply: bigint; curveSupplyBps: number; startCap: bigint; graduationCap: bigint;
   liquidityBps: number; protocolFeeBps: number; creatorFeeBps: number; enabled: boolean;
+  /// The graduated pool's own two numbers. They travel with the preset and have to travel with a
+  /// custom config too, or a launch whose only change is the fee would open a different pool.
+  poolFee: number; tickSpacing: number;
 }
 
 const CUSTOM_SUPPLY = 1_000_000_000n * 10n ** 18n;
@@ -105,8 +108,13 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     firstBuy: "",
     // Percentages here, basis points on chain: a slider a person drags should be in the unit they
     // think in, and the conversion belongs at the edge, once.
-    stakers: 100, buyback: 0, liquidity: 0, creator: 0,
+    // Half to the creator, half to the fam: the pad's published default, and the one number a
+    // reader of the paper expects the form to already be on.
+    stakers: 50, buyback: 0, liquidity: 0, creator: 50,
     feeRecipient: "",
+    // The trade fee in bps, or null for "whatever the preset charges". A creator who moves it is
+    // launching a config of their own, which the factory takes through launchCustom.
+    feeBps: null as number | null,
     firstBuyLock: 0,
   });
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
@@ -131,8 +139,8 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     // so it moves to the next most useful thing once, without stepping on a creator who has
     // already touched the sliders.
     if (houseToken === undefined || canPayStakers) return;
-    setForm((f) => (f.stakers === 100 && f.buyback === 0 && f.liquidity === 0 && f.creator === 0
-      ? { ...f, stakers: 0, buyback: 50, liquidity: 50 }
+    setForm((f) => (f.stakers === 50 && f.creator === 50 && f.buyback === 0 && f.liquidity === 0
+      ? { ...f, stakers: 0, creator: 50, buyback: 30, liquidity: 20 }
       : f));
   }, [houseToken, canPayStakers]);
 
@@ -219,6 +227,25 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     Boolean(cfg?.enabled) && cfg!.pairToken.toLowerCase() === form.pairToken.toLowerCase();
   const presetsForPair = ((configs ?? []) as { result?: CurvePreset }[]).filter((c) => presetFits(c.result)).length;
   const chosen = ((configs ?? []) as { result?: CurvePreset }[])[form.configId]?.result;
+  // The trading fee. The protocol's 30 bps is not the creator's to move; everything above it is,
+  // up to the 500 bps the factory refuses to go past. A preset carries its own, so leaving this
+  // alone launches the preset exactly as it was published and pins its econ hash; moving it turns
+  // the launch into a config of the creator's own, which is what launchCustom is for.
+  const PROTOCOL_FEE_BPS = 30;
+  const MAX_TOTAL_FEE_BPS = 500;
+  const presetCreatorFeeBps = form.customPair ? customConfig.creatorFeeBps : (chosen ? Number(chosen.creatorFeeBps) : 70);
+  const creatorFeeBps = form.feeBps ?? presetCreatorFeeBps;
+  const totalFeeBps = PROTOCOL_FEE_BPS + creatorFeeBps;
+  const feeMoved = form.feeBps !== null && form.feeBps !== presetCreatorFeeBps;
+  // A preset whose fee the creator moved is still that preset in every other number, so the config
+  // that goes on chain is the preset itself with one field replaced.
+  const launchConfig = form.customPair
+    ? { ...customConfig, creatorFeeBps }
+    : chosen
+      ? { ...chosen, creatorFeeBps, enabled: true }
+      : null;
+  const useCustomConfig = form.customPair || feeMoved;
+
   const tokenDone = form.name.length > 0 && form.symbol.length > 0 && symbolFree !== false;
   const splitTotal = form.stakers + form.buyback + form.liquidity + form.creator;
   // The address the creator leg pays. Empty means the wallet doing the launching, which is what it
@@ -243,6 +270,8 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : splitTotal !== 100 ? `Step 3 has to add up to 100%. It is at ${splitTotal}%.`
     : !recipientOk ? "Step 3 needs a valid address for the fee, or none at all."
     : form.creator > 0 && !recipient ? "Step 3 pays the creator leg to an address, and there is none."
+    : totalFeeBps > MAX_TOTAL_FEE_BPS ? `Step 3 asks for a ${(totalFeeBps / 100).toFixed(2)}% fee; the factory refuses anything above 5%.`
+    : useCustomConfig && !launchConfig ? "Step 4 has no preset to build the custom fee on."
     : form.firstBuyLock > 0 && firstBuyWei === 0n ? "Step 4 locks a first buy that is not being made."
     : undefined;
 
@@ -256,8 +285,8 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   async function launch() {
     if (!address) return;
     const salt = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32))).map((b) => b.toString(16).padStart(2, "0")).join("")}` as `0x${string}`;
-    const launchData = form.customPair
-      ? encodeFunctionData({ abi: hoodFactoryAbi, functionName: "launchCustom", args: [launchArgs(salt), customConfig] })
+    const launchData = useCustomConfig && launchConfig
+      ? encodeFunctionData({ abi: hoodFactoryAbi, functionName: "launchCustom", args: [launchArgs(salt), launchConfig] })
       : encodeFunctionData({ abi: hoodFactoryAbi, functionName: "launch", args: [launchArgs(salt)] });
     if (needsApproval) {
       // The wallet has to let the factory take the first buy. A Safe does both in one signature
@@ -271,10 +300,10 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         address: form.pairToken, abi: erc20Abi, functionName: "approve", args: [addresses.factory, firstBuyWei],
       }));
     }
-    if (form.customPair) {
+    if (useCustomConfig && launchConfig) {
       setHash(await writeContractAsync({
         address: addresses.factory, abi: hoodFactoryAbi, functionName: "launchCustom",
-        args: [launchArgs(salt), customConfig], value,
+        args: [launchArgs(salt), launchConfig], value,
       }));
     } else {
       setHash(await writeContractAsync({
@@ -295,7 +324,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
       },
       creatorFeeRecipient: (recipient || address ) as Address,
       firstBuy: firstBuyWei, firstBuyLock: BigInt(form.firstBuyLock),
-      salt, econ: form.customPair
+      salt, econ: useCustomConfig
         ? (`0x${"0".repeat(64)}` as `0x${string}`)
         : ((econ as `0x${string}`) ?? (`0x${"0".repeat(64)}` as `0x${string}`)),
     } as const;
@@ -360,6 +389,20 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 ? "Adds up to 100%. Every trade divides the creator's share exactly this way, forever."
                 : `These have to add up to 100%. Right now they add up to ${splitTotal}%.`}
             </p>
+            <Field label={`What a trade pays: ${(totalFeeBps / 100).toFixed(2)}%`}
+              help={feeMoved
+                ? "Your own fee, so this launch goes on chain as a config of its own rather than as the published preset."
+                : "The preset's fee. Move it and this launch carries your number instead; the protocol's 0.30% is fixed and the factory refuses anything above 5% in total."}>
+              <Slider label={`${(totalFeeBps / 100).toFixed(2)}% per trade, of which ${(creatorFeeBps / 100).toFixed(2)}% is yours to split`}
+                hint="Traders see this before they buy. High fees are a choice a market can price."
+                min={PROTOCOL_FEE_BPS} max={MAX_TOTAL_FEE_BPS} step={10}
+                value={totalFeeBps}
+                onChange={(v) => set("feeBps", Math.max(0, v - PROTOCOL_FEE_BPS))} />
+              {feeMoved && (
+                <button type="button" className="text-xs dim underline"
+                  onClick={() => set("feeBps", null)}>Back to the preset's {(presetCreatorFeeBps + PROTOCOL_FEE_BPS) / 100}%</button>
+              )}
+            </Field>
             {form.creator > 0 && (
               <Field label="Who the creator share pays"
                 help="Leave it empty and it pays the wallet doing this launch. A team usually wants its own Safe here. Only that address can hand the stream on later."

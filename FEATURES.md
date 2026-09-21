@@ -171,3 +171,17 @@ on every flush, so a launch can do several of these at once.
 - Graduation is a separate permissionless call, so a failing pool deployment cannot hold a trade.
 - The token has no mint function at all, so no bridge can ever print supply.
 - The fee split cannot be switched after launch.
+
+## The social pad (21-09-2026)
+
+| Feature | State | Where |
+|---|---|---|
+| One-click buy with ETH on any pair with an ETH pool | in | `HoodCurveRouter` + `localNativeRoute` in `apps/api/src/uniswap-route.ts`; Uniswap's routing service is used instead when `UNISWAP_API_KEY` is set |
+| Creator-chosen trade fee, 0.30% to 5% | in | the wizard's fee slider; a moved fee launches through `launchCustom`, the factory caps the total at 500 bps |
+| Referrals, a tenth of a referred wallet's trade points | in | `referrals` table, `payReferrer` in `points.ts`, `/refer` |
+| Quests, nine per season, claimed once per wallet | in | `apps/api/src/quests.ts`, `/quests` |
+| Races: a named window over the same points | in | `races` table, `/races/current`, opened by the admin token |
+| Follow a trader, feed of their trades | in | `follows` table, `/feed`, `/following` |
+| Profit board with a real cost basis | in | `trade_positions`, `apps/api/src/pnl.ts`, `/top-traders?sort=pnl` |
+| Watchlist and browser alerts | in | `watchlist` table, `/following`, drawn off the existing stream |
+| Category filters on the shared board | in | `category=new|stocks|culture|direct|locked`, front page tabs |

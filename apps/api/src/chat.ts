@@ -91,8 +91,10 @@ function issueSession(address: string): { token: string; expiresAt: Date } {
 }
 
 /// The wallet behind a request, or null. Everything after the one signature check takes this and
-/// nothing else, so no route past /chat/session ever handles a signature.
-function sessionOf(req: FastifyRequest): string | null {
+/// nothing else, so no route past /chat/session ever handles a signature. Exported because the
+/// login is the pad's, not the chat room's: follows, the watchlist, quests and a referral all ask
+/// the same question and must not grow a second way of answering it.
+export function sessionOf(req: FastifyRequest): string | null {
   const given = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
   const [head, sig] = given.split(".");
   if (!head || !sig) return null;

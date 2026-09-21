@@ -70,13 +70,51 @@ shows market cap for that reason. Compare market caps, not raw prices.
 and lands the token in the same wallet on Robinhood Chain. If in-app quotes are unavailable, the
 page links to the bridge provider directly.
 
+## Points, quests, referrals and your crowd
+
+**How do I earn points?** Print a token (500, once it has traded a thousand dollars), buy (2 per
+dollar), sell (1 per dollar), lock the house coin (10 per dollar per 30 days, times the lock), bring
+somebody (a tenth of what they earn trading), and finish a quest (what the card says). Everything
+bought with dollars is multiplied by your rank; a referral share and a quest are not.
+
+**What are quests?** Nine things worth doing, at `/quests`. Progress is read off the chain by our
+indexer, so nothing is claimed by asking: a quest turns claimable when the thing actually happened.
+Claim pays every finished quest at once, once per wallet per season.
+
+**How does a referral work?** Your link is `/?ref=<your address>` and your code is your own address,
+so anybody can check on chain who they are about to be tied to. When a wallet that arrived through it
+signs in and ties itself, you earn a tenth of what it earns by trading, on top of its points rather
+than out of them. It counts only trades made after the tie, a wallet can be tied once and never
+re-pointed, and two wallets cannot bring each other.
+
+**What is Following?** A list of wallets whose public trades you want to see in one feed, plus the
+launches you are watching. Nothing there can trade for you: "copy this trade" opens that launch with
+the trade box ready, and you still sign it yourself.
+
+**Can I be told when a launch moves?** Turn alerts on from `/following`. They are browser
+notifications drawn from the same live stream the board reads, for the launches on your watchlist
+only. Nothing is pushed from our side and nothing is stored: close the tab and they stop.
+
+**What is the profit board?** `Top traders → Profit` ranks wallets by what they made trading on this
+pad: banked profit plus what is still open, marked at the last traded price. It is built from a cost
+basis we keep per wallet and launch, from trades on this pad alone — tokens that arrived by plain
+transfer have no price we know, so they enter at zero cost and read as pure profit when sold. It is
+all-time, because realised profit does not belong to a window.
+
+**Signing in.** One signature, no account, good for a week. It proves the wallet is yours; it moves
+nothing and costs nothing, and the same signature covers chat, follows, the watchlist, quests and
+referrals.
+
 ## Fees, taxes and where the money goes
 
-**Curve tokens.** Every trade pays the protocol fee (30 bps) to the treasury and the creator fee to
-the fee router. What happens to the creator fee is the fee split, chosen at launch and never
+**Curve tokens.** Every trade pays 1%: 30 bps to the treasury as the protocol fee, 70 bps to the fee
+router as the launch's own share. What happens to the creator fee is the fee split, chosen at launch and never
 editable. It is four shares that add up to the whole, so a token can do several of these at once:
 
-- Staking rewards: paid to people who locked the token, weighted by amount and lock length.
+- Staking rewards: paid to people who locked the **house coin**, the one coin this pad's vault
+  accepts, weighted by amount and lock length. It is not the launched token: every launch that pays
+  a stakers leg pays into that same room, and until the house coin exists a launch cannot choose
+  this leg at all.
 - Buyback and burn: buys the token back and burns it.
 - Liquidity: deepens the pool (added to the raise before graduation, donated to the pool after).
 - Creator keeps: paid to the creator's fee recipient.

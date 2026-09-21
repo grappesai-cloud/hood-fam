@@ -22,7 +22,10 @@ export const brand: Brand = {
     { href: "/leaderboard", label: "Rankings" },
     { href: "/lock", label: "The vault" },
     { href: "/airdrop", label: "Season payout" },
-  ],
+      { href: "/quests", label: "Objectives" },
+    { href: "/refer", label: "Introduce" },
+    { href: "/following", label: "Watchlist" },
+],
   copy: {
     create: "List a token",
     heroAction: "Read the column. Trade the climb.",

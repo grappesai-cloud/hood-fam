@@ -14,6 +14,7 @@ import { Tape } from "@/components/Tape";
 import { Sound } from "@/components/Sound";
 import { GraduationRace } from "@/components/GraduationRace";
 import { GraduationCelebration } from "@/components/GraduationCelebration";
+import { WatchButton } from "@/components/Social";
 import { HolderMap } from "@/components/HolderMap";
 import { TokenChat } from "@/components/TokenChat";
 import { DirectTradeBox } from "@/components/DirectTradeBox";
@@ -157,6 +158,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
           <div className="token-hero-cap text-right">
             <div className="mono text-lg">{compact((BigInt(data.price || "0") * totalSupply) / 10n ** 18n, dec)} {sym}</div>
             <div className="text-xs dim">MARKET CAP</div>
+            <WatchButton token={data.token} className="mt-2" />
           </div>
         </header>
 

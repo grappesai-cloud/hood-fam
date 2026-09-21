@@ -17,7 +17,7 @@ import { pool, currentSeason } from "./db.js";
 import { pairAsset, PAIR_ASSETS as PAIR_CATALOG, robinhood } from "@hood/sdk";
 import { PAIR_ASSETS as PRICEABLE, pairUsdPrice } from "./price.js";
 import { resolveQuote } from "./quote-resolver.js";
-import { nativeQuoteRoute } from "./uniswap-route.js";
+import { hasNativeRoute, localNativeRoute, nativeQuoteRoute } from "./uniswap-route.js";
 
 /// The two views the pair list asks the factory for. A client of its own rather than the
 /// indexer's, because this one answers a request and must not wait behind a block scan.
@@ -31,6 +31,9 @@ import { chatMessage, registerChat } from "./chat.js";
 import { registerStream } from "./events.js";
 import { registerSupport } from "./support.js";
 import { registerUploads } from "./uploads.js";
+import { registerSocial } from "./social.js";
+import { registerQuests } from "./quests.js";
+import { pnlLeaderboard, walletPnl } from "./pnl.js";
 import { chainHead, contracts, integrations, isAdmin } from "./admin.js";
 import { closeSeason, frozenLeaderboard, listSeasons, openSeason, SeasonError, snapshotSeason } from "./seasons.js";
 import { estimate, seasonPool, seasonPoints } from "./airdrop.js";
@@ -367,26 +370,39 @@ export async function buildServer() {
   /// The global FOMO tape: newest human trades with enough launch metadata to render without a
   /// request per row. The token page keeps its deeper, token-specific tape.
   app.get("/activity", async (req) => {
-    const { limit } = req.query as { limit?: string };
+    const { limit, trader } = req.query as { limit?: string; trader?: string };
+    // With a trader, this is one wallet's tape, which is what a profile and a follow feed read.
+    // Without one, it is the whole floor. Same rows, same exclusions, one query.
+    const one = trader && isAddress(trader) ? trader.toLowerCase() : null;
     const { rows } = await pool.query(
       `select t.side, t.trader, t.pair_amount, t.token_amount, t.ts, t.tx, t.log_index,
               l.token, l.symbol, l.name, l.pair_token, l.pair_symbol, l.pair_decimals
        from trades t join launches l on l.token = t.token
        where t.trader <> all($1::text[])
+         and ($3::text is null or t.trader = $3)
        order by t.ts desc limit $2`,
-      [SYSTEM_TRADERS, clampInt(limit, 24, 80, 1)],
+      [SYSTEM_TRADERS, clampInt(limit, 24, 80, 1), one],
     );
     return { activity: rows };
   });
 
-  /// A trader board with real time windows. `netUsd` is cash flow (sells minus buys), deliberately
-  /// not called profit: unrealised holdings need a cost-basis ledger and pretending otherwise is
-  /// worse than showing the honest number. The UI lets the reader rank by this or by volume.
+  /// A trader board with real time windows. `netUsd` is cash flow (sells minus buys) and is still
+  /// not called profit: it does not know what a position cost. Profit is its own sort, built on the
+  /// cost basis the indexer keeps per wallet and launch, and it says out loud which half of it is
+  /// banked and which half is only marked at the last price.
   app.get("/top-traders", async (req) => {
     const q = req.query as Record<string, string | undefined>;
     const hours = q.window === "24h" ? 24 : q.window === "30d" ? 24 * 30 : q.window === "all" ? 0 : 24 * 7;
     const order = q.sort === "net" ? "net_usd desc" : "volume_usd desc";
     const n = clampInt(q.limit, 20, 100, 1);
+    // Profit is its own board. It is built from cost basis rather than from points, and it is
+    // deliberately all-time: realised profit is banked, and a window would rank a wallet by when it
+    // happened to close a position. The window still labels the response so a client cannot show
+    // "24h" over numbers that are not.
+    if (q.sort === "pnl") {
+      const traders = await pnlLeaderboard(n);
+      return { window: "all", sort: "pnl", traders };
+    }
     const { rows } = await pool.query(
       `select address,
               coalesce(sum(usd), 0)::numeric(20,2) as volume_usd,
@@ -428,7 +444,8 @@ export async function buildServer() {
       pool.query(`select * from stakes where owner = $1 and active`, [a]),
       pool.query(`select token, symbol, name, image, phase, volume_total from launches where creator = $1`, [a]),
     ]);
-    return { address: a, holdings: held, stakes, launches: created, points: await pointsFor(a, await currentSeason()) };
+    const pnl = await walletPnl(a);
+    return { address: a, holdings: held, stakes, launches: created, pnl, points: await pointsFor(a, await currentSeason()) };
   });
 
   app.get("/points/:address", async (req) => {
@@ -549,13 +566,32 @@ export async function buildServer() {
   }, async (req, reply) => {
     const parsed = RouteBody.safeParse(req.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "bad route request" });
+    const tokenOut = parsed.data.tokenOut as Address;
+    // The routing service first when there is a key for it, because it sees every venue and every
+    // hop. Without one, the pad builds the single hop it can build itself, which covers the pairs
+    // people actually launch against (the dollar and the liquid shares all have an ETH pool). A
+    // pair with neither is told so plainly, and the app falls back to the two step.
+    const key = process.env.UNISWAP_API_KEY?.trim();
     try {
-      return await nativeQuoteRoute(parsed.data.tokenOut as Address, parsed.data.amount, parsed.data.slippageTolerance);
+      if (key) return await nativeQuoteRoute(tokenOut, parsed.data.amount, parsed.data.slippageTolerance);
+    } catch (e) {
+      req.log.warn({ err: e }, "routing service failed, trying the local pool");
+    }
+    try {
+      return await localNativeRoute(tokenOut, parsed.data.amount, parsed.data.slippageTolerance);
     } catch (e) {
       const message = e instanceof Error ? e.message : "could not build route";
-      const unavailable = message.includes("not configured");
+      const unavailable = message.includes("no direct ETH pool") || message.includes("not configured");
       return reply.code(unavailable ? 503 : 502).send({ error: message });
     }
+  });
+
+  /// Whether a pair can be reached from ETH in one transaction, asked before the button is offered.
+  app.get("/pairs/route/:token", async (req, reply) => {
+    const { token } = req.params as { token: string };
+    if (!isAddress(token)) return reply.code(400).send({ error: "that is not a token address" });
+    const configured = Boolean(process.env.HOOD_CURVE_ROUTER);
+    return { token, available: configured && await hasNativeRoute(token as Address), configured };
   });
 
   /// What a launch may trade against, and therefore what its creator can be paid in.
@@ -568,7 +604,7 @@ export async function buildServer() {
   /// second is worse than a menu a minute out of date: a creator would simply not see the asset
   /// they came for, and nothing would look broken.
   interface PairRow {
-    address: Address; symbol: string; decimals: number; share: boolean;
+    address: Address; symbol: string; name: string | null; decimals: number; share: boolean;
     allowed: boolean; lockThreshold: string; usd: number;
   }
   let lastPairs: PairRow[] | null = null;
@@ -578,8 +614,11 @@ export async function buildServer() {
     const known = Object.entries(PRICEABLE).map(([address, a]) => ({
       address: address as Address,
       symbol: a.symbol,
+      // The company behind the ticker, when the asset is one of the chain's own shares. The menu
+      // shows it, because five tokens here answer to NVDA and only one of them is NVIDIA.
+      name: a.name ?? null,
       decimals: a.decimals,
-      share: Boolean(pairAsset(address)?.share),
+      share: Boolean(pairAsset(address)?.share || a.share),
     }));
 
     // A handful of reads, not four hundred. Asking the factory asset by asset meant a flaky moment
@@ -754,6 +793,10 @@ export async function buildServer() {
   /// The rooms, and the feed they arrive on. The stream is registered with the one thing it cannot
   /// assemble for itself: a chat message, which is three tables wide.
   registerChat(app);
+  // The session the chat issues is the pad's session, so these two sit after it and take it as it
+  // is: one signature, no account, and nothing here can spend anything.
+  registerSocial(app);
+  registerQuests(app);
   registerStream(app, { message: chatMessage });
   /// Token art, so a launch carries a link instead of a data URI. Awaited because the route needs
   /// the multipart parser registered under it; with no bucket configured it answers 501 and
