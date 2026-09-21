@@ -161,6 +161,22 @@ a Docker Compose resource at this repository and set the same variables in the U
 under `web` have to be set there too, because `NEXT_PUBLIC_*` is baked at build time and a missing
 one leaves the app pointed at nothing.
 
+**Never rsync over the server's `.env`.** The deploys here copy the tree to the box with rsync,
+and the box's `.env` is the only copy of the addresses, the database password and the R2 keys: the
+repository's own `.env` is a blank template. A sync with `--delete` and no exclusion replaced the
+live file with the blank one, the images rebuilt with empty `NEXT_PUBLIC_*`, and every front said
+the curve machine was not configured while the API crash-looped on an empty password. Always:
+
+```bash
+rsync -az --delete --exclude .env --exclude node_modules --exclude .git \
+  --exclude 'apps/web/.next' --exclude 'packages/*/dist' ./ box:~/hood-fam/
+```
+
+If it happens anyway, the running containers are the backup: `docker inspect <container>` prints the
+environment each one was started with, so a container that was not recreated still carries the
+addresses (`keeper`), the database password (`backup`, as `PGPASSWORD`) and the object storage keys
+(`offload`, as `RCLONE_CONFIG_STORE_*`). Recreate the web containers last, for that reason.
+
 Health: `GET /health` returns the last indexed block and which optional integrations are wired
 (`assistant`, `art`, `relay`, booleans only). If the block stops moving, the indexer is stuck, not
 the chain.

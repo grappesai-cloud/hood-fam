@@ -66,7 +66,7 @@ export function CurveSim({ p0, p1, curveSupply, totalSupply, dec, sym, feeBps, t
 
       <div className="sim-out">
         <SimRow label="you get" value={`${compact(shot.tokensOut)} ${ticker || "tokens"}`} note={`${supplyPct.toFixed(2)}% of the supply`} />
-        <SimRow label="average price" value={`${fmt(avg, dec, 9)} ${sym}`} note={`the price moves +${move.toFixed(2)}%`} />
+        <SimRow label="average price" value={priceLine(avg, dec, sym)} note={`the price moves +${move.toFixed(2)}%`} />
         <SimRow label="fee on the way in" value={`${fmt(shot.fee, dec, 6)} ${sym}`} note={`${(feeBps / 100).toFixed(2)}% of the trade`} />
         <SimRow label="if it sells out" value={`${fmt(worth, dec, 5)} ${sym}`} note={`${multiple.toFixed(2)}x what you put in`} strong />
       </div>
@@ -120,6 +120,14 @@ export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds }: {
       </p>
     </div>
   );
+}
+
+/// A price of 0.000000001 ETH tells a reader nothing at all. Below a millionth of a unit the price
+/// is quoted per million tokens, which is the size anybody here is actually buying.
+function priceLine(avg: bigint, dec: number, sym: string): string {
+  if (avg === 0n) return `0 ${sym}`;
+  if (Number(avg) / 10 ** dec < 1e-6) return `${fmt(avg * 1_000_000n, dec, 6)} ${sym} per 1M`;
+  return `${fmt(avg, dec, 9)} ${sym}`;
 }
 
 function SimRow({ label, value, note, strong }: { label: string; value: string; note?: string; strong?: boolean }) {
