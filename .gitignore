@@ -28,3 +28,7 @@ safe-batch-*.json
 deploy/pools.cache.json
 # a plan is priced on the day it is drawn up, so it is made fresh rather than kept
 deploy/quotes.plan.json
+
+# local design caches a brand preview run leaves behind
+apps/web/.ox-local-cache/
+apps/web/.preview-cache/

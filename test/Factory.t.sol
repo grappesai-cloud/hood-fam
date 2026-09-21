@@ -9,8 +9,73 @@ import {HoodFactory} from "../src/HoodFactory.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodTokenLock} from "../src/HoodTokenLock.sol";
 import {CurveConfig, FeeSplit, Launch, LaunchParams} from "../src/HoodTypes.sol";
+import {PairTransfer} from "../src/libraries/PairTransfer.sol";
+import {MockQuote, MockTaxQuote} from "./mocks/Mocks.sol";
 
 contract FactoryTest is BaseTest {
+    function test_any_creator_can_launch_against_a_custom_erc20_without_owner_permission() public {
+        MockQuote quote = new MockQuote("OG", 9);
+        CurveConfig memory c = _config();
+        c.pairToken = address(quote);
+        c.startCap = 5_000_000_000; // five OG, in nine-decimal quote units
+        c.graduationCap = 50_000_000_000;
+
+        LaunchParams memory p = _params(_toCreator());
+        p.pairToken = address(quote);
+        p.symbol = "BABYOG";
+        p.salt = bytes32(uint256(9001));
+
+        uint256 beforeConfigs = factory.configCount();
+        vm.prank(creator);
+        (address token, address curve,) = factory.launchCustom{value: LAUNCH_FEE}(p, c);
+
+        assertTrue(factory.pairAllowed(address(quote)), "the custom quote becomes reusable");
+        assertEq(factory.configCount(), beforeConfigs + 1);
+        assertEq(factory.getLaunch(token).configId, beforeConfigs, "the generated preset is recorded");
+        assertEq(factory.getConfig(beforeConfigs).pairToken, address(quote));
+
+        quote.mint(alice, 2_000_000_000);
+        vm.startPrank(alice);
+        quote.approve(curve, type(uint256).max);
+        uint256 bought = HoodCurve(payable(curve)).buy(1_000_000_000, 0, alice);
+        vm.stopPrank();
+        assertGt(bought, 0, "meme-to-meme trading is live");
+    }
+
+    function test_custom_quote_over_eighteen_decimals_is_refused() public {
+        MockQuote quote = new MockQuote("WEIRD", 19);
+        CurveConfig memory c = _config();
+        c.pairToken = address(quote);
+        LaunchParams memory p = _params(_toCreator());
+        p.pairToken = address(quote);
+        p.symbol = "NOPE";
+
+        vm.prank(creator);
+        vm.expectRevert(HoodFactory.UnsupportedPairDecimals.selector);
+        factory.launchCustom{value: LAUNCH_FEE}(p, c);
+    }
+
+    function test_a_taxed_custom_quote_cannot_corrupt_the_curve_reserve() public {
+        MockTaxQuote quote = new MockTaxQuote();
+        CurveConfig memory c = _config();
+        c.pairToken = address(quote);
+        LaunchParams memory p = _params(_toCreator());
+        p.pairToken = address(quote);
+        p.symbol = "TAXED";
+        p.salt = bytes32(uint256(9002));
+
+        vm.prank(creator);
+        (, address curve,) = factory.launchCustom{value: LAUNCH_FEE}(p, c);
+        quote.mint(alice, 2 ether);
+        vm.startPrank(alice);
+        quote.approve(curve, type(uint256).max);
+        vm.expectRevert(PairTransfer.FeeOnTransferPair.selector);
+        HoodCurve(payable(curve)).buy(1 ether, 0, alice);
+        vm.stopPrank();
+
+        assertEq(HoodCurve(payable(curve)).reserve(), 0, "a taxed transfer books no phantom reserve");
+    }
+
     /// @dev This one is here because it already bit: the factory inlined the token and the curve
     ///      bytecode and came out 2,461 bytes over what an account may hold, so it could not be
     ///      deployed at all. The bytecode lives in HoodDeployer now.

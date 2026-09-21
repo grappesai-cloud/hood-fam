@@ -8,6 +8,7 @@ import {HoodDeployer} from "../src/HoodDeployer.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodTokenLock} from "../src/HoodTokenLock.sol";
+import {HoodCurveRouter} from "../src/HoodCurveRouter.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
 import {HoodBridgeFactory} from "../src/omnichain/HoodBridgeFactory.sol";
 import {HoodPortal} from "../src/direct/HoodPortal.sol";
@@ -51,16 +52,25 @@ contract Deploy is Script {
         vm.startBroadcast(pk);
 
         HoodDeployer bytecode = new HoodDeployer();
+        console.log("deployer  ", address(bytecode));
         HoodFactory factory = new HoodFactory(deployer, treasury, address(bytecode));
+        console.log("factory   ", address(factory));
         bytecode.initialize(address(factory));
         HoodStaking staking = new HoodStaking(address(factory));
+        console.log("staking   ", address(staking));
         HoodFeeRouter feeRouter = new HoodFeeRouter(address(factory), address(staking));
+        console.log("feeRouter ", address(feeRouter));
         HoodTokenLock firstBuyLocker = new HoodTokenLock();
+        console.log("firstBuyLock", address(firstBuyLocker));
         UniswapV4Graduator graduator = new UniswapV4Graduator(
             address(factory), POOL_MANAGER, POSITION_MANAGER, UNIVERSAL_ROUTER, PERMIT2, STATE_VIEW
         );
+        console.log("graduator ", address(graduator));
+        HoodCurveRouter curveRouter = new HoodCurveRouter(address(factory), UNIVERSAL_ROUTER);
+        console.log("curveRouter", address(curveRouter));
 
         HoodBridgeFactory bridge = new HoodBridgeFactory(deployer, address(factory), LZ_ENDPOINT);
+        console.log("bridge    ", address(bridge));
 
         factory.setModules(address(feeRouter), address(staking), address(graduator));
         factory.setFirstBuyLocker(address(firstBuyLocker));
@@ -124,13 +134,17 @@ contract Deploy is Script {
 
         // ---- the direct machine: no curve, the supply is the liquidity from block one ----
         HoodDirectDeployer directDeployer = new HoodDirectDeployer();
+        console.log("directDeployer", address(directDeployer));
         HoodLaunchToken tokenImplementation = new HoodLaunchToken();
+        console.log("tokenImpl ", address(tokenImplementation));
         HoodPortal portal = new HoodPortal(
             deployer, treasury, address(directDeployer), address(tokenImplementation),
             POOL_MANAGER, POSITION_MANAGER, PERMIT2
         );
+        console.log("portal    ", address(portal));
         directDeployer.initialize(address(portal));
         HoodBuybackModule buybackModule = new HoodBuybackModule(POOL_MANAGER, address(portal));
+        console.log("buyback   ", address(buybackModule));
 
         portal.setBuybackModule(address(buybackModule));
         portal.setRegistry(address(factory));
@@ -150,17 +164,9 @@ contract Deploy is Script {
 
         vm.stopBroadcast();
 
-        console.log("factory   ", address(factory));
-        console.log("deployer  ", address(bytecode));
-        console.log("staking   ", address(staking));
-        console.log("firstBuyLock", address(firstBuyLocker));
-        console.log("feeRouter ", address(feeRouter));
-        console.log("graduator ", address(graduator));
-        console.log("bridge    ", address(bridge));
-        console.log("portal    ", address(portal));
-        console.log("directDeployer", address(directDeployer));
-        console.log("tokenImpl ", address(tokenImplementation));
-        console.log("buyback   ", address(buybackModule));
+        // Each address is printed where it is made, above. Printing them all down here kept every
+        // one of them alive across the whole of `run()`, and the twelfth contract was the one that
+        // ran the Yul optimizer out of stack slots.
         console.log("start block", block.number);
     }
 

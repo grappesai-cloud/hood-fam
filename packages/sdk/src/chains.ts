@@ -153,6 +153,7 @@ export interface HoodAddresses {
   feeRouter: `0x${string}`;
   staking: `0x${string}`;
   graduator: `0x${string}`;
+  curveRouter?: `0x${string}`;
   bridgeFactory?: `0x${string}`;
 }
 
@@ -167,6 +168,7 @@ export function addressesFromEnv(env: Record<string, string | undefined> = proce
     feeRouter: need("HOOD_FEE_ROUTER"),
     staking: need("HOOD_STAKING"),
     graduator: need("HOOD_GRADUATOR"),
+    curveRouter: env.HOOD_CURVE_ROUTER as `0x${string}` | undefined,
     bridgeFactory: env.HOOD_BRIDGE_FACTORY as `0x${string}` | undefined,
   };
 }

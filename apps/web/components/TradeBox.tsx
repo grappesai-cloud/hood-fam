@@ -4,10 +4,12 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useEffect, useMemo, useState } from "react";
 import { encodeFunctionData, parseUnits, formatUnits, maxUint256, zeroAddress, type Address } from "viem";
-import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract, useBalance, useReadContracts } from "wagmi";
-import { hoodCurveAbi } from "@hood/sdk";
+import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract, useBalance, useReadContracts, usePublicClient } from "wagmi";
+import { hoodCurveAbi, hoodCurveRouterAbi } from "@hood/sdk";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
 import { useBatch } from "@/lib/safe";
+import { api, type NativeQuoteRoute } from "@/lib/api";
+import { addresses } from "@/lib/config";
 
 const erc20 = [
   { type: "function", name: "allowance", stateMutability: "view", inputs: [{ type: "address" }, { type: "address" }], outputs: [{ type: "uint256" }] },
@@ -20,12 +22,15 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
 }) {
   const { address } = useAccount();
   const [side, setSide] = useState<"buy" | "sell">("buy");
+  const [payWithEth, setPayWithEth] = useState(false);
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState(5);
   const { writeContractAsync, isPending } = useWriteContract();
   const [hash, setHash] = useState<`0x${string}` | undefined>();
   const [error, setError] = useState<string>();
+  const [isRouting, setIsRouting] = useState(false);
   const receipt = useWaitForTransactionReceipt({ hash });
+  const publicClient = usePublicClient();
   const { canBatch, batch } = useBatch();
   const queryClient = useQueryClient();
   useEffect(() => {
@@ -34,14 +39,15 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
   }, [receipt.isSuccess, queryClient]);
 
   const isNative = pairToken === zeroAddress;
+  const oneClick = side === "buy" && !isNative && payWithEth;
   const pairDec = pairDecimals(pairToken);
   const pairSym = pairSymbol(pairToken);
 
   const amountWei = useMemo(() => {
-    try { return parseUnits(amount || "0", side === "buy" ? pairDec : 18); } catch { return 0n; }
-  }, [amount, side, pairDec]);
+    try { return parseUnits(amount || "0", side === "buy" ? (oneClick ? 18 : pairDec) : 18); } catch { return 0n; }
+  }, [amount, side, pairDec, oneClick]);
 
-  const { data: nativeBalance } = useBalance({ address, query: { enabled: Boolean(address) && isNative } });
+  const { data: nativeBalance } = useBalance({ address, query: { enabled: Boolean(address) && (isNative || oneClick) } });
   const { data: reads } = useReadContracts({
     contracts: [
       { address: token, abi: erc20, functionName: "balanceOf", args: [address ?? zeroAddress] },
@@ -56,7 +62,7 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
 
   const tokenBalance = (reads?.[0]?.result as bigint | undefined) ?? 0n;
   const tokenAllowance = (reads?.[1]?.result as bigint | undefined) ?? 0n;
-  const pairBalance = isNative ? (nativeBalance?.value ?? 0n) : ((reads?.[2]?.result as bigint | undefined) ?? 0n);
+  const pairBalance = (isNative || oneClick) ? (nativeBalance?.value ?? 0n) : ((reads?.[2]?.result as bigint | undefined) ?? 0n);
   const pairAllowance = isNative ? maxUint256 : ((reads?.[3]?.result as bigint | undefined) ?? 0n);
 
   const { data: quote } = useReadContract({
@@ -64,7 +70,7 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
     abi: hoodCurveAbi,
     functionName: side === "buy" ? "quoteBuy" : "quoteSell",
     args: [amountWei],
-    query: { enabled: amountWei > 0n && phase === 0, refetchInterval: 5000 },
+    query: { enabled: amountWei > 0n && phase === 0 && !oneClick, refetchInterval: 5000 },
   });
 
   const out = side === "buy"
@@ -75,7 +81,7 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
     : ((quote as readonly bigint[] | undefined)?.[1] ?? 0n);
   const minOut = (out * BigInt(10_000 - slippage * 100)) / 10_000n;
 
-  const needsApproval = side === "buy" ? pairAllowance < amountWei : tokenAllowance < amountWei;
+  const needsApproval = oneClick ? false : side === "buy" ? pairAllowance < amountWei : tokenAllowance < amountWei;
   const balance = side === "buy" ? pairBalance : tokenBalance;
   const tooMuch = amountWei > balance;
 
@@ -89,6 +95,33 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
 
   async function submitInner() {
     if (!address) return;
+    if (oneClick) {
+      if (!addresses.curveRouter || !publicClient) throw new Error("one-click router is not configured");
+      setIsRouting(true);
+      try {
+        const route = await api<NativeQuoteRoute>("/pairs/route", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ tokenOut: pairToken, amount: amountWei.toString(), slippageTolerance: slippage }),
+        });
+        const minQuote = BigInt(route.minQuoteOut);
+        const curveQuote = await publicClient.readContract({
+          address: curve, abi: hoodCurveAbi, functionName: "quoteBuy", args: [minQuote],
+        });
+        const expectedTokens = curveQuote[0];
+        const minTokens = (expectedTokens * BigInt(10_000 - slippage * 100)) / 10_000n;
+        setHash(await writeContractAsync({
+          address: addresses.curveRouter,
+          abi: hoodCurveRouterAbi,
+          functionName: "buyWithNativeCalldata",
+          args: [curve, minQuote, minTokens, address, route.routerCalldata],
+          value: amountWei,
+        }));
+      } finally {
+        setIsRouting(false);
+      }
+      return;
+    }
     if (needsApproval) {
       const approving = side === "buy" ? pairToken : token;
       // A wallet that takes a batch does the approval and the trade as one transaction. For a Safe
@@ -135,7 +168,7 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
       <div className="trade-heading"><span>TRADE / CURVE</span><strong>$<span>{symbol}</span></strong></div>
       <div className="mb-3 flex gap-2">
         {(["buy", "sell"] as const).map((s) => (
-          <button key={s} onClick={() => { setSide(s); setAmount(""); }}
+          <button key={s} onClick={() => { setSide(s); setAmount(""); if (s === "sell") setPayWithEth(false); }}
             className={`side-tab flex-1 rounded-lg border px-3 py-2 text-sm font-semibold ${
               side === s ? (s === "buy" ? "side-tab-buy" : "side-tab-sell") : "dim"
             }`}>
@@ -144,25 +177,44 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
         ))}
       </div>
 
+      {side === "buy" && !isNative && addresses.curveRouter && (
+        <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
+          <button className={`rounded-lg border px-2 py-2 ${!payWithEth ? "border-[var(--color-lime)] text-[var(--color-lime)]" : "border-[var(--color-line)] dim"}`}
+            onClick={() => { setPayWithEth(false); setAmount(""); }}>
+            pay in {pairSym}
+          </button>
+          <button className={`rounded-lg border px-2 py-2 ${payWithEth ? "border-[var(--color-lime)] text-[var(--color-lime)]" : "border-[var(--color-line)] dim"}`}
+            onClick={() => { setPayWithEth(true); setAmount(""); }}>
+            pay in ETH · 1-click
+          </button>
+        </div>
+      )}
+
       <label className="mb-1 block text-xs dim">
-        {side === "buy" ? `spend ${pairSym}` : `sell ${symbol}`}
+        {side === "buy" ? `spend ${oneClick ? "ETH" : pairSym}` : `sell ${symbol}`}
       </label>
       <input className="input mono" inputMode="decimal" placeholder="0.0"
         value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} />
 
       <div className="mt-1 flex justify-between text-xs dim">
-        <span>balance {fmt(balance, side === "buy" ? pairDec : 18, 4)}</span>
+        <span>balance {fmt(balance, side === "buy" ? (oneClick ? 18 : pairDec) : 18, 4)}</span>
         <button className="hover:text-[var(--color-text)]"
-          onClick={() => setAmount(formatUnits(balance, side === "buy" ? pairDec : 18))}>
+          onClick={() => setAmount(formatUnits(balance, side === "buy" ? (oneClick ? 18 : pairDec) : 18))}>
           max
         </button>
       </div>
 
-      <div className="mt-3 space-y-1 text-xs">
-        <Row label="you get" value={`${fmt(out, side === "buy" ? 18 : pairDec, 4)} ${side === "buy" ? symbol : pairSym}`} />
-        <Row label="fee" value={`${fmt(fee, pairDec, 6)} ${pairSym}`} />
-        <Row label={`min out (${slippage}% slip)`} value={fmt(minOut, side === "buy" ? 18 : pairDec, 4)} />
-      </div>
+      {oneClick ? (
+        <div className="mt-3 rounded-lg border border-[var(--color-line)] p-3 text-xs dim">
+          ETH is routed into {pairSym}, then into ${symbol}, atomically. The final route is quoted when you confirm.
+        </div>
+      ) : (
+        <div className="mt-3 space-y-1 text-xs">
+          <Row label="you get" value={`${fmt(out, side === "buy" ? 18 : pairDec, 4)} ${side === "buy" ? symbol : pairSym}`} />
+          <Row label="fee" value={`${fmt(fee, pairDec, 6)} ${pairSym}`} />
+          <Row label={`min out (${slippage}% slip)`} value={fmt(minOut, side === "buy" ? 18 : pairDec, 4)} />
+        </div>
+      )}
 
       <div className="mt-3 flex items-center gap-2 text-xs dim">
         slippage
@@ -174,13 +226,14 @@ export function TradeBox({ token, curve, pairToken, symbol, phase }: {
         ))}
       </div>
 
-      <button className="btn mt-4 w-full" disabled={!address || amountWei === 0n || tooMuch || isPending || receipt.isLoading}
+      <button className="btn mt-4 w-full" disabled={!address || amountWei === 0n || tooMuch || isPending || isRouting || receipt.isLoading}
         onClick={submit}>
         {!address ? "connect a wallet"
           : tooMuch ? "not enough balance"
           : needsApproval ? `approve ${side === "buy" ? pairSym : symbol}`
+          : isRouting ? "finding best route"
           : isPending || receipt.isLoading ? "waiting"
-          : side === "buy" ? `buy ${symbol}` : `sell ${symbol}`}
+          : side === "buy" ? (oneClick ? `swap + buy ${symbol}` : `buy ${symbol}`) : `sell ${symbol}`}
       </button>
 
       {error && <p className="mt-2 break-words text-xs text-[var(--color-red)]">{error}</p>}

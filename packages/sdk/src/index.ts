@@ -9,5 +9,5 @@ export * from "./quote.js";
 export * from "./safe.js";
 export * from "./sim.js";
 export { hoodPortalAbi, hoodLaunchHookAbi, hoodRevenueSplitterAbi, hoodLockerAbi, hoodBuybackModuleAbi, hoodLaunchTokenAbi, hoodDirectDeployerAbi } from "./abi.generated.js";
-export { hoodFactoryAbi, hoodCurveAbi, hoodTokenAbi, hoodFeeRouterAbi, hoodStakingAbi, hoodTokenLockAbi, uniswapV4GraduatorAbi, hoodBridgeFactoryAbi, hoodOFTAdapterAbi } from "./abi.generated.js";
+export { hoodFactoryAbi, hoodCurveAbi, hoodCurveRouterAbi, hoodTokenAbi, hoodFeeRouterAbi, hoodStakingAbi, hoodTokenLockAbi, uniswapV4GraduatorAbi, hoodBridgeFactoryAbi, hoodOFTAdapterAbi } from "./abi.generated.js";
 export { hoodSeasonDropAbi } from "./abi.generated.js";

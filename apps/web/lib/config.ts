@@ -61,6 +61,7 @@ export const addresses: HoodAddresses = {
   feeRouter: configured(process.env.NEXT_PUBLIC_FEE_ROUTER) ?? zeroAddress,
   staking: configured(process.env.NEXT_PUBLIC_STAKING) ?? zeroAddress,
   graduator: configured(process.env.NEXT_PUBLIC_GRADUATOR) ?? zeroAddress,
+  curveRouter: configured(process.env.NEXT_PUBLIC_CURVE_ROUTER),
   bridgeFactory: configured(process.env.NEXT_PUBLIC_BRIDGE_FACTORY),
 };
 

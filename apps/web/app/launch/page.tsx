@@ -7,7 +7,7 @@ import { encodeFunctionData, erc20Abi, isAddress, parseUnits, zeroAddress, type 
 import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { hoodFactoryAbi, hoodStakingAbi, BPS, FEE_LEG_LABEL, LOCK_TIERS } from "@hood/sdk";
 import { addresses } from "@/lib/config";
-import { api, type PairRow } from "@/lib/api";
+import { api, type PairRow, type ResolvedQuote } from "@/lib/api";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
@@ -20,6 +20,12 @@ interface CurvePreset {
   pairToken: `0x${string}`;
   totalSupply: bigint; curveSupplyBps: number; startCap: bigint; graduationCap: bigint;
   liquidityBps: number; protocolFeeBps: number; creatorFeeBps: number; enabled: boolean;
+}
+
+const CUSTOM_SUPPLY = 1_000_000_000n * 10n ** 18n;
+
+function units(value: string, decimals: number): bigint {
+  try { return parseUnits(value || "0", decimals); } catch { return 0n; }
 }
 
 /// The four places the creator leg can go, and what each one means to a buyer reading the page. A
@@ -94,6 +100,8 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const [form, setForm] = useState({
     name: "", symbol: "", description: "", image: "", website: "", twitter: "", telegram: "",
     configId: 0, pairToken: zeroAddress as Address,
+    customPair: false, customAddress: "", customStart: "1000000", customGraduation: "10000000",
+    acceptThinLiquidity: false,
     firstBuy: "",
     // Percentages here, basis points on chain: a slider a person drags should be in the unit they
     // think in, and the conversion belongs at the edge, once.
@@ -136,6 +144,20 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     staleTime: 60_000,
   });
   const pairs = pairData?.pairs ?? [];
+  const customAddressValid = isAddress(form.customAddress) && form.customAddress.toLowerCase() !== zeroAddress;
+  const { data: customQuote, error: customQuoteError, isFetching: customQuoteLoading } = useQuery({
+    queryKey: ["custom-quote", form.customAddress.toLowerCase()],
+    queryFn: () => api<ResolvedQuote>(`/pairs/resolve/${form.customAddress}`),
+    enabled: form.customPair && customAddressValid,
+    staleTime: 60_000,
+    retry: false,
+  });
+  useEffect(() => {
+    if (!form.customPair || !customQuote) return;
+    setForm((f) => f.pairToken.toLowerCase() === customQuote.address.toLowerCase()
+      ? f
+      : { ...f, pairToken: customQuote.address as Address, firstBuy: "" });
+  }, [form.customPair, customQuote]);
 
   const { data: launchFee } = useReadContract({
     address: addresses.factory, abi: hoodFactoryAbi, functionName: "launchFee",
@@ -146,7 +168,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   });
   const { data: econ } = useReadContract({
     address: addresses.factory, abi: hoodFactoryAbi, functionName: "previewLaunchEconomics",
-    args: [BigInt(form.configId), form.pairToken], query: { refetchInterval: 15_000 },
+    args: [BigInt(form.configId), form.pairToken], query: { enabled: !form.customPair, refetchInterval: 15_000 },
   });
 
   useEffect(() => {
@@ -158,10 +180,25 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
 
   const isNative = form.pairToken === zeroAddress;
   const chosenPair = pairs.find((p) => p.address.toLowerCase() === form.pairToken.toLowerCase());
-  const pairDec = chosenPair?.decimals ?? pairDecimals(form.pairToken);
-  const pair = chosenPair?.symbol ?? pairSymbol(form.pairToken);
-  const pairUsd = chosenPair?.usd ?? 0;
-  const firstBuyWei = form.firstBuy ? parseUnits(form.firstBuy, pairDec) : 0n;
+  const pairDec = form.customPair ? (customQuote?.decimals ?? 18) : (chosenPair?.decimals ?? pairDecimals(form.pairToken));
+  const pair = form.customPair ? (customQuote?.symbol ?? "custom token") : (chosenPair?.symbol ?? pairSymbol(form.pairToken));
+  const pairUsd = form.customPair ? (customQuote?.usd ?? 0) : (chosenPair?.usd ?? 0);
+  const firstBuyWei = units(form.firstBuy, pairDec);
+  const customStartCap = units(form.customStart, pairDec);
+  const customGraduationCap = units(form.customGraduation, pairDec);
+  const customConfig = {
+    pairToken: form.pairToken,
+    totalSupply: CUSTOM_SUPPLY,
+    curveSupplyBps: 8000,
+    startCap: customStartCap,
+    graduationCap: customGraduationCap,
+    liquidityBps: 9000,
+    protocolFeeBps: 30,
+    creatorFeeBps: 70,
+    poolFee: 3000,
+    tickSpacing: 60,
+    enabled: true,
+  } as const;
   // Only the chain's own currency travels with the transaction. Everything else is pulled from the
   // wallet, which is why an ERC-20 first buy needs an approval before the launch, below.
   const value = (launchFee as bigint | undefined ?? 0n) + (isNative ? firstBuyWei : 0n);
@@ -196,6 +233,12 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : !form.name ? "Step 2 needs a name."
     : !form.symbol ? "Step 2 needs a ticker."
     : symbolFree === false ? "That ticker is locked by a launch that is trading right now."
+    : form.customPair && !customAddressValid ? "Step 4 needs a valid Robinhood Chain ERC-20 address."
+    : form.customPair && !customQuote ? (customQuoteLoading ? "Reading the custom token from Robinhood Chain." : "That custom token could not be verified.")
+    : form.customPair && customQuote && !customQuote.compatible ? "This token has more than 18 decimals and the curve refuses it."
+    : form.customPair && customGraduationCap <= customStartCap ? "The custom graduation valuation must be above its opening valuation."
+    : form.customPair && customStartCap === 0n ? "The custom opening valuation must be above zero."
+    : form.customPair && customQuote && !customQuote.liquiditySafe && !form.acceptThinLiquidity ? "Confirm that you understand this quote token has thin or unverified liquidity."
     : form.stakers > 0 && !canPayStakers ? "Step 3 cannot pay stakers yet: the pad's own coin has not been named on chain."
     : splitTotal !== 100 ? `Step 3 has to add up to 100%. It is at ${splitTotal}%.`
     : !recipientOk ? "Step 3 needs a valid address for the fee, or none at all."
@@ -213,37 +256,48 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   async function launch() {
     if (!address) return;
     const salt = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32))).map((b) => b.toString(16).padStart(2, "0")).join("")}` as `0x${string}`;
+    const launchData = form.customPair
+      ? encodeFunctionData({ abi: hoodFactoryAbi, functionName: "launchCustom", args: [launchArgs(salt), customConfig] })
+      : encodeFunctionData({ abi: hoodFactoryAbi, functionName: "launch", args: [launchArgs(salt)] });
     if (needsApproval) {
       // The wallet has to let the factory take the first buy. A Safe does both in one signature
       // round; anything else approves now and launches on the next press.
       const approve = { to: form.pairToken, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [addresses.factory, firstBuyWei] }) };
       if (canBatch) {
-        const id = await batch([approve, { to: addresses.factory, data: encodeFunctionData({ abi: hoodFactoryAbi, functionName: "launch", args: [launchArgs(salt)] }), value }]);
+        const id = await batch([approve, { to: addresses.factory, data: launchData, value }]);
         if (id) return setHash(id);
       }
       return setHash(await writeContractAsync({
         address: form.pairToken, abi: erc20Abi, functionName: "approve", args: [addresses.factory, firstBuyWei],
       }));
     }
-    setHash(await writeContractAsync({
-      address: addresses.factory, abi: hoodFactoryAbi, functionName: "launch",
-      args: [launchArgs(salt)],
-      value,
-    }));
+    if (form.customPair) {
+      setHash(await writeContractAsync({
+        address: addresses.factory, abi: hoodFactoryAbi, functionName: "launchCustom",
+        args: [launchArgs(salt), customConfig], value,
+      }));
+    } else {
+      setHash(await writeContractAsync({
+        address: addresses.factory, abi: hoodFactoryAbi, functionName: "launch",
+        args: [launchArgs(salt)], value,
+      }));
+    }
   }
 
   function launchArgs(salt: `0x${string}`) {
     return {
       name: form.name, symbol: form.symbol, image: form.image, description: form.description,
       website: form.website, twitter: form.twitter, telegram: form.telegram,
-      pairToken: form.pairToken, configId: BigInt(form.configId),
+      pairToken: form.pairToken, configId: BigInt(form.customPair ? 0 : form.configId),
       feeSplit: {
         stakersBps: form.stakers * 100, buybackBps: form.buyback * 100,
         liquidityBps: form.liquidity * 100, creatorBps: form.creator * 100,
       },
       creatorFeeRecipient: (recipient || address ) as Address,
       firstBuy: firstBuyWei, firstBuyLock: BigInt(form.firstBuyLock),
-      salt, econ: (econ as `0x${string}`) ?? `0x${"0".repeat(64)}`,
+      salt, econ: form.customPair
+        ? (`0x${"0".repeat(64)}` as `0x${string}`)
+        : ((econ as `0x${string}`) ?? (`0x${"0".repeat(64)}` as `0x${string}`)),
     } as const;
   }
 
@@ -317,40 +371,75 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           </Step>
 
           <Step n={4} title="What it trades against, and the curve" purpose="Every trade is priced in this, the raise is held in it, and the fee reaches you in it. Then how much supply trades on the curve, and whether you want the first buy in the same transaction." done>
-            <PairChooser pairs={pairs} value={form.pairToken}
-              onPick={(address) => { set("pairToken", address); set("firstBuy", ""); set("configId", 0); }} />
-
-            <div className="grid gap-2">
-              {((configs ?? []) as { result?: CurvePreset }[]).map((c, i) => {
-                const cfg = c.result;
-                if (!cfg?.enabled) return null;
-                if (!presetFits(cfg)) return null;
-                const dec = pairDec;
-                return (
-                  <Choice key={i} selected={form.configId === i} onClick={() => set("configId", i)}
-                    title={`Starts at ${fmt(cfg.startCap, dec, 3)} ${pair}, graduates at ${fmt(cfg.graduationCap, dec, 3)} ${pair}`}
-                    body={`${cfg.curveSupplyBps / 100}% of the supply trades on the curve. The rest goes into the pool at graduation, locked.${
-                      pairUsd > 0 ? ` About $${Math.round((Number(cfg.startCap) / 10 ** dec) * pairUsd).toLocaleString()} at the open, $${Math.round((Number(cfg.graduationCap) / 10 ** dec) * pairUsd).toLocaleString()} at graduation.` : ""
-                    }`}
-                    meta={`${(cfg.protocolFeeBps + cfg.creatorFeeBps) / 100}% per trade`} />
-                );
-              })}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Choice selected={!form.customPair} onClick={() => {
+                set("customPair", false); set("pairToken", (pairs[0]?.address as Address | undefined) ?? zeroAddress); set("firstBuy", "");
+              }} title="Curated pairs" body="ETH, USDG and the liquid assets already reviewed by the pad." meta="standard" />
+              <Choice selected={form.customPair} onClick={() => { set("customPair", true); set("firstBuy", ""); }}
+                title="Paste any coin" body="Launch against any compatible Robinhood Chain ERC-20, including an existing meme coin." meta="meme-to-meme" />
             </div>
-            {presetsForPair === 0 && (
-              <p className="text-xs text-[var(--color-red)]">
-                No preset is denominated in {pair} yet. Pick another pair, or ask for one: a preset
-                is fixed forever once it exists, so they are added rather than edited.
-              </p>
-            )}
-            {chosen && (
+
+            {!form.customPair ? <>
+              <PairChooser pairs={pairs} value={form.pairToken}
+                onPick={(address: Address) => { set("pairToken", address); set("firstBuy", ""); set("configId", 0); }} />
+              <div className="grid gap-2">
+                {((configs ?? []) as { result?: CurvePreset }[]).map((c, i) => {
+                  const cfg = c.result;
+                  if (!cfg?.enabled || !presetFits(cfg)) return null;
+                  return (
+                    <Choice key={i} selected={form.configId === i} onClick={() => set("configId", i)}
+                      title={`Starts at ${fmt(cfg.startCap, pairDec, 3)} ${pair}, graduates at ${fmt(cfg.graduationCap, pairDec, 3)} ${pair}`}
+                      body={`${cfg.curveSupplyBps / 100}% of the supply trades on the curve. The rest goes into the pool at graduation, locked.${
+                        pairUsd > 0 ? ` About $${Math.round((Number(cfg.startCap) / 10 ** pairDec) * pairUsd).toLocaleString()} at the open, $${Math.round((Number(cfg.graduationCap) / 10 ** pairDec) * pairUsd).toLocaleString()} at graduation.` : ""
+                      }`}
+                      meta={`${(cfg.protocolFeeBps + cfg.creatorFeeBps) / 100}% per trade`} />
+                  );
+                })}
+              </div>
+              {presetsForPair === 0 && <p className="text-xs text-[var(--color-red)]">No preset is denominated in {pair} yet. Pick another pair.</p>}
+            </> : <>
+              <Field label="Robinhood Chain token address"
+                help="Paste the parent coin's ERC-20 address. Metadata and available USDG liquidity are read directly from chain."
+                error={form.customAddress && (!customAddressValid || customQuoteError) ? "This address could not be resolved as a compatible ERC-20." : undefined}>
+                <input className="input mono" value={form.customAddress}
+                  onChange={(e) => { set("customAddress", e.target.value.trim()); set("acceptThinLiquidity", false); }} placeholder="0x..." />
+              </Field>
+              {customQuoteLoading && <p className="text-xs dim">Reading token metadata and checking its USDG pools…</p>}
+              {customQuote && <div className="panel p-4 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <strong>{customQuote.name} · ${customQuote.symbol}</strong>
+                  <span className={customQuote.liquiditySafe ? "text-[var(--color-lime)]" : "text-[var(--color-red)]"}>
+                    {customQuote.liquiditySafe ? `$${Math.round(customQuote.depthUsd).toLocaleString()} verified depth` : "thin / unverified liquidity"}
+                  </span>
+                </div>
+                <p className="mt-2 dim">{customQuote.decimals} decimals · ERC-20 verified{customQuote.pool ? ` · Uniswap v3 ${customQuote.pool.fee / 10_000}% pool found` : ""}</p>
+                {customQuote.warnings.map((warning) => <p key={warning} className="mt-1 dim">⚠ {warning}</p>)}
+              </div>}
+              {customQuote && !customQuote.liquiditySafe && <label className="flex items-start gap-2 text-xs dim">
+                <input type="checkbox" checked={form.acceptThinLiquidity} onChange={(e) => set("acceptThinLiquidity", e.target.checked)} />
+                <span>I understand buyers may have difficulty acquiring this quote token. Launching remains permissionless.</span>
+              </label>}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={`Opens at (${pair})`} help="Fully diluted valuation in whole units of the parent coin.">
+                  <input className="input mono" inputMode="decimal" value={form.customStart}
+                    onChange={(e) => set("customStart", e.target.value.replace(/[^0-9.]/g, ""))} />
+                </Field>
+                <Field label={`Graduates at (${pair})`} help="The curve creates the permanently locked token/parent pool here.">
+                  <input className="input mono" inputMode="decimal" value={form.customGraduation}
+                    onChange={(e) => set("customGraduation", e.target.value.replace(/[^0-9.]/g, ""))} />
+                </Field>
+              </div>
+            </>}
+
+            {(form.customPair ? Boolean(customQuote && customGraduationCap > customStartCap) : Boolean(chosen)) && (
               <CurveSim
-                p0={(chosen.startCap * 10n ** 18n) / chosen.totalSupply}
-                p1={(chosen.graduationCap * 10n ** 18n) / chosen.totalSupply}
-                curveSupply={(chosen.totalSupply * BigInt(chosen.curveSupplyBps)) / 10_000n}
-                totalSupply={chosen.totalSupply}
-                dec={isNative ? 18 : 6}
+                p0={((form.customPair ? customStartCap : chosen!.startCap) * 10n ** 18n) / (form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply)}
+                p1={((form.customPair ? customGraduationCap : chosen!.graduationCap) * 10n ** 18n) / (form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply)}
+                curveSupply={((form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply) * BigInt(form.customPair ? 8000 : chosen!.curveSupplyBps)) / 10_000n}
+                totalSupply={form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply}
+                dec={pairDec}
                 sym={pair}
-                feeBps={chosen.protocolFeeBps + chosen.creatorFeeBps}
+                feeBps={form.customPair ? 100 : chosen!.protocolFeeBps + chosen!.creatorFeeBps}
                 ticker={form.symbol}
               />
             )}

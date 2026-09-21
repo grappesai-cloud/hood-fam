@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { createPublicClient, http, parseAbiItem, zeroAddress, type Address } from "viem";
 import { robinhood } from "@hood/sdk";
+import { resolveQuote } from "./quote-resolver.js";
 
 /// What a pair amount is worth in dollars.
 ///
@@ -151,7 +152,9 @@ const poolPrices = new Map<string, { price: number; at: number }>();
 /// What one whole unit of a pair asset is worth in dollars.
 export async function pairUsdPrice(pairToken: string): Promise<number> {
   const asset = PAIR_ASSETS[pairToken.toLowerCase()];
-  if (!asset) return 0;
+  if (!asset) {
+    try { return (await resolveQuote(pairToken)).usd; } catch { return 0; }
+  }
   if (asset.isDollar) return 1;
   if (!asset.usdPool) return ethUsdPrice();
 
@@ -182,6 +185,11 @@ export async function pairUsdPrice(pairToken: string): Promise<number> {
 export async function usdValue(pairToken: string, amount: bigint): Promise<number> {
   const key = pairToken.toLowerCase();
   const asset = PAIR_ASSETS[key];
-  if (!asset) return 0;
-  return (Number(amount) / 10 ** asset.decimals) * (await pairUsdPrice(key));
+  if (asset) return (Number(amount) / 10 ** asset.decimals) * (await pairUsdPrice(key));
+  try {
+    const resolved = await resolveQuote(key);
+    return (Number(amount) / 10 ** resolved.decimals) * resolved.usd;
+  } catch {
+    return 0;
+  }
 }

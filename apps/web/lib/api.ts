@@ -3,8 +3,20 @@ import { API } from "./config";
 /// Every list, chart and holder count comes from our own indexer, never from a third party.
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, { cache: "no-store", ...init });
-  if (!res.ok) throw new Error(`${path}: ${res.status}`);
-  return (await res.json()) as T;
+  const body = await res.json().catch(() => null) as ({ error?: unknown } | null);
+  if (!res.ok) {
+    const detail = typeof body?.error === "string" ? `: ${body.error}` : "";
+    throw new Error(`${path}: ${res.status}${detail}`);
+  }
+  return body as T;
+}
+
+export interface NativeQuoteRoute {
+  routerCalldata: `0x${string}`;
+  value: string;
+  quoteOut: string;
+  minQuoteOut: string;
+  requestId: string;
 }
 
 /// What this pad takes as a pair, as the API reports it: the factory's allow list, each asset's
@@ -18,6 +30,21 @@ export interface PairRow {
   allowed: boolean;
   lockThreshold: string;
   usd: number;
+}
+
+export interface ResolvedQuote {
+  address: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  totalSupply: string;
+  compatible: boolean;
+  hasLiquidity: boolean;
+  liquiditySafe: boolean;
+  depthUsd: number;
+  usd: number;
+  pool: null | { kind: "v3"; address: string; fee: number };
+  warnings: string[];
 }
 
 export interface TokenRow {

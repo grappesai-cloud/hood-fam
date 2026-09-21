@@ -5,7 +5,7 @@ export function Wordmark({ className }: { className?: string }) {
     <span className={`ox-wordmark ${className ?? ""}`.trim()}>
       <span className="ox-wordmark-mark" aria-hidden="true">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/ox/ox-green-hero.png" alt="" />
+        <img src="/ox/ox-glossy-1024.png" alt="" />
       </span>
       <span className="ox-wordmark-name">ox<span>.family</span></span>
     </span>

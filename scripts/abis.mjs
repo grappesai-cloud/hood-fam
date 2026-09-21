@@ -8,6 +8,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const wanted = [
   "HoodFactory",
   "HoodCurve",
+  "HoodCurveRouter",
   "HoodToken",
   "HoodFeeRouter",
   "HoodStaking",

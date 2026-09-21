@@ -88,7 +88,7 @@ export function Explore() {
         </div>
         <div className="ox-hero-visual" aria-label="ox.family glass logo">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/ox/ox-green-hero.png" alt="Green glass OX logo" />
+          <img src="/ox/ox-glossy.svg" alt="Green glossy OX logo" />
           <div className="ox-hero-orbit ox-orbit-one" />
           <div className="ox-hero-orbit ox-orbit-two" />
         </div>

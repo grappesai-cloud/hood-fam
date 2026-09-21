@@ -1,6 +1,7 @@
 import {
   type Address,
   type Hash,
+  type Hex,
   type PublicClient,
   type WalletClient,
   keccak256,
@@ -12,6 +13,7 @@ import {
 import {
   hoodFactoryAbi,
   hoodCurveAbi,
+  hoodCurveRouterAbi,
   hoodTokenAbi,
   hoodFeeRouterAbi,
   hoodStakingAbi,
@@ -287,6 +289,67 @@ export function createHoodClient({ publicClient, walletClient, addresses }: Hood
     return { hash, salt, econ, launchFee, value };
   }
 
+  /// Permissionless custom quote launch. The curve's caps are expressed in the quote token's own
+  /// smallest units; the factory reads and validates its decimals and records this config forever.
+  async function launchCustom(input: LaunchParamsInput, config: CurveConfig) {
+    const p = launchParamsSchema.parse(input);
+    const pairToken = p.pairToken as Address;
+    if (pairToken.toLowerCase() === zeroAddress) throw new Error("custom quote must be an ERC-20");
+    if (config.pairToken.toLowerCase() !== pairToken.toLowerCase()) throw new Error("config quote does not match launch quote");
+
+    const firstBuy = BigInt(p.firstBuy as string | bigint);
+    const launchFee = (await publicClient.readContract({
+      address: addresses.factory, abi: hoodFactoryAbi, functionName: "launchFee",
+    })) as bigint;
+    if (firstBuy > 0n) await ensureAllowance(pairToken, addresses.factory, firstBuy);
+    const salt = p.salt ?? keccak256(toHex(`${p.symbol}:${Date.now()}:${Math.random()}`));
+    const launchParams = {
+      name: p.name, symbol: p.symbol, image: p.image, description: p.description,
+      website: p.website, twitter: p.twitter, telegram: p.telegram,
+      pairToken, configId: 0n, feeSplit: p.feeSplit,
+      creatorFeeRecipient: (p.creatorFeeRecipient ?? account().address) as Address,
+      firstBuy, firstBuyLock: BigInt(p.firstBuyLock ?? 0), salt,
+      econ: `0x${"0".repeat(64)}` as Hex,
+    };
+    const hash = await write(addresses.factory, hoodFactoryAbi, "launchCustom", [launchParams, { ...config, enabled: true }], launchFee);
+    return { hash, salt, launchFee, value: launchFee };
+  }
+
+  /// Executes a one- or multi-hop UniversalRouter route with native ETH, then spends the exact quote
+  /// output on the selected curve. Both legs revert together when either slippage floor is missed.
+  async function buyWithNativeRoute(params: {
+    curve: Address;
+    nativeIn: bigint;
+    minQuoteOut: bigint;
+    minTokensOut: bigint;
+    commands: Hex;
+    inputs: Hex[];
+    deadline: bigint;
+    to?: Address;
+  }) {
+    if (!addresses.curveRouter) throw new Error("HOOD_CURVE_ROUTER is not configured");
+    return write(addresses.curveRouter, hoodCurveRouterAbi, "buyWithNative", [
+      params.curve, params.minQuoteOut, params.minTokensOut, params.to ?? account().address,
+      params.commands, params.inputs, params.deadline,
+    ], params.nativeIn);
+  }
+
+  /// Executes complete UniversalRouter calldata returned by a route builder, then buys the curve.
+  async function buyWithNativeCalldata(params: {
+    curve: Address;
+    nativeIn: bigint;
+    minQuoteOut: bigint;
+    minTokensOut: bigint;
+    routerCalldata: Hex;
+    to?: Address;
+  }) {
+    if (!addresses.curveRouter) throw new Error("HOOD_CURVE_ROUTER is not configured");
+    return write(addresses.curveRouter, hoodCurveRouterAbi, "buyWithNativeCalldata", [
+      params.curve, params.minQuoteOut, params.minTokensOut, params.to ?? account().address,
+      params.routerCalldata,
+    ], params.nativeIn);
+  }
+
   /// Reads the token and curve address out of the launch receipt.
   async function launchResult(hash: Hash) {
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
@@ -448,7 +511,7 @@ export function createHoodClient({ publicClient, walletClient, addresses }: Hood
     configCount, getConfig, listConfigs, getLaunch, getCurveState, quoteBuy, quoteBuyExactOut, quoteSell,
     previewLaunchEconomics, isSymbolAvailable, creatorFees, tokenMeta, balanceOf, getStakePosition, weightFor, houseToken,
     // writes
-    launch, launchResult, buy, buyExactOut, sell, donate, finalize, claimProtocol, protocolClaimable, quoteCurveBuy,
+    launch, launchCustom, launchResult, buy, buyExactOut, buyWithNativeRoute, buyWithNativeCalldata, sell, donate, finalize, claimProtocol, protocolClaimable, quoteCurveBuy,
     stake, claim, unstake, demote, flush, flushBuyback, collect, transferCreatorFeeRecipient, ensureAllowance,
     // omnichain
     adapterOf, deployAdapter, bridgeQuote, bridgeSend, supportedRoutes,

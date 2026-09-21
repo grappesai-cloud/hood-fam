@@ -16,6 +16,8 @@ const GZIP_MIN_BYTES = 1024;
 import { pool, currentSeason } from "./db.js";
 import { pairAsset, robinhood } from "@hood/sdk";
 import { PAIR_ASSETS as PRICEABLE, pairUsdPrice } from "./price.js";
+import { resolveQuote } from "./quote-resolver.js";
+import { nativeQuoteRoute } from "./uniswap-route.js";
 
 /// The two views the pair list asks the factory for. A client of its own rather than the
 /// indexer's, because this one answers a request and must not wait behind a block scan.
@@ -459,6 +461,40 @@ export async function buildServer() {
   /// Resolves a pasted ERC-20 directly from Robinhood Chain and checks its deepest USDG v3 pool.
   /// This endpoint never mutates the allow list: launchCustom is permissionless and the contract is
   /// still the final authority on decimals and transfer behaviour.
+  app.get("/pairs/resolve/:address", async (req, reply) => {
+    const { address } = req.params as { address: string };
+    if (!isAddress(address) || address.toLowerCase() === zeroAddress) {
+      return reply.code(400).send({ error: "not an ERC-20 address" });
+    }
+    try {
+      return await resolveQuote(address);
+    } catch (e) {
+      return reply.code(422).send({ error: e instanceof Error ? e.message : "could not resolve token" });
+    }
+  });
+
+  const RouteBody = z.object({
+    tokenOut: z.string().refine(isAddress, "not an ERC-20 address"),
+    amount: z.string().regex(/^[1-9][0-9]*$/, "amount must be base units").max(80),
+    slippageTolerance: z.number().min(0.1).max(10).default(1),
+  });
+
+  /// Builds the DEX half of ETH -> custom quote -> launch token. Only opaque UniversalRouter
+  /// calldata leaves this API; the browser never sees the routing key, and HoodCurveRouter still
+  /// verifies the quote-token balance it actually received before buying from the curve.
+  app.post("/pairs/route", {
+    config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+  }, async (req, reply) => {
+    const parsed = RouteBody.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "bad route request" });
+    try {
+      return await nativeQuoteRoute(parsed.data.tokenOut as Address, parsed.data.amount, parsed.data.slippageTolerance);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "could not build route";
+      const unavailable = message.includes("not configured");
+      return reply.code(unavailable ? 503 : 502).send({ error: message });
+    }
+  });
 
   /// What a launch may trade against, and therefore what its creator can be paid in.
   ///
@@ -466,69 +502,43 @@ export async function buildServer() {
   /// constant: an asset the owner adds is offered by the wizard the moment it is added, and one
   /// they withdraw stops being offered without a deploy. The dollar price comes with it, because
   /// a creator picking a share as their pair is picking a number they think in dollars.
-  /// The last list the chain answered with. A menu that shrinks because a node was busy for a
-  /// second is worse than a menu a minute out of date: a creator would simply not see the asset
-  /// they came for, and nothing would look broken.
-  interface PairRow {
-    address: Address; symbol: string; decimals: number; share: boolean;
-    allowed: boolean; lockThreshold: string; usd: number;
-  }
-  let lastPairs: PairRow[] | null = null;
-
   app.get("/pairs", async () => cached("pairs", 60_000, async () => {
     const factory = process.env.HOOD_FACTORY as Address | undefined;
+    // Everything the indexer can price, which is the built in table plus whatever the discovery
+    // found and the owner allowed. The factory still decides which of them may actually be used.
     const known = Object.entries(PRICEABLE).map(([address, a]) => ({
       address: address as Address,
       symbol: a.symbol,
       decimals: a.decimals,
       share: Boolean(pairAsset(address)?.share),
     }));
-
-    // A handful of reads, not four hundred. Asking the factory asset by asset meant a flaky moment
-    // dropped assets out of the menu one at a time, each one looking exactly like a deliberate
-    // refusal. All of them in ONE multicall is the other failure: the node refuses a call that
-    // large and the menu comes back empty. So: batches, each one able to fail on its own.
-    const calls = known.flatMap((asset) => [
-      { address: factory!, abi: pairViewAbi, functionName: "pairAllowed", args: [asset.address] },
-      { address: factory!, abi: pairViewAbi, functionName: "lockThreshold", args: [asset.address] },
-    ]);
-    const allowed: { status: string; result?: unknown }[] = [];
-    if (factory) {
-      const BATCH = 60;
-      for (let i = 0; i < calls.length; i += BATCH) {
-        const chunk = calls.slice(i, i + BATCH);
+    const rows = await Promise.all(known.map(async (asset) => {
+      let allowed = false;
+      let lockThreshold = "0";
+      if (factory) {
         try {
-          const read = await chain.multicall({ allowFailure: true, contracts: chunk as never }) as unknown as { status: string; result?: unknown }[];
-          allowed.push(...read);
+          const [ok, lock] = await Promise.all([
+            chain.readContract({ address: factory, abi: pairViewAbi, functionName: "pairAllowed", args: [asset.address] }),
+            chain.readContract({ address: factory, abi: pairViewAbi, functionName: "lockThreshold", args: [asset.address] }),
+          ]);
+          allowed = ok as boolean;
+          lockThreshold = (lock as bigint).toString();
         } catch {
-          // This batch is unreadable; the rows it covers keep whatever was last known about them.
-          allowed.push(...chunk.map(() => ({ status: "failure" as const })));
+          // A factory that cannot be read is not a reason to serve a wrong list: nothing is
+          // offered until it answers again.
         }
       }
-    }
-
-    const rows = await Promise.all(known.map(async (asset, i) => {
-      const ok = allowed[i * 2];
-      const lock = allowed[i * 2 + 1];
       return {
-        ...asset,
-        allowed: ok?.status === "success" ? Boolean(ok.result) : false,
-        readable: ok?.status === "success",
-        lockThreshold: lock?.status === "success" ? String(lock.result) : "0",
+        address: asset.address,
+        symbol: asset.symbol,
+        decimals: asset.decimals,
+        share: asset.share,
+        allowed,
+        lockThreshold,
         usd: await pairUsdPrice(asset.address),
       };
     }));
-
-    // A read that failed is not a refusal, so a pair the chain would not answer for keeps whatever
-    // the last good answer said about it.
-    const previous = new Map((lastPairs ?? []).map((p) => [p.address, p]));
-    const pairs: PairRow[] = rows.map(({ readable, ...rest }) => {
-      if (readable) return rest;
-      const remembered = previous.get(rest.address);
-      return remembered ? { ...remembered, usd: rest.usd } : rest;
-    }).filter((r) => r.allowed);
-    if (rows.every((r) => r.readable)) lastPairs = pairs;
-    return { pairs };
+    return { pairs: rows.filter((p) => p.allowed) };
   }));
 
   /// Our own contracts trade too (a buyback, a harvest, the portal's first buy on a creator's

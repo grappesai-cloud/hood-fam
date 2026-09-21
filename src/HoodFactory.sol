@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -111,6 +112,7 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     event TreasurySet(address treasury);
     event LaunchFeeSet(uint256 fee);
     event PairAllowed(address pairToken, bool allowed, uint256 lockThreshold);
+    event CustomPairLaunched(address indexed pairToken, uint8 decimals, uint256 indexed configId);
 
     error ConfigDisabled();
     error PairNotAllowed();
@@ -129,6 +131,8 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     error ModulesAlreadySet();
     error BadConfig();
     error SymbolTooLong();
+    error InvalidPairToken();
+    error UnsupportedPairDecimals();
     error NotPortal();
     error AlreadyRegistered();
 
@@ -208,14 +212,9 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     /// @notice Adds a launch preset. Presets are append-only: an existing one is never edited, so
     ///         nothing can change under a token that already launched on it.
     function addConfig(CurveConfig calldata c) external onlyOwner returns (uint256 configId) {
-        if (c.totalSupply == 0 || c.curveSupplyBps == 0 || c.curveSupplyBps >= BPS) revert BadConfig();
+        _validateConfig(c);
         // A preset for an asset this pad does not take is a preset nobody can ever launch on.
         if (!pairAllowed[c.pairToken]) revert PairNotAllowed();
-        if (c.graduationCap <= c.startCap || c.startCap == 0) revert BadConfig();
-        // The pool has to get the lion's share of the raise, or graduation is an exit.
-        if (c.liquidityBps < 8000 || c.liquidityBps > BPS) revert BadConfig();
-        if (uint256(c.protocolFeeBps) + c.creatorFeeBps > 500) revert BadFee();
-        if (c.tickSpacing <= 0) revert BadConfig();
         configId = configCount++;
         _configs[configId] = c;
         _configs[configId].enabled = true;
@@ -299,6 +298,51 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     {
         CurveConfig memory c = _configs[p.configId];
         if (!c.enabled) revert ConfigDisabled();
+        return _launch(p, c, p.configId);
+    }
+
+    /// @notice Permissionless meme-to-meme launch. The creator supplies the curve in the custom
+    ///         quote's smallest units; no owner allow-list transaction is required first.
+    /// @dev The quote still has to be a conventional ERC-20 with at most eighteen decimals. Tokens
+    ///      that tax transfers are rejected by PairTransfer on the first trade instead of corrupting
+    ///      the reserve. Every custom curve is persisted as its own immutable preset so indexers and
+    ///      buyers can reconstruct exactly what the creator signed.
+    function launchCustom(LaunchParams calldata p, CurveConfig calldata custom)
+        external
+        payable
+        nonReentrant
+        returns (address token, address curve, uint256 bought)
+    {
+        if (p.pairToken == address(0) || p.pairToken.code.length == 0) revert InvalidPairToken();
+        if (custom.pairToken != p.pairToken) revert PairMismatch();
+
+        uint8 decimals;
+        try IERC20Metadata(p.pairToken).decimals() returns (uint8 d) {
+            decimals = d;
+        } catch {
+            revert InvalidPairToken();
+        }
+        if (decimals > 18) revert UnsupportedPairDecimals();
+
+        CurveConfig memory c = custom;
+        c.enabled = true;
+        _validateConfig(c);
+
+        uint256 configId = configCount++;
+        _configs[configId] = c;
+        if (!pairAllowed[p.pairToken]) {
+            pairAllowed[p.pairToken] = true;
+            emit PairAllowed(p.pairToken, true, 0);
+        }
+        emit ConfigAdded(configId);
+        emit CustomPairLaunched(p.pairToken, decimals, configId);
+        return _launch(p, c, configId);
+    }
+
+    function _launch(LaunchParams calldata p, CurveConfig memory c, uint256 configId)
+        internal
+        returns (address token, address curve, uint256 bought)
+    {
         uint256 launchFee_ = launchFee;
         if (msg.value < launchFee_) revert BadFee();
         if (!pairAllowed[p.pairToken]) revert PairNotAllowed();
@@ -306,11 +350,11 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         // would open at a valuation nobody chose. The contract refuses rather than leaving it to
         // whichever app the creator happened to use.
         if (p.pairToken != c.pairToken) revert PairMismatch();
-        if (p.econ != bytes32(0) && p.econ != previewLaunchEconomics(p.configId, p.pairToken)) revert BadEconomics();
+        if (p.econ != bytes32(0) && p.econ != previewLaunchEconomics(configId, p.pairToken)) revert BadEconomics();
         // The four legs have to be the whole of the creator leg. All four at zero fails the same
         // check, because money booked with nowhere to go could never leave the router again.
-        uint256 legs = uint256(p.feeSplit.stakersBps) + p.feeSplit.buybackBps + p.feeSplit.liquidityBps
-            + p.feeSplit.creatorBps;
+        uint256 legs =
+            uint256(p.feeSplit.stakersBps) + p.feeSplit.buybackBps + p.feeSplit.liquidityBps + p.feeSplit.creatorBps;
         if (legs != BPS) revert BadSplit();
         // The stakers leg pays whoever locked the house coin. Until the owner has named that coin
         // there is nobody to pay, and a launch that promised a share to stakers would be pointing
@@ -325,10 +369,21 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         if (bytes(p.image).length != 0 && imageLockedUntil[iHash] > block.timestamp) revert ImageLockedError();
 
         (token, curve) = _deploy(p, c);
-        _register(token, curve, p, sHash, iHash);
+        _register(token, curve, p, configId, sHash, iHash);
 
         PairTransfer.push(address(0), treasury, launchFee_);
         bought = _firstBuy(p, token, curve, msg.value - launchFee_);
+    }
+
+    function _validateConfig(CurveConfig memory c) internal pure {
+        if (c.totalSupply == 0 || c.curveSupplyBps == 0 || c.curveSupplyBps >= BPS) revert BadConfig();
+        if (c.graduationCap <= c.startCap || c.startCap == 0) revert BadConfig();
+        // A cap so small that it rounds the opening price to zero creates free tokens.
+        if (Math.mulDiv(c.startCap, WAD, c.totalSupply) == 0) revert BadConfig();
+        // The pool has to get the lion's share of the raise, or graduation is an exit.
+        if (c.liquidityBps < 8000 || c.liquidityBps > BPS) revert BadConfig();
+        if (uint256(c.protocolFeeBps) + c.creatorFeeBps > 500) revert BadFee();
+        if (c.tickSpacing <= 0) revert BadConfig();
     }
 
     /// @dev A lock is one of the locker's lengths or nothing: asked in seconds of its own, the app,
@@ -345,9 +400,7 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
 
     function _deploy(LaunchParams calldata p, CurveConfig memory c) internal returns (address token, address curve) {
         bytes32 salt = keccak256(abi.encode(msg.sender, p.salt));
-        token = deployer.deployToken(
-            p.name, p.symbol, p.image, p.description, c.totalSupply, address(this), salt
-        );
+        token = deployer.deployToken(p.name, p.symbol, p.image, p.description, c.totalSupply, address(this), salt);
 
         // Filled field by field rather than as one literal: as a literal this is sixteen live
         // values at once and the Yul optimizer runs out of stack slots.
@@ -374,18 +427,25 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         // Open the pool now, at the price this launch is heading for, so nobody can open it first
         // at a price of their own. A handler that cannot do it must not be able to stop a launch.
         uint256 plannedPair = Math.mulDiv(IHoodCurve(curve).raiseTarget(), c.liquidityBps, BPS);
-        try IGraduationHandler(graduationHandler).prepare(
-            token, p.pairToken, c.totalSupply - ip.curveSupply, plannedPair, c.poolFee, c.tickSpacing
-        ) {} catch {}
+        try IGraduationHandler(graduationHandler)
+            .prepare(token, p.pairToken, c.totalSupply - ip.curveSupply, plannedPair, c.poolFee, c.tickSpacing) {}
+            catch {}
     }
 
-    function _register(address token, address curve, LaunchParams calldata p, bytes32 sHash, bytes32 iHash) internal {
+    function _register(
+        address token,
+        address curve,
+        LaunchParams calldata p,
+        uint256 configId,
+        bytes32 sHash,
+        bytes32 iHash
+    ) internal {
         _launches[token] = Launch({
             curve: curve,
             creator: msg.sender,
             creatorFeeRecipient: p.creatorFeeRecipient == address(0) ? msg.sender : p.creatorFeeRecipient,
             pairToken: p.pairToken,
-            configId: p.configId,
+            configId: configId,
             feeSplit: p.feeSplit,
             symbolHash: sHash,
             imageHash: iHash,
@@ -400,10 +460,8 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         });
         tokenOfCurve[curve] = token;
 
-        emit Launched(token, curve, msg.sender, p.configId, p.pairToken, p.feeSplit);
-        emit LaunchMetadata(
-            token, p.name, p.symbol, p.image, p.description, p.website, p.twitter, p.telegram
-        );
+        emit Launched(token, curve, msg.sender, configId, p.pairToken, p.feeSplit);
+        emit LaunchMetadata(token, p.name, p.symbol, p.image, p.description, p.website, p.twitter, p.telegram);
     }
 
     function _firstBuy(LaunchParams calldata p, address token, address curve, uint256 nativeLeft)
