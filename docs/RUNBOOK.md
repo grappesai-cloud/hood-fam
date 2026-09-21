@@ -196,6 +196,32 @@ That script is also the checklist for adding another asset. Before allowing anyt
 The ticker lock threshold is in that asset's units: pick roughly what a day of real volume looks
 like, the way 25 ETH and 100,000 USDG were picked.
 
+### Finding them rather than listing them
+
+The chain has tens of thousands of tokens and a few hundred that anyone trades. Which is which is
+a question for the chain, not for a list somebody maintains:
+
+```bash
+node scripts/quotes/discover.mjs --min-usd 5000 --window 60000   # what trades against the dollar
+node scripts/quotes/plan.mjs --open-usd 2700 --lock-usd 70000     # a preset and a lock for each
+PRIVATE_KEY=... HOOD_FACTORY=... HOOD_PORTAL=... \
+  forge script script/AllowQuotes.s.sol --rpc-url robinhood --broadcast
+```
+
+The first reads every pool ever opened against USDG (a minute after the first run, which takes
+about twenty and caches what it found), then the swaps of the last stretch of blocks, and keeps
+what actually changed hands. It measures volume rather than depth on purpose: a v4 pool's
+liquidity is virtual, so a tight range reports billions where there are thousands, and a pool with
+a hook refuses to be quoted by anyone but its own router. The second sizes a preset per asset from
+the price on the day. The third applies it to both machines and is idempotent.
+
+The API prices anything `deploy/quotes.json` names, which is why that file ships in the image: a
+quote allowed after a release still gets a dollar price instead of a silent zero, and a pair with
+no price is a pair whose trades earn nobody any points.
+
+After a redeploy the plan has to be applied again: the allow list and the presets live on the
+factory, and a new factory starts empty.
+
 The direct machine keeps its own list, on the portal, because it is a different contract with a
 different owner path:
 
