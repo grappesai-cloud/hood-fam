@@ -284,8 +284,9 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               Uniswap prices in ticks, so the numbers land on the nearest one: open{" "}
               {landedFdv(ticks.tickStart).toFixed(landedFdv(ticks.tickStart) < 100 ? 3 : 0)} {quoteSym},
               bond {landedFdv(ticks.tickBond).toFixed(landedFdv(ticks.tickBond) < 100 ? 3 : 0)} {quoteSym}{" "}
-              (ticks {ticks.tickStart} to {ticks.tickBond}).
+              {predictedToken ? ` (ticks ${ticks.tickStart} to ${ticks.tickBond}).` : "."}
               {quote && quote.usd > 0 && ` About $${Math.round(landedFdv(ticks.tickStart) * quote.usd).toLocaleString()} at the open.`}
+              {!predictedToken && !isNative && " Which side of the pool your token sorts into is decided by its address, so the exact ticks appear once a wallet is connected."}
             </p>
           </Step>
 
