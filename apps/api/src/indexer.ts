@@ -942,7 +942,7 @@ async function scan(from: bigint, to: bigint, chunk: bigint): Promise<bigint> {
         console.error(`indexer: giving up on ${cursor}-${end}`, err);
         await recordGap(cursor, end, err);
         cursor = end + 1n;
-        await setCursor("main", end);
+        await setCursor("main", cursor);
         continue;
       }
       size = size / 2n; // the node refused the range; ask for less
@@ -954,10 +954,15 @@ async function scan(from: bigint, to: bigint, chunk: bigint): Promise<bigint> {
     // let it out, so the loop above retries the same blocks and the error is loud.
     logs.sort((a, b) => Number(a.blockNumber! - b.blockNumber!) || a.logIndex! - b.logIndex!);
     for (const log of logs) await handle(log as never);
-    // The hash goes in with the number: next pass compares it and notices a reorg.
+    // What goes in the row is the NEXT block to index, with the hash of the LAST one indexed,
+    // because that is exactly the pair the loop reads back: `cursor` is where to start, and
+    // `reorged()` checks the header at `cursor - 1` against the stored hash. Storing `end` with
+    // `hash(end)` instead, as this did, made every restart re-index a block it had already counted
+    // and then compare the wrong header, which reads as a reorg that never heals: the indexer
+    // stopped dead on its next restart and refused to move again.
     const last = await client.getBlock({ blockNumber: end }).catch(() => null);
-    await setCursor("main", end, last?.hash ?? undefined);
     cursor = end + 1n;
+    await setCursor("main", cursor, last?.hash ?? undefined);
     if (size < MAX_CHUNK) size = size * 2n > MAX_CHUNK ? MAX_CHUNK : size * 2n;
   }
   return cursor;

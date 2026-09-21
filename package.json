@@ -19,6 +19,7 @@
     "check:curve": "node scripts/checks/curve-port.mjs",
     "check:pairs": "node scripts/checks/pair-prices.mjs",
     "check:ticks": "node scripts/checks/direct-ticks.mjs",
+    "check:cursor": "node scripts/checks/indexer-cursor.mjs",
     "brand": "node scripts/brand.mjs"
   },
   "keywords": [],
