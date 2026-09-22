@@ -102,7 +102,16 @@ export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds, openFdv, bo
   }).join(" ");
 
   return (
-    <div className="sim">
+    <div className="direct-sim-wrap">
+      <div className="direct-sim-summary" aria-label="Trading fee example">
+        <span><small>Buy at launch</small><strong>{(buyTax + snipeTax).toFixed(1)}%</strong></span>
+        <span><small>Buy after {snipeSeconds || 0}s</small><strong>{buyTax.toFixed(1)}%</strong></span>
+        <span><small>Sell</small><strong>{sellTax.toFixed(1)}%</strong></span>
+      </div>
+      <p className="direct-sim-caption">These are tax rates, not price predictions. Pool fees and price movement are additional.</p>
+      <details className="direct-advanced direct-sim-details">
+        <summary>Explore the fee over time <span>Interactive example</span></summary>
+        <div className="sim">
       <svg viewBox="0 0 316 128" className="sim-chart" role="img" aria-label="What a buy is taxed, second by second after the open">
         <path d={`${line} L308 112 L8 112 Z`} className="sim-area" />
         <path d={line} className="sim-line" />
@@ -125,14 +134,13 @@ export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds, openFdv, bo
 
       <div className="sim-out">
         <SimRow label="that buy pays" value={`${onBuy.toFixed(2)}%`} note={surcharge > 0.01 ? `${buyTax}% tax plus ${surcharge.toFixed(2)}% surcharge` : `${buyTax}% tax, the surcharge is gone`} strong />
-        <SimRow label="1 ETH in" value={`${((100 - onBuy) / 100).toFixed(4)} ETH of token`} note="the rest is split the way you set below" />
-        <SimRow label="straight back out" value={`${roundTrip.toFixed(2)}%`} note="what a buy and an immediate sell costs" />
+        <SimRow label={`1 ${quoteSymbol} in`} value={`${((100 - onBuy) / 100).toFixed(4)} ${quoteSymbol} before swap`} note="the tax is removed before the pool trade; token output depends on the price" />
+        <SimRow label="buy + immediate sell tax" value={`${roundTrip.toFixed(2)}%`} note="tax only; pool fees and price movement are extra" />
         <SimRow label="pool valuation" value={`${currentFdv.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${quoteSymbol}`} note={`${priceMultiple.toFixed(2)}x the opening price · ${(100 - poolProgress).toFixed(0)}% of the price path left`} strong />
       </div>
-      <p className="sim-note">
-        The surcharge is quadratic: half the window in, it is already a quarter of what it started
-        at. It punishes the first block, not the first minute.
-      </p>
+      <p className="sim-note">The opening surcharge drops faster than a straight line and reaches zero after the selected window.</p>
+        </div>
+      </details>
     </div>
   );
 }

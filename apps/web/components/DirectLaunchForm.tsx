@@ -13,9 +13,25 @@ import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
 import { Choice, Field, LaunchBar, PairChooser, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 import { DirectSim } from "@/components/Sim";
+import { brand } from "@/brands";
 
 const SUPPLY = 1_000_000_000;
 const SPACING = 200;
+const FEE_PRESETS = [
+  { id: "low", title: "Low fees", detail: "1% buy · 1% sell · no opening surcharge", values: { buyTax: 1, sellTax: 1, snipeTax: 0, snipeSeconds: 0 } },
+  { id: "standard", title: "Standard", detail: "5% buy · 5% sell · no opening surcharge", values: { buyTax: 5, sellTax: 5, snipeTax: 0, snipeSeconds: 0 } },
+  { id: "protected", title: "Protected opening", detail: "5% buy · 5% sell · extra 50% fades over 3 seconds", values: { buyTax: 5, sellTax: 5, snipeTax: 50, snipeSeconds: 3 } },
+] as const;
+const SPLIT_PRESETS = [
+  { id: "balanced", title: "Balanced", detail: "Creator 25% · burn 25% · holders 40% · liquidity 10%", values: { creatorBps: 25, buybackBps: 25, dividendsBps: 40, liquidityBps: 10 } },
+  { id: "creator", title: "Creator income", detail: "Creator 50% · burn 10% · holders 30% · liquidity 10%", values: { creatorBps: 50, buybackBps: 10, dividendsBps: 30, liquidityBps: 10 } },
+  { id: "holders", title: "Holder rewards", detail: "Creator 10% · burn 15% · holders 65% · liquidity 10%", values: { creatorBps: 10, buybackBps: 15, dividendsBps: 65, liquidityBps: 10 } },
+  { id: "burn", title: "Buyback focus", detail: "Creator 10% · burn 60% · holders 20% · liquidity 10%", values: { creatorBps: 10, buybackBps: 60, dividendsBps: 20, liquidityBps: 10 } },
+] as const;
+const OPENING_PRESETS = [
+  { id: "open", title: "Open from block one", detail: "No temporary wallet limits", values: { restrictionBlocks: 0, maxHold: 20, maxBuy: 20 } },
+  { id: "guarded", title: "Short guardrail", detail: "For 30 blocks: 5% per wallet, 5.5% per buy", values: { restrictionBlocks: 30, maxHold: 5, maxBuy: 5.5 } },
+] as const;
 
 // A Portal deployed before creatorFeeRecipient existed still serves the rest of the direct-launch
 // machine. Derive its ABI from the generated current one instead of keeping a second hand-written
@@ -121,9 +137,14 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   };
 
   const allocationSum = form.creatorBps + form.buybackBps + form.dividendsBps + form.liquidityBps;
+  const feePreset = FEE_PRESETS.find((preset) => Object.entries(preset.values).every(([key, value]) => form[key as keyof typeof form] === value))?.id;
+  const splitPreset = SPLIT_PRESETS.find((preset) => Object.entries(preset.values).every(([key, value]) => form[key as keyof typeof form] === value))?.id;
+  const openingPreset = OPENING_PRESETS.find((preset) => Object.entries(preset.values).every(([key, value]) => form[key as keyof typeof form] === value))?.id;
+  const taxValid = form.buyTax + form.snipeTax <= 99 && form.sellTax + form.snipeTax <= 99 && (form.snipeTax === 0 || form.snipeSeconds > 0);
+  const windowValid = form.restrictionBlocks === 0 || (form.maxBuy <= form.maxHold * 1.1 && form.maxHold > 0 && form.maxBuy > 0);
   const ready = Boolean(address && directAddresses.portal && initCodeHash)
     && form.name.length > 0 && form.symbol.length > 0
-    && allocationSum === 100
+    && allocationSum === 100 && taxValid && windowValid
     && (!supportsFeeRecipient || form.creatorBps === 0 || form.feeRecipient === "" || isAddress(form.feeRecipient))
     && Number(form.bondFdv) > Number(form.openFdv);
 
@@ -232,7 +253,9 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : !form.name ? "Step 2 needs a name."
     : !form.symbol ? "Step 2 needs a ticker."
     : !priceDone ? "Step 3: the bonding valuation has to be above the opening one."
+    : !taxValid ? "Step 4: the opening surcharge plus the buy or sell tax must stay at or below 99%, and a surcharge needs a duration."
     : !splitDone ? `Step 5: the four shares add up to ${allocationSum}%. They have to make 100.`
+    : !windowValid ? "Step 6: a single-buy cap cannot exceed 110% of the wallet holding cap."
     : supportsFeeRecipient && form.creatorBps > 0 && form.feeRecipient !== "" && !isAddress(form.feeRecipient) ? "Step 5 needs a valid creator fee recipient."
     : portalGeneration.isLoading ? "Checking the launch contract version."
     : !initCodeHash ? "Still reading the deployer. One moment."
@@ -242,9 +265,9 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     { n: 1, label: "How it launches", done: true },
     { n: 2, label: "The token", done: tokenDone },
     { n: 3, label: "The price", done: priceDone },
-    { n: 4, label: "The tax", done: true },
+    { n: 4, label: "Trading fees", done: taxValid },
     { n: 5, label: "The split", done: splitDone },
-    { n: 6, label: "The opening", done: true },
+    { n: 6, label: "Opening limits", done: windowValid },
   ];
 
   return (
@@ -257,11 +280,11 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           <Step n={2} title="The token" purpose="The name, the ticker and the picture people will see on the board. All of it is written on chain and none of it can be edited later." done={tokenDone}>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Name" help="The full name, as it should read on the board.">
-                <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Hood Fam" />
+                <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={brand.id === "ox" ? "Your token" : "Hood Fam"} />
               </Field>
               <Field label="Ticker" help="Letters and numbers, no dollar sign. We add that.">
                 <input className="input mono uppercase" value={form.symbol}
-                  onChange={(e) => set("symbol", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="FAM" />
+                  onChange={(e) => set("symbol", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder={brand.id === "ox" ? "TOKEN" : "FAM"} />
               </Field>
             </div>
             <Field label="Description" help="One or two lines. It shows on the token page and in the share card.">
@@ -308,27 +331,62 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             </p>
           </Step>
 
-          <Step n={4} title="The tax on every trade" purpose="What a buy and a sell cost, in ETH, on top of the pool fee. Fixed at launch: nobody, including us, can change them afterwards." done>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Slider label={`Buy tax ${form.buyTax}%`} hint="Between 1 and 10." min={1} max={10} step={0.5} value={form.buyTax} onChange={(v) => set("buyTax", v)} />
-              <Slider label={`Sell tax ${form.sellTax}%`} hint="Between 1 and 10." min={1} max={10} step={0.5} value={form.sellTax} onChange={(v) => set("sellTax", v)} />
-              <Slider label={`Opening surcharge ${form.snipeTax}%`} hint="An extra tax at the very open, on top of the buy tax." min={0} max={89} step={1} value={form.snipeTax} onChange={(v) => set("snipeTax", v)} />
-              <Slider label={`Gone after ${form.snipeSeconds}s`} hint="The surcharge falls to nothing over this many seconds." min={0} max={30} step={1} value={form.snipeSeconds} onChange={(v) => set("snipeSeconds", v)} />
+          <Step n={4} title="Trading fees" purpose={`Choose what each trade pays in ${quoteSym}. These rates are permanent after launch; the opening surcharge, if any, expires automatically.`} done={taxValid}>
+            <div className="direct-preset-grid direct-preset-grid-three" role="group" aria-label="Trading fee preset">
+              {FEE_PRESETS.map((preset) => (
+                <button key={preset.id} type="button" className={feePreset === preset.id ? "direct-preset selected" : "direct-preset"}
+                  aria-pressed={feePreset === preset.id} onClick={() => setForm((current) => ({ ...current, ...preset.values }))}>
+                  <strong>{preset.title}</strong><span>{preset.detail}</span>
+                </button>
+              ))}
             </div>
+            <div className={taxValid ? "direct-impact" : "direct-impact invalid"} role="status">
+              <strong>{taxValid ? `${form.buyTax}% buy · ${form.sellTax}% sell` : "Check these fee rates"}</strong>
+              <span>{form.snipeTax > 0
+                ? `At launch, a buy starts at ${form.buyTax + form.snipeTax}% total tax, then falls to ${form.buyTax}% over ${form.snipeSeconds} seconds.`
+                : "No extra opening surcharge. The same rates apply from the first trade."}</span>
+              {!taxValid && <span>Keep the opening total at or below 99%, with a duration greater than zero.</span>}
+            </div>
+            <details className="direct-advanced">
+              <summary>Customize fee rates <span>Optional</span></summary>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Slider label={`Buy tax ${form.buyTax}%`} hint="1–10% on every buy." min={1} max={10} step={0.5} value={form.buyTax} onChange={(v) => set("buyTax", v)} />
+                <Slider label={`Sell tax ${form.sellTax}%`} hint="1–10% on every sell." min={1} max={10} step={0.5} value={form.sellTax} onChange={(v) => set("sellTax", v)} />
+                <Slider label={`Extra opening tax ${form.snipeTax}%`} hint="Added to the buy tax at launch, then fades to zero." min={0} max={89} step={1} value={form.snipeTax} onChange={(v) => set("snipeTax", v)} />
+                <Slider label={`Fades over ${form.snipeSeconds}s`} hint="Use 0 only when the extra opening tax is 0%." min={0} max={30} step={1} value={form.snipeSeconds} onChange={(v) => set("snipeSeconds", v)} />
+              </div>
+              {!taxValid && <p className="field-note bad">The opening total cannot exceed 99%, and an opening tax needs a duration.</p>}
+            </details>
             <DirectSim buyTax={form.buyTax} sellTax={form.sellTax} snipeTax={form.snipeTax} snipeSeconds={form.snipeSeconds}
               openFdv={Number(form.openFdv)} bondFdv={Number(form.bondFdv)} quoteSymbol={quoteSym} />
           </Step>
 
-          <Step n={5} title="Where your nine tenths go" purpose="The protocol keeps a tenth of the tax, always. You decide what happens to the rest, once, here. The four shares have to add up to 100." done={splitDone}>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Slider label={`You ${form.creatorBps}%`} hint="Claimable by you whenever you want it." min={0} max={100} step={5} value={form.creatorBps} onChange={(v) => set("creatorBps", v)} />
-              <Slider label={`Buy back and burn ${form.buybackBps}%`} hint="Buys the token on the open market and destroys it." min={0} max={100} step={5} value={form.buybackBps} onChange={(v) => set("buybackBps", v)} />
-              <Slider label={`Holders ${form.dividendsBps}%`} hint="Paid out to everyone holding, in ETH." min={0} max={100} step={5} value={form.dividendsBps} onChange={(v) => set("dividendsBps", v)} />
-              <Slider label={`Liquidity ${form.liquidityBps}%`} hint="Goes back into the locked position, deepening the pool." min={0} max={100} step={5} value={form.liquidityBps} onChange={(v) => set("liquidityBps", v)} />
+          <Step n={5} title="Who receives the fees" purpose="The protocol keeps 10% of collected trading tax. Choose how the other 90% is shared. Your choice is permanent." done={splitDone}>
+            <div className="direct-preset-grid" role="group" aria-label="Fee distribution preset">
+              {SPLIT_PRESETS.map((preset) => (
+                <button key={preset.id} type="button" className={splitPreset === preset.id ? "direct-preset selected" : "direct-preset"}
+                  aria-pressed={splitPreset === preset.id} onClick={() => setForm((current) => ({ ...current, ...preset.values }))}>
+                  <strong>{preset.title}</strong><span>{preset.detail}</span>
+                </button>
+              ))}
             </div>
-            <p className={splitDone ? "field-note good" : "field-note bad"}>
-              {splitDone ? "Adds up to 100." : `Adds up to ${allocationSum}%. It has to be 100.`}
-            </p>
+            <div className={splitDone ? "direct-impact" : "direct-impact invalid"} role="status">
+              <strong>{splitDone ? "Where the distributable 90% goes" : `Shares total ${allocationSum}% — make them 100%`}</strong>
+              <span>Creator {form.creatorBps}% · buyback &amp; burn {form.buybackBps}% · holders {form.dividendsBps}% · locked liquidity {form.liquidityBps}%</span>
+            </div>
+            <details className="direct-advanced">
+              <summary>Make a custom split <span>Optional</span></summary>
+              <p className="field-note">These four numbers must add up to 100%. They divide the 90% left after the protocol share.</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Slider label={`Creator ${form.creatorBps}%`} hint="Claimable by the fee recipient below." min={0} max={100} step={5} value={form.creatorBps} onChange={(v) => set("creatorBps", v)} />
+                <Slider label={`Buyback & burn ${form.buybackBps}%`} hint="Used to buy and destroy tokens." min={0} max={100} step={5} value={form.buybackBps} onChange={(v) => set("buybackBps", v)} />
+                <Slider label={`Holders ${form.dividendsBps}%`} hint={`Distributed to eligible holders in ${quoteSym}.`} min={0} max={100} step={5} value={form.dividendsBps} onChange={(v) => set("dividendsBps", v)} />
+                <Slider label={`Liquidity ${form.liquidityBps}%`} hint="Reinvested into the locked pool." min={0} max={100} step={5} value={form.liquidityBps} onChange={(v) => set("liquidityBps", v)} />
+              </div>
+              <p className={splitDone ? "field-note good" : "field-note bad"}>
+                {splitDone ? "Total: 100% — ready to launch." : `Total: ${allocationSum}%. Adjust the shares until they total 100%.`}
+              </p>
+            </details>
             {supportsFeeRecipient && form.creatorBps > 0 ? (
               <Field label="Creator fee recipient"
                 error={form.feeRecipient && !isAddress(form.feeRecipient) ? "Paste a valid 0x address." : undefined}
@@ -339,12 +397,29 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             ) : null}
           </Step>
 
-          <Step n={6} title="The opening, and your first buy" purpose="How hard it is for one wallet to take the whole open. Selling is never restricted, and every limit here expires by itself." done>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Slider label={`Limits last ${form.restrictionBlocks} blocks`} hint="About a tenth of a second each on this chain." min={0} max={200} step={10} value={form.restrictionBlocks} onChange={(v) => set("restrictionBlocks", v)} />
-              <Slider label={`Hold at most ${form.maxHold}%`} hint="Of the supply, per wallet, while the limits last." min={0.5} max={20} step={0.5} value={form.maxHold} onChange={(v) => set("maxHold", v)} />
-              <Slider label={`Buy at most ${form.maxBuy}%`} hint="Per transaction, while the limits last." min={0.5} max={20} step={0.5} value={form.maxBuy} onChange={(v) => set("maxBuy", v)} />
+          <Step n={6} title="Opening limits and first buy" purpose="Choose whether temporary wallet caps apply at launch. Selling is never restricted; any caps expire automatically." done={windowValid}>
+            <div className="direct-preset-grid direct-preset-grid-two" role="group" aria-label="Opening limit preset">
+              {OPENING_PRESETS.map((preset) => (
+                <button key={preset.id} type="button" className={openingPreset === preset.id ? "direct-preset selected" : "direct-preset"}
+                  aria-pressed={openingPreset === preset.id} onClick={() => setForm((current) => ({ ...current, ...preset.values }))}>
+                  <strong>{preset.title}</strong><span>{preset.detail}</span>
+                </button>
+              ))}
             </div>
+            <div className={windowValid ? "direct-impact" : "direct-impact invalid"} role="status">
+              <strong>{windowValid ? (form.restrictionBlocks === 0 ? "No opening limits" : `Limits end after ${form.restrictionBlocks} blocks`) : "Opening caps need adjustment"}</strong>
+              <span>{form.restrictionBlocks === 0 ? "Anyone can buy or hold any amount from the start." : `Until then, one wallet can hold up to ${form.maxHold}% of supply and buy up to ${form.maxBuy}% in one transaction.`}</span>
+              {!windowValid && <span>One buy cannot exceed 110% of the wallet holding cap.</span>}
+            </div>
+            <details className="direct-advanced">
+              <summary>Customize opening limits <span>Optional</span></summary>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Slider label={`Limits last ${form.restrictionBlocks} blocks`} hint="0 disables wallet caps." min={0} max={200} step={10} value={form.restrictionBlocks} onChange={(v) => set("restrictionBlocks", v)} />
+                <Slider label={`Wallet holds at most ${form.maxHold}%`} hint="Of supply, while limits last." min={0.5} max={20} step={0.5} value={Math.min(form.maxHold, 20)} onChange={(v) => set("maxHold", v)} />
+                <Slider label={`One buy at most ${form.maxBuy}%`} hint="Cannot exceed 110% of the wallet cap." min={0.5} max={20} step={0.5} value={Math.min(form.maxBuy, 20)} onChange={(v) => set("maxBuy", v)} />
+              </div>
+              {!windowValid && <p className="field-note bad">Lower the single-buy cap to at most 110% of the wallet cap.</p>}
+            </details>
             <Field label={`Your first buy in ${quoteSym}`}
               help={`Optional, and it lands inside the launch transaction, before anyone else can trade. The buy cap above applies to it too: first dibs, not the whole open.${
                 isNative ? "" : ` Paid in ${quoteSym} out of your wallet, so it takes one approval first.`

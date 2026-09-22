@@ -1241,3 +1241,34 @@ a.race-lead:hover .race-go { color: var(--color-lime); }
 .trader-shell th, .refer-shell th { padding: 11px 10px; color: #8a9083; font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: .06em; text-align: left; text-transform: uppercase; }
 .trader-shell td, .refer-shell td { padding: 11px 10px; border-top: 1px solid var(--glass-line); }
 .trader-shell td .btn, .refer-shell td .btn { padding: 7px 14px; font-size: 12px; }
+
+/* Shared direct-launch controls also need a usable baseline outside the OX skin. */
+.direct-preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.direct-preset-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.direct-preset { display: flex; min-width: 0; flex-direction: column; gap: 8px; border: 1px solid var(--glass-line); border-radius: 14px; padding: 15px; background: var(--glass); color: var(--color-text); text-align: left; cursor: pointer; }
+.direct-preset.selected { border-color: var(--color-lime); background: #ccff0012; }
+.direct-preset strong { font-size: 13px; }
+.direct-preset span { color: #a7aea1; font-size: 11px; line-height: 1.45; }
+.direct-impact { display: grid; gap: 5px; border: 1px solid var(--glass-line); border-radius: 14px; padding: 14px 16px; background: #ffffff06; }
+.direct-impact strong { font-size: 13px; }
+.direct-impact span { color: #a7aea1; font-size: 12px; line-height: 1.5; }
+.direct-impact.invalid { border-color: #ff8f8070; }
+.direct-impact.invalid strong { color: #ffb8ad; }
+.direct-advanced { margin-top: 12px; border: 1px solid var(--glass-line); border-radius: 14px; }
+.direct-advanced > summary { display: flex; min-height: 46px; align-items: center; gap: 10px; padding: 0 16px; font-size: 12px; font-weight: 600; cursor: pointer; list-style: none; }
+.direct-advanced > summary::-webkit-details-marker { display: none; }
+.direct-advanced > summary::after { content: "+"; margin-left: auto; color: var(--color-lime); font-size: 18px; }
+.direct-advanced[open] > summary::after { content: "−"; }
+.direct-advanced > summary span { color: #929b8b; font-size: 11px; font-weight: 400; }
+.direct-advanced > :not(summary) { margin: 0 16px 16px; }
+.direct-sim-wrap { margin-top: 14px; }
+.direct-sim-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.direct-sim-summary > span { display: grid; gap: 5px; border: 1px solid var(--glass-line); border-radius: 12px; padding: 12px; background: #ffffff06; }
+.direct-sim-summary small { color: #a7aea1; font-size: 10px; }
+.direct-sim-summary strong { color: var(--color-lime); font-size: 18px; }
+.direct-sim-caption { margin: 9px 0 0; color: #929b8b; font-size: 11px; line-height: 1.45; }
+@media (max-width: 640px) {
+  .direct-preset-grid, .direct-preset-grid-three { grid-template-columns: 1fr; }
+  .direct-sim-summary > span { padding: 8px; }
+  .direct-sim-summary strong { font-size: 15px; }
+}

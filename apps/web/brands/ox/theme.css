@@ -1819,3 +1819,92 @@ html[data-brand="ox"] .ox-app-shell .ox-topbar .ox-launch-button:hover:not(:disa
   html[data-brand="ox"] .token-shell { padding-top: 20px; }
   html[data-brand="ox"] .ox-footer { width: calc(100% - 24px); }
 }
+
+/* Direct-pool creation: decisions first, technical controls only on request. */
+html[data-brand="ox"] .direct-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+html[data-brand="ox"] .direct-preset-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+html[data-brand="ox"] .direct-preset {
+  display: flex;
+  min-height: 90px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  border: 1px solid #ffffff24;
+  border-radius: 15px;
+  padding: 16px;
+  background: #282c26;
+  color: #f3f5f0;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s, background .16s;
+}
+html[data-brand="ox"] .direct-preset:hover { border-color: #c7e59582; background: #30382b; }
+html[data-brand="ox"] .direct-preset.selected { border-color: #c7e595a8; background: #34402f; }
+html[data-brand="ox"] .direct-preset strong { font-size: 13px; font-weight: 650; }
+html[data-brand="ox"] .direct-preset span { color: #afb9aa; font-size: 11px; line-height: 1.45; }
+html[data-brand="ox"] .direct-preset.selected span { color: #d5e2c9; }
+html[data-brand="ox"] .direct-impact {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid #c7e5953c;
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: #c7e5950c;
+}
+html[data-brand="ox"] .direct-impact strong { color: #e3f3ce; font-size: 13px; font-weight: 650; }
+html[data-brand="ox"] .direct-impact span { color: #b8c3ae; font-size: 12px; line-height: 1.5; }
+html[data-brand="ox"] .direct-impact.invalid { border-color: #ff8f805e; background: #ff8f800f; }
+html[data-brand="ox"] .direct-impact.invalid strong { color: #ffb8ad; }
+html[data-brand="ox"] .step { scroll-margin-top: 95px; }
+html[data-brand="ox"] .direct-advanced { margin-top: 12px; border: 1px solid #ffffff23; border-radius: 14px; background: #262a24; }
+html[data-brand="ox"] .direct-advanced > summary {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  color: #f0f2ed;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+html[data-brand="ox"] .direct-advanced > summary::-webkit-details-marker { display: none; }
+html[data-brand="ox"] .direct-advanced > summary::after { content: "+"; margin-left: auto; color: #c7e595; font-size: 18px; font-weight: 400; }
+html[data-brand="ox"] .direct-advanced[open] > summary::after { content: "−"; }
+html[data-brand="ox"] .direct-advanced > summary span { color: #9da99a; font-size: 11px; font-weight: 450; }
+html[data-brand="ox"] .direct-advanced > :not(summary) { margin: 0 16px 16px; }
+html[data-brand="ox"] .direct-advanced > .field-note { padding-top: 5px; }
+html[data-brand="ox"] .direct-advanced .field { min-width: 0; }
+html[data-brand="ox"] .direct-sim-wrap { margin-top: 14px; }
+html[data-brand="ox"] .direct-sim-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+html[data-brand="ox"] .direct-sim-summary > span {
+  display: flex;
+  min-height: 72px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid #ffffff23;
+  border-radius: 13px;
+  padding: 12px;
+  background: #242823;
+}
+html[data-brand="ox"] .direct-sim-summary small { color: #aab5a5; font-size: 10px; }
+html[data-brand="ox"] .direct-sim-summary strong { color: #e4f5d0; font-size: 18px; font-weight: 650; }
+html[data-brand="ox"] .direct-sim-caption { margin: 9px 0 0; color: #9fa99c; font-size: 11px; line-height: 1.45; }
+html[data-brand="ox"] .direct-sim-details .sim { border: 0; border-top: 1px solid #ffffff1e; border-radius: 0; background: transparent; box-shadow: none; }
+@media (max-width: 640px) {
+  html[data-brand="ox"] .direct-preset-grid,
+  html[data-brand="ox"] .direct-preset-grid-three { grid-template-columns: 1fr; }
+  html[data-brand="ox"] .direct-preset { min-height: 72px; padding: 13px; }
+  html[data-brand="ox"] .direct-sim-summary { gap: 5px; }
+  html[data-brand="ox"] .direct-sim-summary > span { min-height: 65px; padding: 8px; }
+  html[data-brand="ox"] .direct-sim-summary strong { font-size: 15px; }
+}
