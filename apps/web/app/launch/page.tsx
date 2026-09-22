@@ -14,6 +14,7 @@ import { ArtworkPicker } from "@/components/ArtworkPicker";
 import { Choice, Field, LaunchBar, PairChooser, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 import { CurveSim } from "@/components/Sim";
 import { useBatch } from "@/lib/safe";
+import { brand } from "@/brands";
 
 interface CurvePreset {
   /// What this preset's caps are written in, and the only pair it may be launched against.
@@ -347,14 +348,14 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           <Step n={2} title="The token" purpose="The name, the ticker and the picture people will see on the board. All of it is written on chain and none of it can be edited later." done={tokenDone}>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Name" help="The full name, as it should read on the board.">
-                <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Hood Fam" />
+                <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={brand.id === "ox" ? "Your token" : "Hood Fam"} />
               </Field>
               <Field label="Ticker"
                 error={form.symbol && symbolFree === false ? "Taken. A launch trading right now holds this ticker; it frees up when that one cools off." : undefined}
                 ok={form.symbol && symbolFree === true ? "Available." : undefined}
                 help="Letters and numbers, no dollar sign. We add that.">
                 <input className="input mono uppercase" value={form.symbol}
-                  onChange={(e) => set("symbol", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="FAM" />
+                  onChange={(e) => set("symbol", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder={brand.id === "ox" ? "TOKEN" : "FAM"} />
               </Field>
             </div>
             <Field label="Description" help="One or two lines. It shows on the token page and in the share card.">

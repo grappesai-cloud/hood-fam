@@ -15,12 +15,18 @@ import { Wordmark } from "./Wordmark";
 
 const PRIMARY_NAV = [
   { href: "/", label: "Discover" },
-  { href: "/portfolio", label: "Portfolio" },
   { href: "/following", label: "Following" },
-  { href: "/quests", label: "Quests" },
+  { href: "/analytics", label: "Analytics" },
+  { href: "/portfolio", label: "Portfolio" },
+] as const;
+
+const MORE_NAV = [
   { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/quests", label: "Quests" },
   { href: "/lock", label: "Lock" },
-  { href: "/airdrop", label: "Drop" },
+  { href: "/airdrop", label: "Season drop" },
+  { href: "/refer", label: "Refer" },
+  { href: "/bridge", label: "Bridge" },
 ] as const;
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -47,8 +53,6 @@ export function Shell({ children }: { children: ReactNode }) {
       <header className="ox-topbar">
         <div className="ox-topbar-inner">
           <Link href="/" className="ox-brand-link" aria-label={`${brand.name} home`}><Wordmark /></Link>
-          <span className="ox-product-name"><i aria-hidden="true" />Launchpad</span>
-
           <nav className="ox-nav" aria-label="Launchpad navigation">
             {PRIMARY_NAV.map((item) => {
               const active = item.href === "/" ? path === "/" : path.startsWith(item.href);
@@ -57,20 +61,18 @@ export function Shell({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="ox-top-actions">
-            <nav className="ox-app-switcher" aria-label="OX apps">
-              <Link href="/refer">Refer</Link>
-              <Link href="/analytics">Analytics</Link>
-              <Link href="/bridge">Bridge</Link>
-            </nav>
-            <Link className="ox-launch-button" href="/launch"><span>＋</span>Launch token</Link>
+            <details className="ox-more-menu">
+              <summary>More <span aria-hidden="true">⌄</span></summary>
+              <nav aria-label="More pages">
+                {MORE_NAV.map((item) => <Link key={item.href} href={item.href}>{item.label}</Link>)}
+              </nav>
+            </details>
+            <Link className="ox-launch-button" href="/launch"><span>＋</span>Create</Link>
             <Wallet />
           </div>
         </div>
 
-        <div className="ox-network-line">
-          <span><i aria-hidden="true" /> Robinhood Chain <b>{robinhood.id}</b></span>
-          <span>Fair curves</span><span>Automatic graduation</span><span>Locked liquidity</span>
-        </div>
+        <div className="ox-network-line"><span><i aria-hidden="true" /> Robinhood Chain <b>{robinhood.id}</b></span></div>
       </header>
 
       <div className="ox-content-column">

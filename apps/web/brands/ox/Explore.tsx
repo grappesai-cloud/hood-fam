@@ -78,6 +78,24 @@ export function Explore() {
         </div>
       ) : null}
 
+      <div className="ox-market-toolbar">
+        <label className="ox-search">
+          <span aria-hidden="true">⌕</span>
+          <input
+            ref={search}
+            value={q}
+            onChange={(event) => setQ(event.target.value)}
+            placeholder="Search tokens"
+            aria-label="Search tokens by name, ticker or address"
+          />
+          <kbd>/</kbd>
+        </label>
+        <div className="ox-market-shortcuts">
+          <button type="button" onClick={() => setSort("stocks")}>↗ <span>Stocks</span></button>
+          <Link href="/launch">＋ <span>Create</span></Link>
+        </div>
+      </div>
+
       {trending.data?.tokens.length ? (
         <section className="ox-trending-section" aria-labelledby="trending-title">
           <div className="ox-section-heading compact">
@@ -97,17 +115,6 @@ export function Explore() {
         </div>
 
         <div className="ox-discover-controls">
-          <label className="ox-search">
-            <span aria-hidden="true">⌕</span>
-            <input
-              ref={search}
-              value={q}
-              onChange={(event) => setQ(event.target.value)}
-              placeholder="Search by name, ticker or address"
-              aria-label="Search tokens"
-            />
-            <kbd>/</kbd>
-          </label>
           <div className="ox-sort-tabs" role="tablist" aria-label="Sort tokens">
             {SORTS.map((item) => (
               <button
@@ -215,8 +222,10 @@ function TrendingCard({ token, rank }: { token: TokenRow; rank: number }) {
   const cap = (BigInt(token.price || "0") * BigInt(token.total_supply || "0")) / 10n ** 18n;
   return (
     <Link href={`/token/${token.token}`} className="ox-trending-card">
-      <span className="ox-rank">{String(rank).padStart(2, "0")}</span>
-      <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={48} rounded="rounded-full" />
+      <span className="ox-trending-art">
+        <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={180} rounded="rounded-xl" />
+        <span className="ox-rank">#{rank}</span>
+      </span>
       <span className="ox-trending-name"><strong>{token.name}</strong><small>${token.symbol} {isDevLocked(token) ? <em className="ox-dev-lock">🔒 DEV</em> : null}</small></span>
       <span className="ox-trending-cap"><strong>{compact(cap, decimals)}</strong><small>{unit} MC</small></span>
     </Link>
