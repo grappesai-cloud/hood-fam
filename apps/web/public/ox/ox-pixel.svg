@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 56" role="img" aria-labelledby="title" shape-rendering="crispEdges">
+  <title id="title">OX pixel logo</title>
+  <g fill="#afd47e">
+    <path d="M8 0h40v8H8zM0 8h16v8H0zM40 8h16v8H40zM0 16h8v24H0zM48 16h8v24h-8zM0 40h16v8H0zM40 40h16v8H40zM8 48h40v8H8z"/>
+    <path d="M72 0h16v8H72zM112 0h16v8h-16zM80 8h16v8H80zM104 8h16v8h-16zM88 16h24v8H88zM96 24h8v8h-8zM88 32h24v8H88zM80 40h16v8H80zM104 40h16v8h-16zM72 48h16v8H72zM112 48h16v8h-16z"/>
+  </g>
+</svg>

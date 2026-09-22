@@ -159,15 +159,13 @@ export function Explore() {
           </div>
           <div className="ox-trust-line"><span>Transparent curves</span><span>Creator fee wallet</span><span>Locked liquidity at graduation</span></div>
         </div>
-        <div className="ox-hero-visual" aria-label="ox.family glass logo">
+        <div className="ox-hero-visual" aria-label="OX pixel logo">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/ox/ox-hero-green-v1-1200.webp"
-            srcSet="/ox/ox-hero-green-v1-1200.webp 1200w, /ox/ox-hero-green-v1.webp 1774w"
-            sizes="(max-width: 640px) 92vw, 54vw"
-            alt="Green glossy OX logo"
-            width={1774}
-            height={887}
+            src="/ox/ox-pixel.svg"
+            alt="OX pixel-art logo"
+            width={128}
+            height={56}
             loading="lazy"
             decoding="async"
           />

@@ -969,9 +969,8 @@ html[data-brand="ox"] * {
   html[data-brand="ox"] .launch-preview-details { margin-right: -20px; margin-left: -20px; padding-right: 20px; padding-left: 20px; }
 }
 
-/* -------------------------------------------------------------------------------- logo cleanup
-   The source art is square, but the OX itself is wide. Enlarge and crop only the transparent
-   canvas in the wordmark; no tile or coloured plate sits behind the icon. */
+/* -------------------------------------------------------------------------------- pixel wordmark
+   The transparent SVG scales without a plate, glow or image blending. */
 html[data-brand="ox"] .ox-wordmark-mark {
   width: 72px;
   height: 44px;
@@ -984,8 +983,8 @@ html[data-brand="ox"] .ox-wordmark-mark img {
   top: 0;
   left: 0;
   object-fit: contain;
-  filter: drop-shadow(0 0 10px #a8ff3442);
-  mix-blend-mode: screen;
+  filter: none;
+  mix-blend-mode: normal;
 }
 
 /* A continuous hero field reads cleaner than a logo sitting inside a second rectangular scene. */
@@ -1165,9 +1164,9 @@ html[data-brand="ox"] .ox-hero-visual > img {
   position: static;
   width: min(94%, 350px);
   height: auto;
-  opacity: .78;
+  opacity: 1;
   object-fit: contain;
-  filter: saturate(.64) brightness(.82);
+  filter: none;
   transform: none;
 }
 html[data-brand="ox"] .ox-market-strip {
