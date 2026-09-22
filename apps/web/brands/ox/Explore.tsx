@@ -164,8 +164,8 @@ export function Explore() {
           <img
             src="/ox/ox-pixel.svg"
             alt="OX pixel-art logo"
-            width={128}
-            height={56}
+            width={50}
+            height={30}
             loading="lazy"
             decoding="async"
           />
