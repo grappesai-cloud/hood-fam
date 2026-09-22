@@ -11,7 +11,7 @@ import { api, type PairRow, type ResolvedQuote } from "@/lib/api";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
-import { Choice, Field, LaunchBar, PairChooser, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
+import { Choice, Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 import { CurveSim } from "@/components/Sim";
 import { useBatch } from "@/lib/safe";
 import { brand } from "@/brands";
@@ -51,15 +51,26 @@ const LOCKS = [{ label: "no lock", seconds: 0 }, ...LOCK_TIERS.filter((t) => t.s
 const MACHINES = {
   curve: {
     title: "Bonding curve",
-    body: "Buyers trade against a rising price. When it sells out, the raise and the rest of the supply move into a Uniswap pool that is locked forever. You set where the trading fee goes and can lock your own first buy.",
-    meta: "the pump.fun shape",
+    body: "The price rises as people buy. If the curve reaches its target, it moves into a permanently locked pool. Choose who benefits from trading fees.",
+    meta: "starts on a curve",
   },
   direct: {
-    title: "Straight to the pool",
-    body: "The whole supply opens in a real Uniswap pool from the first block. You set the buy and sell tax, a surcharge that punishes the first bots and decays in seconds, how long wallets are capped, and how the tax splits between you, a buyback, dividends and the liquidity. No curve, no migration.",
-    meta: "tax, anti-snipe, splits",
+    title: "Direct pool",
+    body: "Trading starts in a locked pool immediately. Choose what buys and sells cost, who receives those fees, and whether short opening limits apply.",
+    meta: "trades from block one",
   },
 } as const;
+
+const CURVE_STRATEGIES_WITH_LOCKERS = [
+  { id: "community", title: "Reward the community", body: "Half of the distributable fee goes to people locking the pad coin; the rest supports buyback and liquidity.", values: { stakers: 50, buyback: 25, liquidity: 15, creator: 10 } },
+  { id: "balanced", title: "Balanced", body: "Split the distributable fee equally between lockers and the creator.", values: { stakers: 50, buyback: 0, liquidity: 0, creator: 50 } },
+  { id: "creator", title: "Creator revenue", body: "Most of the distributable fee goes to the creator; a smaller part still supports lockers and the token.", values: { stakers: 10, buyback: 10, liquidity: 10, creator: 70 } },
+] as const;
+const CURVE_STRATEGIES_NO_LOCKERS = [
+  { id: "community", title: "Grow the token", body: "Prioritize buyback and deeper locked liquidity while locker rewards are unavailable.", values: { stakers: 0, buyback: 50, liquidity: 40, creator: 10 } },
+  { id: "balanced", title: "Balanced", body: "Half of the distributable fee goes to the creator; the rest supports buyback and liquidity.", values: { stakers: 0, buyback: 30, liquidity: 20, creator: 50 } },
+  { id: "creator", title: "Creator revenue", body: "Most of the distributable fee goes to the creator; a small part supports the token.", values: { stakers: 0, buyback: 10, liquidity: 10, creator: 80 } },
+] as const;
 
 export default function LaunchPage() {
   const [machine, setMachine] = useState<keyof typeof MACHINES>("curve");
@@ -83,8 +94,8 @@ export default function LaunchPage() {
         <div className="section-kicker">Robinhood Chain</div>
         <h1>Create a token</h1>
         <p>
-          Four steps, one transaction, about a minute. Nothing is sent until you confirm in your
-          wallet, and the cost is on the bar at the bottom the whole way down.
+          Choose how your token launches, decide who benefits, then review the permanent terms
+          before signing. Nothing is sent until you confirm in your wallet.
         </p>
       </header>
 
@@ -99,6 +110,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const { writeContractAsync, isPending } = useWriteContract();
   const { canBatch, batch } = useBatch();
   const [hash, setHash] = useState<`0x${string}` | undefined>();
+  const [reviewedFingerprint, setReviewedFingerprint] = useState("");
   const receipt = useWaitForTransactionReceipt({ hash });
 
   const [form, setForm] = useState({
@@ -228,6 +240,8 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     Boolean(cfg?.enabled) && cfg!.pairToken.toLowerCase() === form.pairToken.toLowerCase();
   const presetsForPair = ((configs ?? []) as { result?: CurvePreset }[]).filter((c) => presetFits(c.result)).length;
   const chosen = ((configs ?? []) as { result?: CurvePreset }[])[form.configId]?.result;
+  const openingCap = form.customPair ? customStartCap : chosen?.startCap;
+  const graduationCap = form.customPair ? customGraduationCap : chosen?.graduationCap;
   // The trading fee. The protocol's 30 bps is not the creator's to move; everything above it is,
   // up to the 500 bps the factory refuses to go past. A preset carries its own, so leaving this
   // alone launches the preset exactly as it was published and pins its econ hash; moving it turns
@@ -249,11 +263,33 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
 
   const tokenDone = form.name.length > 0 && form.symbol.length > 0 && symbolFree !== false;
   const splitTotal = form.stakers + form.buyback + form.liquidity + form.creator;
+  const strategies = canPayStakers ? CURVE_STRATEGIES_WITH_LOCKERS : CURVE_STRATEGIES_NO_LOCKERS;
+  const selectedStrategy = strategies.find((strategy) =>
+    strategy.values.stakers === form.stakers && strategy.values.buyback === form.buyback
+    && strategy.values.liquidity === form.liquidity && strategy.values.creator === form.creator,
+  )?.id;
   // The address the creator leg pays. Empty means the wallet doing the launching, which is what it
   // silently did before; a team that wants the stream elsewhere says so here rather than
   // discovering later that it went to whichever key happened to sign.
   const recipient = form.feeRecipient.trim() || address || "";
   const recipientOk = !form.feeRecipient.trim() || isAddress(form.feeRecipient.trim());
+  const reviewedTerms = JSON.stringify({
+    form, pair, recipient, totalFeeBps,
+    opening: String(form.customPair ? customStartCap : chosen?.startCap ?? ""),
+    graduation: String(form.customPair ? customGraduationCap : chosen?.graduationCap ?? ""),
+    econ: String(econ ?? ""),
+  });
+  const reviewed = reviewedFingerprint === reviewedTerms;
+  const exampleAmount = (bps: number) => `${(bps / 10_000).toFixed(5)} ${pair}`;
+  const distributableExample = creatorFeeBps / 10_000;
+  const feeExampleRows = [
+    { label: "Total trading fee", value: `${exampleAmount(totalFeeBps)} (${(totalFeeBps / 100).toFixed(2)}%)` },
+    { label: "Protocol", value: exampleAmount(PROTOCOL_FEE_BPS) },
+    { label: "Creator address", value: `${(distributableExample * form.creator / 100).toFixed(5)} ${pair}` },
+    { label: "Buyback & burn", value: `${(distributableExample * form.buyback / 100).toFixed(5)} ${pair}` },
+    { label: "Locked liquidity", value: `${(distributableExample * form.liquidity / 100).toFixed(5)} ${pair}` },
+    ...(form.stakers > 0 ? [{ label: "Pad-coin lockers", value: `${(distributableExample * form.stakers / 100).toFixed(5)} ${pair}` }] : []),
+  ];
 
   // One reason at a time, in the order somebody would hit them. A button that is off without saying
   // why is the single thing this page used to do worst.
@@ -274,17 +310,19 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : totalFeeBps > MAX_TOTAL_FEE_BPS ? `Step 3 asks for a ${(totalFeeBps / 100).toFixed(2)}% fee; the factory refuses anything above 5%.`
     : useCustomConfig && !launchConfig ? "Step 4 has no preset to build the custom fee on."
     : form.firstBuyLock > 0 && firstBuyWei === 0n ? "Step 4 locks a first buy that is not being made."
+    : !reviewed ? "Step 5: review the permanent terms before creating the token."
     : undefined;
 
   const steps: StepState[] = [
     { n: 1, label: "How it launches", done: true },
     { n: 2, label: "The token", done: tokenDone },
-    { n: 3, label: "Where the fee goes", done: true },
+    { n: 3, label: "Who benefits", done: splitTotal === 100 && recipientOk },
     { n: 4, label: "The curve", done: true },
+    { n: 5, label: "Review terms", done: reviewed },
   ];
 
   async function launch() {
-    if (!address) return;
+    if (!address || !reviewed) return;
     const salt = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32))).map((b) => b.toString(16).padStart(2, "0")).join("")}` as `0x${string}`;
     const launchData = useCustomConfig && launchConfig
       ? encodeFunctionData({ abi: hoodFactoryAbi, functionName: "launchCustom", args: [launchArgs(salt), launchConfig] })
@@ -373,45 +411,57 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             </div>
           </Step>
 
-          <Step n={3} title="Where the trading fee goes" purpose="Every trade pays a fee. You decide once, here, how it is divided. This is the promise a buyer can check on chain, and nobody can change it afterwards, including us." done={splitTotal === 100 && recipientOk}>
-            <div className="grid gap-3">
-              {LEG_COPY.map((leg) => (
-                <Slider key={leg.key}
-                  label={`${leg.title} ${form[leg.key]}%`}
-                  hint={leg.key === "stakers" && !canPayStakers
-                    ? "Not yet: the pad's own coin has not been named on chain, so there is nobody locked to pay."
-                    : leg.body}
-                  min={0} max={leg.key === "stakers" && !canPayStakers ? 0 : 100} step={5}
-                  value={form[leg.key]} onChange={(v) => set(leg.key, v)} />
+          <Step n={3} title="Who benefits from trading fees?" purpose="Pick an outcome first. You can inspect or customize the exact percentages below; the final terms cannot be changed after launch." done={splitTotal === 100 && recipientOk}>
+            <div className="launch-outcome-grid" role="group" aria-label="Fee strategy">
+              {strategies.map((strategy) => (
+                <button key={strategy.id} type="button" aria-pressed={selectedStrategy === strategy.id}
+                  className={selectedStrategy === strategy.id ? "launch-outcome selected" : "launch-outcome"}
+                  onClick={() => setForm((current) => ({ ...current, ...strategy.values }))}>
+                  <strong>{strategy.title}</strong><span>{strategy.body}</span>
+                </button>
               ))}
             </div>
-            <p className={splitTotal === 100 ? "text-xs dim" : "text-xs text-[var(--color-red)]"}>
-              {splitTotal === 100
-                ? "Adds up to 100%. Every trade divides the creator's share exactly this way, forever."
-                : `These have to add up to 100%. Right now they add up to ${splitTotal}%.`}
-            </p>
-            <Field label={`What a trade pays: ${(totalFeeBps / 100).toFixed(2)}%`}
-              help={feeMoved
-                ? "Your own fee, so this launch goes on chain as a config of its own rather than as the published preset."
-                : "The preset's fee. Move it and this launch carries your number instead; the protocol's 0.30% is fixed and the factory refuses anything above 5% in total."}>
-              <Slider label={`${(totalFeeBps / 100).toFixed(2)}% per trade, of which ${(creatorFeeBps / 100).toFixed(2)}% is yours to split`}
-                hint="Traders see this before they buy. High fees are a choice a market can price."
-                min={PROTOCOL_FEE_BPS} max={MAX_TOTAL_FEE_BPS} step={10}
-                value={totalFeeBps}
-                onChange={(v) => set("feeBps", Math.max(0, v - PROTOCOL_FEE_BPS))} />
-              {feeMoved && (
-                <button type="button" className="text-xs dim underline"
-                  onClick={() => set("feeBps", null)}>Back to the preset's {(presetCreatorFeeBps + PROTOCOL_FEE_BPS) / 100}%</button>
-              )}
-            </Field>
+            {!canPayStakers && <p className="launch-outcome-note">Locker rewards are unavailable until the pad coin is named on chain. No option here promises those rewards.</p>}
+            <LaunchFeeExample
+              title={`If someone trades 1 ${pair}`}
+              description={`At the current ${(totalFeeBps / 100).toFixed(2)}% trading fee, this is approximately where the fee goes:`}
+              rows={feeExampleRows}
+              note="This shows fee routing only. The curve price, slippage and token amount are separate."
+            />
             {form.creator > 0 && (
-              <Field label="Who the creator share pays"
-                help="Leave it empty and it pays the wallet doing this launch. A team usually wants its own Safe here. Only that address can hand the stream on later."
-                error={recipientOk ? undefined : "That is not an address."}>
+              <Field label="Where should the creator's fee go?"
+                help="Leave blank to use your connected wallet. A team can enter its Safe address. Only that address controls its share."
+                error={recipientOk ? undefined : "Enter a valid 0x address."}>
                 <input className="input mono" placeholder={address ?? "0x..."} value={form.feeRecipient}
                   onChange={(e) => set("feeRecipient", e.target.value.trim())} />
               </Field>
             )}
+            <details className="launch-advanced">
+              <summary>Advanced: exact split and trading fee <span>Optional</span></summary>
+              <div className="launch-advanced-body">
+                <p>The protocol fee is fixed at 0.30% of each trade. The remaining fee is divided by these four percentages, which must total 100%.</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {LEG_COPY.map((leg) => (
+                    <Slider key={leg.key}
+                      label={`${leg.title} ${form[leg.key]}%`}
+                      hint={leg.key === "stakers" && !canPayStakers
+                        ? "Unavailable until the pad coin is named on chain."
+                        : leg.body}
+                      min={0} max={leg.key === "stakers" && !canPayStakers ? 0 : 100} step={5}
+                      value={form[leg.key]} onChange={(v) => set(leg.key, v)} />
+                  ))}
+                </div>
+                <p className={splitTotal === 100 ? "field-note good" : "field-note bad"}>
+                  {splitTotal === 100 ? "The four shares total 100%." : `The shares total ${splitTotal}%. Adjust them to 100%.`}
+                </p>
+                <Slider label={`Trading fee ${(totalFeeBps / 100).toFixed(2)}%`}
+                  hint="Includes the fixed 0.30% protocol fee. Maximum total: 5%. Changing the preset fee creates a custom launch configuration."
+                  min={PROTOCOL_FEE_BPS} max={MAX_TOTAL_FEE_BPS} step={10}
+                  value={totalFeeBps}
+                  onChange={(v) => set("feeBps", Math.max(0, v - PROTOCOL_FEE_BPS))} />
+                {feeMoved && <button type="button" className="text-xs dim underline" onClick={() => set("feeBps", null)}>Restore the preset fee</button>}
+              </div>
+            </details>
           </Step>
 
           <Step n={4} title="What it trades against, and the curve" purpose="Every trade is priced in this, the raise is held in it, and the fee reaches you in it. Then how much supply trades on the curve, and whether you want the first buy in the same transaction." done>
@@ -475,18 +525,27 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               </div>
             </>}
 
-            {(form.customPair ? Boolean(customQuote && customGraduationCap > customStartCap) : Boolean(chosen)) && (
-              <CurveSim
-                p0={((form.customPair ? customStartCap : chosen!.startCap) * 10n ** 18n) / (form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply)}
-                p1={((form.customPair ? customGraduationCap : chosen!.graduationCap) * 10n ** 18n) / (form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply)}
-                curveSupply={((form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply) * BigInt(form.customPair ? 8000 : chosen!.curveSupplyBps)) / 10_000n}
-                totalSupply={form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply}
-                dec={pairDec}
-                sym={pair}
-                feeBps={form.customPair ? 100 : chosen!.protocolFeeBps + chosen!.creatorFeeBps}
-                ticker={form.symbol}
-              />
-            )}
+            {(form.customPair ? Boolean(customQuote && customGraduationCap > customStartCap) : Boolean(chosen)) && <>
+              <div className="launch-curve-summary">
+                <strong>How this launch moves</strong>
+                <p>Trading starts around {fmt(openingCap ?? 0n, pairDec, 3)} {pair} fully diluted valuation. If buyers fill the curve to {fmt(graduationCap ?? 0n, pairDec, 3)} {pair}, the remaining supply and raised funds move into a locked pool. Reaching that target is not guaranteed.</p>
+              </div>
+              <details className="launch-advanced">
+                <summary>Advanced: explore curve math <span>Optional simulation</span></summary>
+                <div className="launch-advanced-body">
+                  <CurveSim
+                    p0={((form.customPair ? customStartCap : chosen!.startCap) * 10n ** 18n) / (form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply)}
+                    p1={((form.customPair ? customGraduationCap : chosen!.graduationCap) * 10n ** 18n) / (form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply)}
+                    curveSupply={((form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply) * BigInt(form.customPair ? 8000 : chosen!.curveSupplyBps)) / 10_000n}
+                    totalSupply={form.customPair ? CUSTOM_SUPPLY : chosen!.totalSupply}
+                    dec={pairDec}
+                    sym={pair}
+                    feeBps={totalFeeBps}
+                    ticker={form.symbol}
+                  />
+                </div>
+              </details>
+            </>}
 
             <Field label={`Your first buy in ${pair}`}
               help={isNative
@@ -510,6 +569,24 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 </div>
               </Field>
             )}
+          </Step>
+
+          <Step n={5} title="Review before signing" purpose="Read the outcome, cost and recipients together. These launch terms are permanent once the transaction succeeds." done={reviewed}>
+            <LaunchReview
+              rows={[
+                { label: "Token", value: form.name && form.symbol ? `${form.name} ($${form.symbol})` : "Add a name and ticker" },
+                { label: "Launch", value: `Bonding curve paired with ${pair}` },
+                { label: "Price path", value: openingCap && graduationCap ? `${fmt(openingCap, pairDec, 3)} → ${fmt(graduationCap, pairDec, 3)} ${pair} valuation` : "Choose a curve preset" },
+                { label: "Trade fee", value: `${(totalFeeBps / 100).toFixed(2)}% total; 0.30% protocol` },
+                { label: "Fee beneficiaries", value: `Creator ${form.creator}% · burn ${form.buyback}% · liquidity ${form.liquidity}%${form.stakers > 0 ? ` · lockers ${form.stakers}%` : ""} of the distributable share` },
+                { label: "Creator fee wallet", value: form.creator > 0 ? (recipient || "Connect a wallet") : "No creator share" },
+                { label: "First buy", value: firstBuyWei > 0n ? `${form.firstBuy} ${pair}${form.firstBuyLock > 0 ? ` · locked ${LOCKS.find((lock) => lock.seconds === form.firstBuyLock)?.label ?? ""}` : ""}` : "None" },
+                { label: "Launch cost", value: `${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} ETH plus gas${firstBuyWei > 0n ? ` and your ${form.firstBuy} ${pair} first buy` : ""}` },
+              ]}
+              note="The curve may never fill. The preview above explains fee routing, not returns or a guaranteed token sale. Your wallet will show the transaction before it is sent."
+              reviewed={reviewed}
+              onReviewed={(checked) => setReviewedFingerprint(checked ? reviewedTerms : "")}
+            />
           </Step>
 
           <LaunchBar

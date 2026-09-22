@@ -1900,6 +1900,36 @@ html[data-brand="ox"] .direct-sim-summary small { color: #aab5a5; font-size: 10p
 html[data-brand="ox"] .direct-sim-summary strong { color: #e4f5d0; font-size: 18px; font-weight: 650; }
 html[data-brand="ox"] .direct-sim-caption { margin: 9px 0 0; color: #9fa99c; font-size: 11px; line-height: 1.45; }
 html[data-brand="ox"] .direct-sim-details .sim { border: 0; border-top: 1px solid #ffffff1e; border-radius: 0; background: transparent; box-shadow: none; }
+html[data-brand="ox"] .launch-outcome {
+  min-height: 96px;
+  border-color: #ffffff24;
+  border-radius: 15px;
+  background: #282c26;
+  color: #f3f5f0;
+  transition: border-color .16s, background .16s;
+}
+html[data-brand="ox"] .launch-outcome:hover,
+html[data-brand="ox"] .launch-outcome:focus-visible { border-color: #c7e59582; background: #30382b; }
+html[data-brand="ox"] .launch-outcome.selected { border-color: #c7e595a8; background: #34402f; }
+html[data-brand="ox"] .launch-outcome strong { font-weight: 650; }
+html[data-brand="ox"] .launch-outcome span,
+html[data-brand="ox"] .launch-outcome-note { color: #afb9aa; }
+html[data-brand="ox"] .launch-fee-example,
+html[data-brand="ox"] .launch-curve-summary,
+html[data-brand="ox"] .launch-review { border-color: #ffffff23; border-radius: 15px; background: #242823; }
+html[data-brand="ox"] .launch-fee-example-kicker { color: #c7e595; }
+html[data-brand="ox"] .launch-fee-example > p,
+html[data-brand="ox"] .launch-fee-example > small,
+html[data-brand="ox"] .launch-curve-summary span,
+html[data-brand="ox"] .launch-review-note,
+html[data-brand="ox"] .launch-fee-example dt,
+html[data-brand="ox"] .launch-review-rows dt { color: #aab5a5; }
+html[data-brand="ox"] .launch-fee-example dl > div,
+html[data-brand="ox"] .launch-review-rows > div,
+html[data-brand="ox"] .launch-review-ack { border-color: #ffffff1e; }
+html[data-brand="ox"] .launch-advanced { border-color: #ffffff23; background: #262a24; }
+html[data-brand="ox"] .launch-advanced > summary { color: #f0f2ed; }
+html[data-brand="ox"] .launch-review-ack { color: #f1f5ed; }
 @media (max-width: 640px) {
   html[data-brand="ox"] .direct-preset-grid,
   html[data-brand="ox"] .direct-preset-grid-three { grid-template-columns: 1fr; }
@@ -1907,4 +1937,5 @@ html[data-brand="ox"] .direct-sim-details .sim { border: 0; border-top: 1px soli
   html[data-brand="ox"] .direct-sim-summary { gap: 5px; }
   html[data-brand="ox"] .direct-sim-summary > span { min-height: 65px; padding: 8px; }
   html[data-brand="ox"] .direct-sim-summary strong { font-size: 15px; }
+  html[data-brand="ox"] .launch-outcome { min-height: 72px; }
 }

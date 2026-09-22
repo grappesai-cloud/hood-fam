@@ -155,6 +155,50 @@ export function WhatHappens({ items }: { items: string[] }) {
   );
 }
 
+/// A last, plain-language receipt before irreversible launch parameters reach the wallet.
+/// The parent owns `reviewed` so any change to the terms can invalidate an earlier acknowledgement.
+export function LaunchReview({ rows, reviewed, onReviewed, note }: {
+  rows: { label: string; value: string }[];
+  reviewed: boolean;
+  onReviewed: (reviewed: boolean) => void;
+  note?: string;
+}) {
+  return (
+    <div className="launch-review">
+      <dl className="launch-review-rows">
+        {rows.map((row) => (
+          <div key={row.label}>
+            <dt>{row.label}</dt><dd>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {note && <p className="launch-review-note">{note}</p>}
+      <label className="launch-review-ack">
+        <input type="checkbox" checked={reviewed} onChange={(event) => onReviewed(event.target.checked)} />
+        <span>I reviewed these terms. Fees and launch rules cannot be changed after the transaction.</span>
+      </label>
+    </div>
+  );
+}
+
+/// Shows a concrete trade rather than asking users to infer outcomes from percentages.
+export function LaunchFeeExample({ title, description, rows, note }: {
+  title: string;
+  description: string;
+  rows: { label: string; value: string }[];
+  note: string;
+}) {
+  return (
+    <div className="launch-fee-example">
+      <span className="launch-fee-example-kicker">Example, not a forecast</span>
+      <strong>{title}</strong>
+      <p>{description}</p>
+      <dl>{rows.map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
+      <small>{note}</small>
+    </div>
+  );
+}
+
 /// Shared: both machines split a fee across destinations now, so both draw the same control.
 export function Slider({ label, min, max, step, value, onChange, hint }: {
   label: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void; hint?: string;

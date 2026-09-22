@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { curveBuy, raiseTarget, priceAt, snipeBpsAt } from "@hood/sdk";
+import { curveBuy, raiseTarget, snipeBpsAt } from "@hood/sdk";
 import { compact, fmt } from "@/lib/format";
 import { Slider } from "@/components/LaunchUI";
 
@@ -36,8 +36,6 @@ export function CurveSim({ p0, p1, curveSupply, totalSupply, dec, sym, feeBps, t
   const avg = shot.tokensOut === 0n ? 0n : (paid * WAD) / shot.tokensOut;
   const move = shot.priceBefore === 0n ? 0 : Number((shot.priceAfter - shot.priceBefore) * 10_000n / shot.priceBefore) / 100;
   const supplyPct = totalSupply === 0n ? 0 : Number((shot.tokensOut * 10_000n) / totalSupply) / 100;
-  const worth = shot.worthAtGraduation;
-  const multiple = paid === 0n ? 0 : Number((worth * 100n) / paid) / 100;
 
   // The picture: price against how much of the curve is gone. Linear, so the line is straight and
   // the area under it is the raise; the lime block is the slice this buy takes out of it.
@@ -68,11 +66,10 @@ export function CurveSim({ p0, p1, curveSupply, totalSupply, dec, sym, feeBps, t
         <SimRow label="you get" value={`${compact(shot.tokensOut)} ${ticker || "tokens"}`} note={`${supplyPct.toFixed(2)}% of the supply`} />
         <SimRow label="average price" value={priceLine(avg, dec, sym)} note={`the price moves +${move.toFixed(2)}%`} />
         <SimRow label="fee on the way in" value={`${fmt(shot.fee, dec, 6)} ${sym}`} note={`${(feeBps / 100).toFixed(2)}% of the trade`} />
-        <SimRow label="if it sells out" value={`${fmt(worth, dec, 5)} ${sym}`} note={`${multiple.toFixed(2)}x what you put in`} strong />
       </div>
       <p className="sim-note">
-        Arithmetic, not a forecast. The last line is what those tokens are worth at the graduation
-        price and assumes the curve gets there, which nothing guarantees.
+        This is a price-and-fee illustration, not a return estimate. It does not predict whether
+        the curve reaches graduation or what a later sale would receive.
       </p>
     </div>
   );

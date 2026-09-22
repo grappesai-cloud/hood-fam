@@ -11,7 +11,7 @@ import { api, type PairRow } from "@/lib/api";
 import { pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
-import { Choice, Field, LaunchBar, PairChooser, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
+import { Choice, Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
 import { DirectSim } from "@/components/Sim";
 import { brand } from "@/brands";
 
@@ -23,10 +23,10 @@ const FEE_PRESETS = [
   { id: "protected", title: "Protected opening", detail: "5% buy · 5% sell · extra 50% fades over 3 seconds", values: { buyTax: 5, sellTax: 5, snipeTax: 50, snipeSeconds: 3 } },
 ] as const;
 const SPLIT_PRESETS = [
-  { id: "balanced", title: "Balanced", detail: "Creator 25% · burn 25% · holders 40% · liquidity 10%", values: { creatorBps: 25, buybackBps: 25, dividendsBps: 40, liquidityBps: 10 } },
-  { id: "creator", title: "Creator income", detail: "Creator 50% · burn 10% · holders 30% · liquidity 10%", values: { creatorBps: 50, buybackBps: 10, dividendsBps: 30, liquidityBps: 10 } },
-  { id: "holders", title: "Holder rewards", detail: "Creator 10% · burn 15% · holders 65% · liquidity 10%", values: { creatorBps: 10, buybackBps: 15, dividendsBps: 65, liquidityBps: 10 } },
-  { id: "burn", title: "Buyback focus", detail: "Creator 10% · burn 60% · holders 20% · liquidity 10%", values: { creatorBps: 10, buybackBps: 60, dividendsBps: 20, liquidityBps: 10 } },
+  { id: "balanced", title: "Share it around", detail: "Most goes to holders, with a share for you, buybacks and liquidity.", values: { creatorBps: 25, buybackBps: 25, dividendsBps: 40, liquidityBps: 10 } },
+  { id: "creator", title: "Pay the creator", detail: "Half of the distributable fee goes to your chosen address.", values: { creatorBps: 50, buybackBps: 10, dividendsBps: 30, liquidityBps: 10 } },
+  { id: "holders", title: "Reward holders", detail: "Most of the distributable fee goes to eligible token holders.", values: { creatorBps: 10, buybackBps: 15, dividendsBps: 65, liquidityBps: 10 } },
+  { id: "burn", title: "Buy back the token", detail: "Most funds buy tokens on the market and burn them.", values: { creatorBps: 10, buybackBps: 60, dividendsBps: 20, liquidityBps: 10 } },
 ] as const;
 const OPENING_PRESETS = [
   { id: "open", title: "Open from block one", detail: "No temporary wallet limits", values: { restrictionBlocks: 0, maxHold: 20, maxBuy: 20 } },
@@ -57,6 +57,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const receipt = useWaitForTransactionReceipt({ hash });
   const [mining, setMining] = useState(false);
   const [error, setError] = useState<string>();
+  const [reviewedFingerprint, setReviewedFingerprint] = useState("");
 
   const [form, setForm] = useState({
     name: "", symbol: "", logo: "", description: "",
@@ -147,6 +148,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     && allocationSum === 100 && taxValid && windowValid
     && (!supportsFeeRecipient || form.creatorBps === 0 || form.feeRecipient === "" || isAddress(form.feeRecipient))
     && Number(form.bondFdv) > Number(form.openFdv);
+  const reviewedTerms = JSON.stringify({ form, launchFee: String(launchFee ?? 0n), supportsFeeRecipient });
+  const reviewed = reviewedFingerprint === reviewedTerms;
 
   useEffect(() => {
     if (receipt.isSuccess && receipt.data) {
@@ -158,7 +161,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   }, [receipt.isSuccess, receipt.data, router]);
 
   async function launch() {
-    if (!address || !directAddresses.portal || !initCodeHash) return;
+    if (!address || !directAddresses.portal || !initCodeHash || !reviewed) return;
     setError(undefined);
     setMining(true);
     try {
@@ -247,6 +250,9 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   });
   const needsQuoteApproval = !isNative && firstBuyUnits > 0n
     && ((quoteAllowance as bigint | undefined) ?? 0n) < firstBuyUnits;
+  const buyFee = form.buyTax / 100;
+  const feeAmount = (part: number) => `${(buyFee * 0.9 * part / 100).toFixed(4)} ${quoteSym}`;
+  const recipient = supportsFeeRecipient ? (form.feeRecipient || address || "your connected wallet") : (address || "your connected wallet");
 
   // One reason at a time, in the order somebody would hit them.
   const blocked = !address ? "Connect a wallet first. It pays the fee and becomes the creator."
@@ -257,6 +263,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : !splitDone ? `Step 5: the four shares add up to ${allocationSum}%. They have to make 100.`
     : !windowValid ? "Step 6: a single-buy cap cannot exceed 110% of the wallet holding cap."
     : supportsFeeRecipient && form.creatorBps > 0 && form.feeRecipient !== "" && !isAddress(form.feeRecipient) ? "Step 5 needs a valid creator fee recipient."
+    : !reviewed ? "Step 7: review and acknowledge the permanent launch terms."
     : portalGeneration.isLoading ? "Checking the launch contract version."
     : !initCodeHash ? "Still reading the deployer. One moment."
     : undefined;
@@ -268,6 +275,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     { n: 4, label: "Trading fees", done: taxValid },
     { n: 5, label: "The split", done: splitDone },
     { n: 6, label: "Opening limits", done: windowValid },
+    { n: 7, label: "Review terms", done: reviewed },
   ];
 
   return (
@@ -361,7 +369,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               openFdv={Number(form.openFdv)} bondFdv={Number(form.bondFdv)} quoteSymbol={quoteSym} />
           </Step>
 
-          <Step n={5} title="Who receives the fees" purpose="The protocol keeps 10% of collected trading tax. Choose how the other 90% is shared. Your choice is permanent." done={splitDone}>
+          <Step n={5} title="Who benefits from each trade?" purpose="Choose the outcome first. The protocol keeps 10% of collected trading tax; your choice divides the other 90% and is permanent." done={splitDone}>
             <div className="direct-preset-grid" role="group" aria-label="Fee distribution preset">
               {SPLIT_PRESETS.map((preset) => (
                 <button key={preset.id} type="button" className={splitPreset === preset.id ? "direct-preset selected" : "direct-preset"}
@@ -374,6 +382,15 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               <strong>{splitDone ? "Where the distributable 90% goes" : `Shares total ${allocationSum}% — make them 100%`}</strong>
               <span>Creator {form.creatorBps}% · buyback &amp; burn {form.buybackBps}% · holders {form.dividendsBps}% · locked liquidity {form.liquidityBps}%</span>
             </div>
+            <LaunchFeeExample title={`If someone buys with 1 ${quoteSym} after opening`} description={`The ${form.buyTax}% buy tax is ${buyFee.toFixed(4)} ${quoteSym}. Here is where that tax goes:`}
+              rows={[
+                { label: "Protocol (10% of tax)", value: `${(buyFee * 0.1).toFixed(4)} ${quoteSym}` },
+                { label: "Creator address", value: feeAmount(form.creatorBps) },
+                { label: "Buyback and burn", value: feeAmount(form.buybackBps) },
+                { label: "Eligible holders", value: feeAmount(form.dividendsBps) },
+                { label: "Locked liquidity", value: feeAmount(form.liquidityBps) },
+              ]}
+              note="Illustrative amounts before rounding. An opening surcharge, pool fee and price movement can also affect a trade. A sell uses the sell-tax rate." />
             <details className="direct-advanced">
               <summary>Make a custom split <span>Optional</span></summary>
               <p className="field-note">These four numbers must add up to 100%. They divide the 90% left after the protocol share.</p>
@@ -427,6 +444,23 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               <input className="input mono" inputMode="decimal" value={form.firstBuy}
                 onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
             </Field>
+          </Step>
+
+          <Step n={7} title="Review before you sign" purpose="This is the receipt for the permanent rules you are about to send on chain. Changing any field above means reviewing again." done={reviewed}>
+            <LaunchReview reviewed={reviewed} onReviewed={(checked) => setReviewedFingerprint(checked ? reviewedTerms : "")}
+              rows={[
+                { label: "Token", value: `${form.name || "Unnamed"} ($${form.symbol || "—"})` },
+                { label: "Launch", value: `Direct locked pool, quoted in ${quoteSym}` },
+                { label: "Price path", value: `${form.openFdv} to ${form.bondFdv} ${quoteSym} valuation` },
+                { label: "Trade tax", value: `${form.buyTax}% buy · ${form.sellTax}% sell` },
+                { label: "Opening extra", value: form.snipeTax ? `+${form.snipeTax}% fading over ${form.snipeSeconds}s` : "None" },
+                { label: "Fee destination", value: `Creator ${form.creatorBps}% · burn ${form.buybackBps}% · holders ${form.dividendsBps}% · liquidity ${form.liquidityBps}% of the distributable 90%` },
+                { label: "Creator address", value: recipient },
+                { label: "Opening limits", value: form.restrictionBlocks ? `${form.restrictionBlocks} blocks · max hold ${form.maxHold}% · max buy ${form.maxBuy}%` : "None" },
+                { label: "Your first buy", value: `${form.firstBuy || "0"} ${quoteSym}` },
+                { label: "Launch fee", value: `${formatUnits(fee, 18)} ETH plus gas` },
+              ]}
+              note="This is not a profit estimate. The pool price can move in either direction; buyers may lose money. If you use a non-native quote token, the first buy may require a separate approval." />
           </Step>
 
           {error && <p className="panel p-3 text-xs text-[var(--color-red)]">{error}</p>}
