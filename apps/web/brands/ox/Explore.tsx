@@ -27,7 +27,7 @@ type SortKey = (typeof SORTS)[number]["key"];
 export function Explore() {
   const [sort, setSort] = useState<SortKey>("volume");
   const [q, setQ] = useState("");
-  const [view, setView] = useState<"board" | "cards">("board");
+  const [view, setView] = useState<"board" | "cards">("cards");
   const search = useRef<HTMLInputElement>(null);
   const query = SORTS.find((item) => item.key === sort)?.query ?? "sort=new";
 
@@ -77,43 +77,6 @@ export function Explore() {
           <Link className="ox-tape-action" href="/launch">Launch yours <span>→</span></Link>
         </div>
       ) : null}
-
-      <section className="ox-hero">
-        <div className="ox-hero-copy">
-          <div className="ox-live-pill"><i aria-hidden="true" /> Robinhood Chain launchpad</div>
-          <h1>Launch tokens.<br /><em>Trade together.</em></h1>
-          <p>
-            Create a token, follow the market and see exactly where the fees go.
-            Creators choose a fee wallet; eligible activity earns points toward the season pool.
-          </p>
-          <div className="ox-hero-actions">
-            <Link className="ox-primary-action" href="/launch"><span>＋</span>Create token</Link>
-            <Link className="ox-secondary-action" href="/airdrop">See the fee pool <span>↗</span></Link>
-          </div>
-          <div className="ox-trust-line"><span>Transparent curves</span><span>Creator fee wallet</span><span>Locked liquidity at graduation</span></div>
-        </div>
-        <div className="ox-hero-visual" aria-label="ox.family glass logo">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/ox/ox-hero-green-v1-1200.webp"
-            srcSet="/ox/ox-hero-green-v1-1200.webp 1200w, /ox/ox-hero-green-v1.webp 1774w"
-            sizes="(max-width: 640px) 92vw, 54vw"
-            alt="Green glossy OX logo"
-            width={1774}
-            height={887}
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-          />
-        </div>
-      </section>
-
-      <section className="ox-market-strip" aria-label="Platform activity">
-        <MarketStat label="Tokens launched" value={stats.data?.launches ?? "—"} />
-        <MarketStat label="Graduated" value={stats.data?.graduated ?? "—"} />
-        <MarketStat label="24h volume" value={stats.data ? `${compact(BigInt(stats.data.volume_24h || "0"))} ETH` : "—"} hot />
-        <MarketStat label="Active traders" value={stats.data?.traders ?? "—"} />
-      </section>
 
       {trending.data?.tokens.length ? (
         <section className="ox-trending-section" aria-labelledby="trending-title">
@@ -181,6 +144,44 @@ export function Explore() {
           />
         )}
       </section>
+
+      <section className="ox-hero">
+        <div className="ox-hero-copy">
+          <div className="ox-live-pill"><i aria-hidden="true" /> Robinhood Chain launchpad</div>
+          <h1>Launch tokens.<br /><em>Trade together.</em></h1>
+          <p>
+            Create a token, follow the market and see exactly where the fees go.
+            Creators choose a fee wallet; eligible activity earns points toward the season pool.
+          </p>
+          <div className="ox-hero-actions">
+            <Link className="ox-primary-action" href="/launch"><span>＋</span>Create token</Link>
+            <Link className="ox-secondary-action" href="/airdrop">See the fee pool <span>↗</span></Link>
+          </div>
+          <div className="ox-trust-line"><span>Transparent curves</span><span>Creator fee wallet</span><span>Locked liquidity at graduation</span></div>
+        </div>
+        <div className="ox-hero-visual" aria-label="ox.family glass logo">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/ox/ox-hero-green-v1-1200.webp"
+            srcSet="/ox/ox-hero-green-v1-1200.webp 1200w, /ox/ox-hero-green-v1.webp 1774w"
+            sizes="(max-width: 640px) 92vw, 54vw"
+            alt="Green glossy OX logo"
+            width={1774}
+            height={887}
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      </section>
+
+      {Number(stats.data?.launches ?? 0) > 0 ? (
+        <section className="ox-market-strip" aria-label="Platform activity">
+          <MarketStat label="Tokens launched" value={stats.data?.launches ?? "—"} />
+          <MarketStat label="Graduated" value={stats.data?.graduated ?? "—"} />
+          <MarketStat label="24h volume" value={stats.data ? `${compact(BigInt(stats.data.volume_24h || "0"))} ETH` : "—"} hot />
+          <MarketStat label="Active traders" value={stats.data?.traders ?? "—"} />
+        </section>
+      ) : null}
 
       {hasMarketActivity ? (
         <>

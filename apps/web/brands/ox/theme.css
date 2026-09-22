@@ -1353,3 +1353,85 @@ html[data-brand="ox"] .bridge-tabs button.bridge-tab-active { border-color: #afd
   html[data-brand="ox"] .bridge-story { padding: 0 0 16px; }
   html[data-brand="ox"] .bridge-workspace { padding: 16px; }
 }
+
+/* The market is the home page. The product story follows the work, as on a trading board. */
+html[data-brand="ox"] .ox-home { max-width: 1160px; }
+html[data-brand="ox"] .ox-discover { padding-top: 26px; }
+html[data-brand="ox"] .ox-trending-section { padding-top: 26px; }
+html[data-brand="ox"] .ox-trending-section + .ox-discover { padding-top: 24px; }
+html[data-brand="ox"] .ox-hero { min-height: 235px; margin-top: 28px; }
+html[data-brand="ox"] .ox-hero-copy { padding-top: 24px; padding-bottom: 24px; }
+html[data-brand="ox"] .ox-hero h1 { font-size: clamp(33px, 3.2vw, 45px); }
+html[data-brand="ox"] .ox-hero-visual > img { width: min(82%, 255px); }
+html[data-brand="ox"] .ox-token-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+html[data-brand="ox"] .ox-token-card,
+html[data-brand="ox"] .ox-trending-card,
+html[data-brand="ox"] .ox-board-wrap { border-color: #ffffff20; border-radius: 11px; background: #1a1e19; box-shadow: none; backdrop-filter: none; }
+html[data-brand="ox"] .ox-token-card:hover,
+html[data-brand="ox"] .ox-trending-card:hover { border-color: #afd47e77; background: #20271e; box-shadow: none; transform: none; }
+html[data-brand="ox"] .ox-token-art { height: 160px; background: #111510; }
+html[data-brand="ox"] .ox-token-body { padding: 12px; }
+html[data-brand="ox"] .ox-token-title strong { font-size: 14px; }
+html[data-brand="ox"] .ox-token-body > p { color: #adb5a8; font-size: 11px; }
+html[data-brand="ox"] .ox-token-numbers small { color: #9ba596; font-size: 9px; }
+html[data-brand="ox"] .ox-token-numbers strong { font-size: 10px; }
+html[data-brand="ox"] .ox-token-skeleton { height: 342px; border-radius: 11px; }
+html[data-brand="ox"] .ox-market-strip { margin-top: 11px; }
+
+/* The short two-frame entrance borrows the editorial rhythm of the references, not their marks. */
+.ox-intro { display: none; }
+html[data-brand="ox"][data-ox-splash="show"] .ox-intro {
+  position: fixed;
+  z-index: 500;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #ddceed;
+  color: #171a16;
+  font-family: Arial, Helvetica, sans-serif;
+  pointer-events: auto;
+  animation: oxIntroExit 1050ms ease both;
+}
+.ox-intro-first,
+.ox-intro-second { position: absolute; inset: 0; }
+.ox-intro-first { display: grid; place-items: center; animation: oxIntroFirst 1050ms both; }
+.ox-intro-first > span { font-size: clamp(64px, 12vw, 180px); font-weight: 800; letter-spacing: -.095em; line-height: 1; }
+.ox-intro-first > small { position: absolute; right: 5vw; bottom: 5vh; font-size: 12px; font-weight: 700; letter-spacing: .12em; }
+.ox-intro-second {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(24px, 5vw, 75px);
+  background: #b8d58e;
+  opacity: 0;
+  animation: oxIntroSecond 1050ms both;
+}
+.ox-intro-eyebrow { font-size: clamp(12px, 1.5vw, 20px); font-weight: 700; letter-spacing: -.025em; text-transform: uppercase; }
+.ox-intro-second > strong { font-size: clamp(65px, 15vw, 210px); font-weight: 800; letter-spacing: -.09em; line-height: .78; }
+.ox-intro-arrow { position: absolute; top: 38%; right: 9%; font-size: clamp(110px, 18vw, 260px); font-weight: 800; line-height: 1; }
+.ox-intro-foot { display: flex; align-items: center; gap: 15px; font-size: clamp(14px, 2vw, 27px); font-weight: 700; letter-spacing: -.04em; }
+.ox-intro-foot i { width: 34px; height: 1px; background: currentColor; }
+@keyframes oxIntroFirst { 0%, 33% { opacity: 1; transform: translateY(0); } 46%, 100% { opacity: 0; transform: translateY(-16px); } }
+@keyframes oxIntroSecond { 0%, 35% { opacity: 0; transform: translateY(12px); } 49%, 100% { opacity: 1; transform: translateY(0); } }
+@keyframes oxIntroExit { 0%, 80% { opacity: 1; visibility: visible; } 100% { opacity: 0; visibility: hidden; } }
+
+@media (max-width: 1260px) {
+  html[data-brand="ox"] .ox-token-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  html[data-brand="ox"] .ox-token-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  html[data-brand="ox"] .ox-hero { min-height: 210px; }
+}
+@media (max-width: 640px) {
+  html[data-brand="ox"] .ox-discover { padding-top: 18px; }
+  html[data-brand="ox"] .ox-token-grid { grid-template-columns: 1fr; }
+  html[data-brand="ox"] .ox-hero { margin-top: 18px; }
+  html[data-brand="ox"] .ox-hero-copy { padding: 20px; }
+  html[data-brand="ox"] .ox-intro-first > span { font-size: 19vw; }
+  html[data-brand="ox"] .ox-intro-second > strong { font-size: 17vw; }
+  html[data-brand="ox"] .ox-intro-arrow { top: 45%; right: 8%; font-size: 30vw; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-brand="ox"] .ox-intro { display: none !important; }
+}

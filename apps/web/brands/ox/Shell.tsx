@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { robinhood } from "@hood/sdk";
 import { shortAddress } from "@/lib/format";
@@ -26,8 +26,24 @@ const PRIMARY_NAV = [
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
 
+  useEffect(() => {
+    if (document.documentElement.dataset.oxSplash !== "show") return;
+    try { sessionStorage.setItem("ox-intro-seen-v1", "1"); } catch { /* Storage is optional. */ }
+    const timer = window.setTimeout(() => { delete document.documentElement.dataset.oxSplash; }, 1050);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <div className="ox-app-shell">
+      <div className="ox-intro" aria-hidden="true">
+        <div className="ox-intro-first"><span>ox.family</span><small>ROBINHOOD CHAIN</small></div>
+        <div className="ox-intro-second">
+          <span className="ox-intro-eyebrow">A market for every community</span>
+          <strong>CREATE<br />TRADE</strong>
+          <span className="ox-intro-arrow">↗</span>
+          <span className="ox-intro-foot">CREATE <i /> TRADE <i /> SHARE</span>
+        </div>
+      </div>
       <header className="ox-topbar">
         <div className="ox-topbar-inner">
           <Link href="/" className="ox-brand-link" aria-label={`${brand.name} home`}><Wordmark /></Link>

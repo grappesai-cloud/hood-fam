@@ -29,10 +29,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" data-brand={brand.id}>
+    <html lang="en" data-brand={brand.id} suppressHydrationWarning={brand.id === "ox"}>
       {brand.id === "ox" ? (
         <head>
-          <link rel="preload" href="/ox/ox-hero-green-v1-1200.webp" as="image" type="image/webp" fetchPriority="high" />
+          <script dangerouslySetInnerHTML={{ __html: `try{if(!sessionStorage.getItem('ox-intro-seen-v1')&&!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElement.dataset.oxSplash='show'}catch{}` }} />
         </head>
       ) : null}
       <body className="min-h-screen">
