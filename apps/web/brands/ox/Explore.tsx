@@ -12,11 +12,11 @@ import { FomoFeed } from "@/components/FomoFeed";
 import { TopTraders } from "@/components/TopTraders";
 
 const SORTS = [
-  { key: "volume", label: "🔥 Trending", query: "sort=volume" },
-  { key: "new", label: "◆ Seed alpha", query: "sort=new&category=new" },
+  { key: "volume", label: "Trending", query: "sort=volume" },
+  { key: "new", label: "New", query: "sort=new&category=new" },
   { key: "stocks", label: "Stocks", query: "sort=volume&category=stocks" },
-  { key: "graduating", label: "🚀 Bonding", query: "sort=progress&status=graduating" },
-  { key: "graduated", label: "Listed", query: "sort=graduated&status=graduated" },
+  { key: "graduating", label: "Bonding", query: "sort=progress&status=graduating" },
+  { key: "graduated", label: "Graduated", query: "sort=graduated&status=graduated" },
   { key: "culture", label: "Culture pairs", query: "sort=volume&category=culture" },
   { key: "direct", label: "Direct pool", query: "sort=volume&category=direct" },
   { key: "locked", label: "Low risk", query: "sort=volume&category=locked" },

@@ -1939,3 +1939,146 @@ html[data-brand="ox"] .launch-review-ack { color: #f1f5ed; }
   html[data-brand="ox"] .direct-sim-summary strong { font-size: 15px; }
   html[data-brand="ox"] .launch-outcome { min-height: 72px; }
 }
+
+/* OX market polish: a quiet, neutral trading canvas with lime reserved for decisions. */
+html[data-brand="ox"] {
+  --color-ink: #141414;
+  --color-ink-2: #191919;
+  --color-panel: #202020;
+  --color-line: #ffffff1d;
+  --color-dim: #a6a6a6;
+  --color-text: #ededed;
+  --color-lime: #d7f580;
+  --color-lime-soft: #e4f9ae;
+  --glass: #202020;
+  --glass-line: #ffffff20;
+  --glass-shadow: 0 18px 50px -38px #000;
+  --glass-hover-line: #d7f58080;
+}
+html[data-brand="ox"] body { background: #141414; letter-spacing: -.008em; }
+html[data-brand="ox"] body::before { display: none; }
+html[data-brand="ox"] .ox-topbar { border-color: #ffffff17; background: #171717f5; }
+html[data-brand="ox"] .ox-topbar-inner { height: 72px; }
+html[data-brand="ox"] .ox-topbar .ox-nav,
+html[data-brand="ox"] .ox-sort-tabs,
+html[data-brand="ox"] .ox-view-switch { border-color: #ffffff0d; background: #252525; }
+html[data-brand="ox"] .ox-topbar .ox-nav-link.active,
+html[data-brand="ox"] .ox-sort-tabs button.active,
+html[data-brand="ox"] .ox-view-switch button.active { background: #383838; }
+html[data-brand="ox"] .ox-more-menu summary,
+html[data-brand="ox"] .ox-launch-button,
+html[data-brand="ox"] .ox-market-shortcuts > * { border-color: #ffffff22; background: #222; }
+html[data-brand="ox"] .ox-more-menu nav { border-color: #ffffff21; background: #252525; }
+html[data-brand="ox"] .ox-more-menu nav a:hover,
+html[data-brand="ox"] .ox-more-menu summary:hover,
+html[data-brand="ox"] .ox-launch-button:hover,
+html[data-brand="ox"] .ox-market-shortcuts > :hover { background: #303030; }
+html[data-brand="ox"] .ox-app-shell .ox-topbar .ox-launch-button { border-color: #ffffff22; background: #222; }
+html[data-brand="ox"] .ox-app-shell .ox-topbar .ox-launch-button:hover:not(:disabled) { border-color: #ffffff56; background: #303030; }
+html[data-brand="ox"] .ox-market-toolbar .ox-search { border-color: #ffffff1b; background: #1e1e1e; }
+html[data-brand="ox"] .ox-market-toolbar .ox-search:focus-within { border-color: #d7f5808c; }
+html[data-brand="ox"] .ox-discover,
+html[data-brand="ox"] .ox-trending-section,
+html[data-brand="ox"] .ox-hero,
+html[data-brand="ox"] .ox-how { border-color: #ffffff24; background: #1c1c1c; box-shadow: none; }
+html[data-brand="ox"] .ox-trending-section { border-color: #d7f58066; background: radial-gradient(90% 110% at 0 0, #d7f58016, transparent 64%), #1c1c1c; }
+html[data-brand="ox"] .ox-section-heading h2 { font-weight: 540; letter-spacing: -.035em; }
+html[data-brand="ox"] .ox-heading-kicker,
+html[data-brand="ox"] .section-kicker { color: #b9b9b9; }
+html[data-brand="ox"] .ox-section-heading > p { color: #999; }
+html[data-brand="ox"] .ox-token-card,
+html[data-brand="ox"] .ox-trending-card { border-color: #ffffff0e; background: #262626; }
+html[data-brand="ox"] .ox-token-card:hover,
+html[data-brand="ox"] .ox-trending-card:hover { border-color: #ffffff44; background: #2c2c2c; transform: translateY(-1px); }
+html[data-brand="ox"] .ox-token-art,
+html[data-brand="ox"] .ox-trending-art { background: #191919; }
+html[data-brand="ox"] .ox-state,
+html[data-brand="ox"] .ox-board-wrap { border-color: #ffffff1d; background: #222; }
+html[data-brand="ox"] .ox-board-table tbody tr:hover { background: #ffffff08; }
+html[data-brand="ox"] .ox-hero { margin-top: 16px; }
+html[data-brand="ox"] .ox-hero h1 { font-weight: 650; letter-spacing: -.055em; }
+html[data-brand="ox"] .ox-hero h1 em { color: #f3f3f3; text-shadow: none; }
+html[data-brand="ox"] .ox-hero-copy > p { color: #adadad; }
+html[data-brand="ox"] .ox-live-pill { border-color: #ffffff25; background: #ffffff08; color: #c4c4c4; }
+html[data-brand="ox"] .ox-hero-visual { background: #1c1c1c; }
+html[data-brand="ox"] .ox-hero-visual::after { background: linear-gradient(90deg, #1c1c1c 0, transparent 25%); }
+html[data-brand="ox"] .ox-hero-orbit { border-color: #ffffff0c; }
+html[data-brand="ox"] :is(.panel, .launch-preview, .step, .choice, .launch-bar, .sim, .art-picker, .trade-panel, .chat-panel, .holder-map, .bridge-workspace, .token-hero, .token-facts, .chart-panel, .token-tape) { border-color: #ffffff22; background: #202020; box-shadow: none; }
+html[data-brand="ox"] :is(.input, textarea.input, select.input) { border-color: #ffffff29; background: #252525; color: #f1f1f1; }
+html[data-brand="ox"] :is(.input, textarea.input, select.input):focus { border-color: #d7f580aa; box-shadow: 0 0 0 3px #d7f58016; }
+html[data-brand="ox"] .btn-ghost { border-color: #ffffff29; background: #282828; }
+html[data-brand="ox"] :is(.page-intro h1, .page-head h1) { font-weight: 560; letter-spacing: -.035em; }
+html[data-brand="ox"] .launch-shell { max-width: 1020px !important; }
+html[data-brand="ox"] .launch-shell > .page-intro { margin-bottom: 24px; }
+html[data-brand="ox"] .launch-shell > .page-intro h1 { margin-top: 7px; font-size: 32px; }
+html[data-brand="ox"] .launch-shell > .page-intro p { max-width: 510px; color: #a4a4a4; font-size: 13px; }
+html[data-brand="ox"] .launch-content { grid-template-columns: minmax(0, 1fr) 350px; border-color: #ffffff24; border-radius: 26px; background: #1d1d1d; }
+html[data-brand="ox"] .launch-guide { padding: 35px 36px 42px; }
+html[data-brand="ox"] .rail { margin-bottom: 6px; }
+html[data-brand="ox"] .rail-title { color: #a1a1a1; }
+html[data-brand="ox"] .rail ol { display: none; }
+html[data-brand="ox"] .step,
+html[data-brand="ox"] .step + .step { border-top-color: #ffffff1c; padding: 28px 0 !important; }
+html[data-brand="ox"] .step-head { margin-bottom: 20px; border-bottom-color: #ffffff1b; padding-bottom: 17px; }
+html[data-brand="ox"] .step-head h2 { font-size: 18px; font-weight: 570; }
+html[data-brand="ox"] .step-head p { color: #aaa; font-size: 13px; line-height: 1.55; }
+html[data-brand="ox"] .field-label { color: #d6d6d6; font-size: 13px; font-weight: 550; }
+html[data-brand="ox"] .field-note { color: #a0a0a0; font-size: 12px; }
+html[data-brand="ox"] .choice,
+html[data-brand="ox"] .launch-outcome,
+html[data-brand="ox"] .direct-preset { border-color: #ffffff24; background: #252525; }
+html[data-brand="ox"] .choice.on,
+html[data-brand="ox"] .launch-outcome.selected,
+html[data-brand="ox"] .direct-preset.selected { border-color: #d7f580a0; background: #2b2e25; }
+html[data-brand="ox"] .choice-body,
+html[data-brand="ox"] .launch-outcome span,
+html[data-brand="ox"] .direct-preset span { color: #b5b5b5; }
+html[data-brand="ox"] .launch-preview { border-left-color: #ffffff1b; padding: 44px 30px; background: #232323; }
+html[data-brand="ox"] .launch-preview-label { color: #aaa; }
+html[data-brand="ox"] .launch-preview-details { margin-top: 24px; border: 1px solid #ffffff25; border-radius: 20px; padding: 18px; background: #262626; }
+html[data-brand="ox"] .launch-preview-details .dim { color: #aaa; }
+html[data-brand="ox"] .launch-bar { border-color: #ffffff29; background: #272727; }
+html[data-brand="ox"] .direct-impact,
+html[data-brand="ox"] .launch-fee-example,
+html[data-brand="ox"] .launch-curve-summary,
+html[data-brand="ox"] .launch-review { border-color: #ffffff23; background: #252525; }
+html[data-brand="ox"] .direct-advanced,
+html[data-brand="ox"] .launch-advanced { border-color: #ffffff23; background: #242424; }
+html[data-brand="ox"] .direct-impact strong,
+html[data-brand="ox"] .direct-sim-summary strong { color: #eee; }
+html[data-brand="ox"] .direct-sim-summary > span { border-color: #ffffff23; background: #252525; }
+html[data-brand="ox"] .bridge-workspace,
+html[data-brand="ox"] .bridge-workspace .panel { background: #202020; }
+html[data-brand="ox"] .bridge-tabs button,
+html[data-brand="ox"] .bridge-tabs button.bridge-tab-active { background: #272727; }
+html[data-brand="ox"] .bridge-tabs button.bridge-tab-active { border-color: #ffffff55; background: #373737; }
+html[data-brand="ox"] .token-layout { gap: 16px; }
+html[data-brand="ox"] .trade-panel { background: #242424; }
+html[data-brand="ox"] .ox-mobile-nav { border-color: #ffffff29; background: #242424f2; }
+html[data-brand="ox"] .ox-mobile-nav a.active { background: #393939; }
+html[data-brand="ox"] .empty { border-color: #ffffff21; background: #222; }
+html[data-brand="ox"] .ox-footer p,
+html[data-brand="ox"] .ox-footer nav { color: #999; }
+@media (max-width: 1000px) {
+  html[data-brand="ox"] .launch-content { grid-template-columns: minmax(0, 1fr) 300px; }
+  html[data-brand="ox"] .launch-guide { padding: 28px; }
+}
+@media (max-width: 900px) {
+  html[data-brand="ox"] .launch-content { grid-template-columns: 1fr; }
+  html[data-brand="ox"] .launch-preview { border-left: 0; border-top: 1px solid #ffffff1b; }
+}
+@media (max-width: 640px) {
+  html[data-brand="ox"] .ox-topbar-inner { height: 62px; }
+  html[data-brand="ox"] .ox-discover,
+  html[data-brand="ox"] .ox-trending-section,
+  html[data-brand="ox"] .ox-hero,
+  html[data-brand="ox"] .ox-how { border-radius: 22px; }
+  html[data-brand="ox"] .ox-discover { position: relative; }
+  html[data-brand="ox"] .ox-discover-controls { display: block; }
+  html[data-brand="ox"] .ox-sort-tabs { width: 100%; }
+  html[data-brand="ox"] .ox-view-switch { position: absolute; top: 19px; right: 17px; }
+  html[data-brand="ox"] .launch-shell > .page-intro h1 { font-size: 29px; }
+  html[data-brand="ox"] .launch-content { border-radius: 22px; }
+  html[data-brand="ox"] .launch-guide { padding: 18px 20px 25px; }
+  html[data-brand="ox"] .launch-preview { padding: 28px 20px; }
+}
