@@ -1181,6 +1181,9 @@ a.race-lead:hover .race-go { color: var(--color-lime); }
    still serves them in its own colours rather than in the default ones. */
 
 .quests-shell, .refer-shell, .following-shell, .trader-shell { display: grid; gap: 22px; }
+/* A bare .panel has no padding of its own; every section on these pages gets the same inset, so
+   a heading never sits on the border. */
+.following-shell > .panel, .trader-shell > .panel, .refer-shell > .panel { padding: 20px 22px !important; }
 
 .quest-claim { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px !important; }
 .quest-claim strong { font-size: 18px; }
@@ -1227,6 +1230,8 @@ a.race-lead:hover .race-go { color: var(--color-lime); }
 .feed-list { display: grid; gap: 2px; list-style: none; }
 .feed-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--glass-line); font-size: 14px; }
 .feed-list li:last-child { border-bottom: 0; }
+/* The empty state is a sentence with a link in it, not a row of cells: no flex, no gaps. */
+.feed-list li.feed-empty { display: block; }
 .feed-watch { margin-left: auto; }
 
 @media (max-width: 640px) {

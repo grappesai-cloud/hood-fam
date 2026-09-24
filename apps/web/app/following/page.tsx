@@ -110,7 +110,7 @@ export default function FollowingPage() {
                 </li>
               ))}
               {!rows.length && (
-                <li className="dim">
+                <li className="dim feed-empty">
                   Nobody you follow has traded yet. Find someone on the <Link href="/leaderboard">board</Link>.
                 </li>
               )}
