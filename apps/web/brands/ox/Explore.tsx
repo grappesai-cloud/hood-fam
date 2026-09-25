@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { ProvenanceKey } from "@/components/Provenance";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type TokenRow } from "@/lib/api";
@@ -10,11 +9,17 @@ import { ago, compact, fmt, imageUrl, launchProgress, pairDecimals, pairSymbol, 
 import { Artwork } from "@/components/Artwork";
 import { GraduationRace } from "@/components/GraduationRace";
 import { FomoFeed } from "@/components/FomoFeed";
-import { TopTraders } from "@/components/TopTraders";
 import { BoostedRow, pinBoosted } from "@/components/board/BoostedRow";
 import { PaydayStrip } from "@/components/board/PaydayStrip";
 import { LastTen } from "@/components/board/LastTen";
 import { BoostBadge } from "@/components/token/BoostBadge";
+import { PaidTicker } from "@/components/landing/PaidTicker";
+import { Desk } from "@/components/landing/Desk";
+
+/// The ox front: a desk, not a hero. The strip of wallets paid this week runs under the header,
+/// the search sits over three columns (paid out, migrated and boosted, trending), and the board
+/// with every launch follows. The desk is components/landing; the board below it is the same
+/// board this page always had.
 
 const SORTS = [
   { key: "volume", label: "Trending", query: "sort=volume" },
@@ -46,11 +51,6 @@ export function Explore() {
     queryKey: ["tokens", sort, q],
     queryFn: () => api<{ tokens: TokenRow[] }>(`/tokens?${query}&limit=60${q ? `&q=${encodeURIComponent(q)}` : ""}`),
   });
-  const trending = useQuery({
-    queryKey: ["ox-trending"],
-    queryFn: () => api<{ tokens: TokenRow[] }>("/tokens?sort=volume&limit=5"),
-    refetchInterval: 30_000,
-  });
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -65,24 +65,11 @@ export function Explore() {
 
   // Whoever paid for the hour sits first, whatever the tab; the tab still orders the rest.
   const rows = pinBoosted(tokens.data?.tokens ?? []);
-  const hasMarketActivity = Number(stats.data?.launches ?? 0) > 0 || rows.length > 0 || Boolean(trending.data?.tokens.length);
+  const hasMarketActivity = Number(stats.data?.launches ?? 0) > 0 || rows.length > 0;
 
   return (
     <div className="ox-home">
-      {trending.data?.tokens.length ? (
-        <div className="ox-live-tape" aria-label="Live market tape">
-          <span className="ox-tape-label"><i aria-hidden="true" /> LIVE</span>
-          <div className="ox-tape-run">
-            {trending.data.tokens.map((token) => (
-              <Link key={token.token} href={`/token/${token.token}`}>
-                <b>${token.symbol}</b>
-                <span>{compact(BigInt(token.volume_24h || "0"), pairDecimals(token.pair_token, token))} {pairSymbol(token.pair_token, token)} vol</span>
-              </Link>
-            ))}
-          </div>
-          <Link className="ox-tape-action" href="/launch">Launch yours <span>→</span></Link>
-        </div>
-      ) : null}
+      <PaidTicker />
 
       <div className="ox-market-toolbar">
         <label className="ox-search">
@@ -102,17 +89,7 @@ export function Explore() {
         </div>
       </div>
 
-      {trending.data?.tokens.length ? (
-        <section className="ox-trending-section" aria-labelledby="trending-title">
-          <div className="ox-section-heading compact">
-            <div><span className="ox-heading-kicker">Happening now</span><h2 id="trending-title">Trending on ox</h2></div>
-            <button type="button" onClick={() => setSort("volume")}>View all <span>→</span></button>
-          </div>
-          <div className="ox-trending-row">
-            {trending.data.tokens.map((token, index) => <TrendingCard key={token.token} token={token} rank={index + 1} />)}
-          </div>
-        </section>
-      ) : null}
+      <Desk />
 
       <section className="ox-discover" aria-labelledby="discover-title">
         <div className="ox-section-heading">
@@ -194,7 +171,6 @@ export function Explore() {
           <MarketStat label="24h volume · ETH pairs" value={stats.data ? `${compact(BigInt(stats.data.volume_24h_native ?? stats.data.volume_24h ?? "0"))} ETH` : "—"} hot />
           <MarketStat label="Active traders" value={stats.data?.traders ?? "—"} />
           <PaydayStrip />
-          <ProvenanceKey />
         </section>
       ) : null}
 
@@ -203,7 +179,7 @@ export function Explore() {
       {hasMarketActivity ? (
         <>
           <div className="ox-race-wrap"><GraduationRace /></div>
-          <div className="ox-social-grid"><FomoFeed /><TopTraders /></div>
+          <div className="ox-social-grid single"><FomoFeed /></div>
         </>
       ) : null}
 
@@ -226,22 +202,6 @@ export function Explore() {
 
 function MarketStat({ label, value, hot = false }: { label: string; value: string; hot?: boolean }) {
   return <div className={hot ? "ox-market-stat hot" : "ox-market-stat"}><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function TrendingCard({ token, rank }: { token: TokenRow; rank: number }) {
-  const decimals = pairDecimals(token.pair_token, token);
-  const unit = pairSymbol(token.pair_token, token);
-  const cap = (BigInt(token.price || "0") * BigInt(token.total_supply || "0")) / 10n ** 18n;
-  return (
-    <Link href={`/token/${token.token}`} className="ox-trending-card">
-      <span className="ox-trending-art">
-        <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={180} rounded="rounded-xl" />
-        <span className="ox-rank">#{rank}</span>
-      </span>
-      <span className="ox-trending-name"><strong>{token.name}</strong><small>${token.symbol} {isDevLocked(token) ? <em className="ox-dev-lock">🔒 DEV</em> : null}</small></span>
-      <span className="ox-trending-cap"><strong>{compact(cap, decimals)}</strong><small>{unit} MC</small></span>
-    </Link>
-  );
 }
 
 function MarketBoard({ tokens }: { tokens: TokenRow[] }) {

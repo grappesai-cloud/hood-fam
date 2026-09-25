@@ -41,6 +41,9 @@ const BURN_CLOCK = (process.env.HOOD_BURN_CLOCK ?? "").toLowerCase() as Address;
 const BOOSTS = (process.env.HOOD_BOOSTS ?? "").toLowerCase() as Address;
 const GRADUATION_HOOK = (process.env.HOOD_GRADUATION_HOOK ?? "").toLowerCase() as Address;
 const OPENING_AUCTION = (process.env.HOOD_OPENING_AUCTION ?? "").toLowerCase() as Address;
+/// The season airdrop: one contract for every season, each row of a season's list paid on a claim.
+/// Optional like the Bag's machines: unset, it matches no log.
+const SEASON_DROP = (process.env.HOOD_SEASON_DROP ?? "").toLowerCase() as Address;
 
 const START_BLOCK = BigInt(process.env.HOOD_START_BLOCK ?? "0");
 
@@ -163,7 +166,18 @@ const events = {
   kingPotFed: parseAbiItem("event KingPotFed(uint256 amount, uint256 pot)"),
   // the graduation hook let go of the platform fee it held: the creator's leg and the Bag's
   poolClaimsFlushed: parseAbiItem("event ClaimsFlushed(bytes32 indexed id, address indexed token, uint256 toCreator, uint256 toBag)"),
+  // The season airdrop (HoodSeasonDrop): a season's list published and funded in one call, then
+  // each row taken. Claimed shares its name with the Vault's claim and nothing else: the shapes
+  // differ, so the topics differ, and the handler tells them apart by address.
+  dropOpened: parseAbiItem("event DropOpened(uint256 indexed season, bytes32 root, address asset, uint256 total, uint64 deadline)"),
+  dropClaimed: parseAbiItem("event Claimed(uint256 indexed season, address indexed account, uint256 amount)"),
 } as const;
+
+/// The drop's own record of a season, for a Claimed whose DropOpened this process never saw (the
+/// drop opened before the indexer's start block, or before a restart). The asset is what matters.
+const DROPS_ABI = [parseAbiItem(
+  "function drops(uint256 season) view returns (bytes32 root, address asset, uint256 total, uint256 claimed, uint64 opensAt, uint64 deadline, bool swept)",
+)];
 
 /// The factory as the Bag left it: the registry row ends in the pot, and the penalty switches have
 /// a view of their own. Read with a try around each, because an older factory answers neither.
@@ -1518,6 +1532,59 @@ async function onPoolClaimsFlushed(log: Log & { args: Record<string, unknown> })
   });
 }
 
+// ---------------------------------------------------------------- the season airdrop
+
+/// What each season's drop pays in, keyed by season. Filled from DropOpened as it is indexed and,
+/// for a season this process has no log for, read off the contract once and remembered. A read
+/// that fails is not remembered, so the next claim asks again rather than carrying a guess.
+const dropAssets = new Map<string, string>();
+
+async function dropAsset(season: string): Promise<string> {
+  const known = dropAssets.get(season);
+  if (known) return known;
+  try {
+    const d = (await client.readContract({
+      address: SEASON_DROP, abi: DROPS_ABI, functionName: "drops", args: [BigInt(season)],
+    })) as readonly [string, string, bigint, bigint, bigint, bigint, boolean];
+    const asset = lower(d[1]);
+    dropAssets.set(season, asset);
+    return asset;
+  } catch (err) {
+    console.warn(`airdrop: could not read the asset of season ${season}; booking it as native`, err instanceof Error ? err.message : err);
+    return zeroAddress;
+  }
+}
+
+/// A season's list went up, funded in the same call. The tape line says how much a season is
+/// worth to the people on it; the asset is remembered for the claims that follow.
+async function onDropOpened(log: Log & { args: Record<string, unknown> }) {
+  const a = log.args;
+  const season = (a.season as bigint).toString();
+  const asset = lower(a.asset);
+  dropAssets.set(season, asset);
+  await tape(log, {
+    kind: "airdrop_opened", asset, amount: a.total as bigint,
+    extra: { season: Number(season), root: String(a.root), deadline: new Date(Number(a.deadline) * 1000).toISOString() },
+  });
+}
+
+/// One row of a season's list paid to the account on it. Permissionless on chain and always paid
+/// to the listed account, never the caller, so the recipient is the account and nothing else.
+async function onDropClaimed(log: Log & { args: Record<string, unknown> }) {
+  const a = log.args;
+  const season = (a.season as bigint).toString();
+  const account = lower(a.account);
+  const amount = a.amount as bigint;
+  const asset = await dropAsset(season);
+  const when = await blockTime(log.blockNumber!);
+  await pool.query(
+    `insert into airdrop_payouts (season, account, asset, amount, block, tx, log_index, ts)
+     values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (tx, log_index) do nothing`,
+    [season, account, asset, amount.toString(), log.blockNumber!.toString(), log.transactionHash, log.logIndex, when],
+  );
+  await tape(log, { kind: "airdrop", asset, amount, recipient: account, extra: { season: Number(season), wallet: account } });
+}
+
 // ---------------------------------------------------------------- the loop
 
 async function handle(log: Log & { eventName?: string; args?: Record<string, unknown> }) {
@@ -1556,8 +1623,11 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
             where position_id = $1`,
           [Number(l.args.id), paid, asset, zeroAddress],
         );
+      } else if (SEASON_DROP && address === SEASON_DROP) {
+        await onDropClaimed(l);
       }
       break;
+    case "DropOpened": if (SEASON_DROP && address === SEASON_DROP) await onDropOpened(l); break;
     case "Demoted":
       if (address === STAKING) await pool.query(`update stakes set weight_bps = $2 where position_id = $1`, [Number(l.args.id), Number(l.args.weightBps)]);
       break;
@@ -1646,11 +1716,11 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
       break;
     case "Graduated":
       if (curves.has(address)) {
+        const curve = curves.get(address)!;
+        const fee = l.args.graduationFee as bigint;
         // The fee the raise paid the Bag, straight off the log. Written on its own so a curve that
         // graduated before this column existed still picks it up on a rescan.
-        await pool.query(`update launches set graduation_fee = $2 where curve = $1`, [
-          address, (l.args.graduationFee as bigint).toString(),
-        ]);
+        await pool.query(`update launches set graduation_fee = $2 where curve = $1`, [address, fee.toString()]);
         // The reserve left the curve for the pool; it is not sitting there any more. `phase < 2`
         // keeps a reread of the same block from moving graduated_at to today and announcing it
         // again: a curve graduates once.
@@ -1659,6 +1729,14 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
            returning token, graduated_at`, [address],
         );
         if (rows[0]) await notify("graduated", { token: rows[0].token, at: rows[0].graduated_at });
+        // The move itself, as a tape line ("$CAT migrated to the pool"). The Bag's BagIn with
+        // source graduation in the same transaction is the fee's entry in the books; this row is
+        // the curve's own event and no total reads it (the /bag books sum bag_in, bag_out and held
+        // only). Its own log index keeps it from ever standing in for that BagIn row.
+        await tape(log, {
+          kind: "graduated", token: curve.token, asset: curve.pairToken, amount: fee,
+          extra: { pair_amount: (l.args.pairAmount as bigint).toString(), token_amount: (l.args.tokenAmount as bigint).toString() },
+        });
       }
       break;
     // the Bag and its outlets; every address below is optional and an unset one matches nothing

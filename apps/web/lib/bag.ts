@@ -96,7 +96,8 @@ export type TapeKind =
   | "payday_funded" | "payday_paid" | "payday_slice" | "payday_epoch"
   | "burn" | "boost" | "penalty" | "holders_paid" | "pushed"
   | "king_crowned" | "king_won" | "slash"
-  | "auction_bid" | "auction_settled" | "buyback" | "buyback_wanted";
+  | "auction_bid" | "auction_settled" | "buyback" | "buyback_wanted"
+  | "airdrop" | "graduated";
 
 export interface TapeRow {
   id: number;
@@ -131,6 +132,34 @@ export interface ShameRow {
 
 export interface ShameResponse {
   rows: ShameRow[];
+}
+
+/// One wallet the machines paid this week, as `GET /earners` sums it: everything that reached the
+/// address (pot pushes, Payday, season drop claims), per asset, with the dollar figure when the
+/// assets are priced and null when they are not.
+export interface EarnerRow {
+  address: string;
+  paid: (BagAsset & { amount: string })[];
+  usd: number | null;
+  pushes: number;
+  payday: number;
+  airdrops: number;
+}
+
+export interface EarnersResponse {
+  days?: number;
+  rows: EarnerRow[];
+}
+
+/// What reached people in a window, as `GET /paid` sums it: per asset, in dollars when the assets
+/// are priced, and how many wallets and events that was.
+export interface PaidResponse {
+  days?: number;
+  totals: (BagAsset & { amount: string })[];
+  usd: number | null;
+  usdReason?: string | null;
+  wallets: number;
+  events: number;
 }
 
 export interface BoostsResponse extends BagBoosts {
@@ -241,6 +270,10 @@ export const BAG_KEYS = {
   king: (token: string) => ["king", token.toLowerCase()] as const,
   auction: (token: string) => ["auction", token.toLowerCase()] as const,
   penalties: (token: string) => ["penalties", token.toLowerCase()] as const,
+  /// Under the "bag" name on purpose: lib/live.ts refreshes that family on every bag, trade and
+  /// graduation event, so the desk moves with the stream without a new key being taught to it.
+  earners: (days: number, limit: number) => ["bag", "earners", days, limit] as const,
+  paid: (days: number) => ["bag", "paid", days] as const,
 };
 
 /// The tabs on the tape, each a comma list of bag_events kinds the API filters on.
@@ -251,7 +284,13 @@ export const TAPE_FILTERS: { id: string; label: string; kinds: string[] | null }
   { id: "burn", label: "Burn clock", kinds: ["burn", "buyback"] },
   { id: "boosts", label: "Boosts", kinds: ["boost"] },
   { id: "pots", label: "Pots", kinds: ["holders_paid", "pushed", "king_crowned", "king_won", "auction_bid", "auction_settled"] },
+  { id: "drops", label: "Drops and pools", kinds: ["airdrop", "graduated"] },
 ];
+
+/// The lines where money reached people (a pot push, Payday, a pot paying holders, a king's win,
+/// a season drop claim) plus the one that moves a coin to the pool, so a migration shows in the
+/// same feed. The desk's "paid out" column is the tape cut down to exactly these.
+export const PAID_KINDS = ["pushed", "payday_paid", "payday_epoch", "holders_paid", "king_won", "airdrop", "graduated"];
 
 export function fetchBag() {
   return api<BagResponse>("/bag");
@@ -295,6 +334,14 @@ export function fetchPenalties(token: string, opts: { limit?: number; before?: n
   q.set("limit", String(opts.limit ?? 50));
   if (opts.before) q.set("before", String(opts.before));
   return api<PenaltiesResponse>(`/tokens/${token}/penalties?${q.toString()}`);
+}
+
+export function fetchEarners(days = 7, limit = 20) {
+  return api<EarnersResponse>(`/earners?days=${days}&limit=${limit}`);
+}
+
+export function fetchPaid(days = 1) {
+  return api<PaidResponse>(`/paid?days=${days}`);
 }
 
 /// `api()` throws "<path>: <status>" and nothing else tells a page why it has no data. A route
@@ -360,6 +407,16 @@ export function usePenalties(token: string | null | undefined, limit = 50) {
     refetchInterval: 15_000,
     retry: false,
   });
+}
+
+/// Both keep polling a 404 on their timer, cheaply, so a deployment that gains the route is
+/// picked up without a reload.
+export function useEarners(days = 7, limit = 20) {
+  return useQuery({ queryKey: BAG_KEYS.earners(days, limit), queryFn: () => fetchEarners(days, limit), refetchInterval: 60_000, retry: false });
+}
+
+export function usePaid(days = 1) {
+  return useQuery({ queryKey: BAG_KEYS.paid(days), queryFn: () => fetchPaid(days), refetchInterval: 30_000, retry: false });
 }
 
 /// What an asset calls itself and how it scales, from the row when the API said, else from the

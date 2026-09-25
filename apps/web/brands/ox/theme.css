@@ -2147,3 +2147,99 @@ html[data-brand="ox"] .vault-feeds span { color: #b8c3ae; }
 html[data-brand="ox"] .tier { border-top-color: #ffffff1e; color: #b5b5b5; }
 html[data-brand="ox"] .tier .mono { color: #f0f2ed; }
 html[data-brand="ox"] .tier.top .mono { color: #c7e595; }
+
+/* ---------------------------------------------------------------- the desk (ox home)
+   Three columns right under the header, a trading floor's density on ox's greys: a strip of the
+   wallets paid this week across the top, then paid out / migrated and boosted / trending, each its
+   own scroll with its header pinned. Phones get the three as tabs over one list. Lime stays for
+   the figures that matter and the live dot; the rest is the neutral canvas. */
+html[data-brand="ox"] .ox-ticker { display: flex; min-height: 40px; align-items: center; overflow: hidden; margin: 0 0 12px; border: 1px solid #ffffff1d; border-top: 0; border-radius: 0 0 14px 14px; background: #1a1a1a; }
+html[data-brand="ox"] .ox-ticker-label { display: inline-flex; flex: none; align-self: stretch; align-items: center; gap: 7px; border-right: 1px solid #ffffff17; padding: 0 14px; color: #d3d6cf; font-family: var(--font-mono); font-size: 9px; font-weight: 650; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+html[data-brand="ox"] .ox-ticker-label i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-lime); box-shadow: 0 0 8px var(--color-lime); animation: oxPulse 2.4s ease-in-out infinite; }
+html[data-brand="ox"] .ox-ticker-run { display: flex; min-width: 0; flex: 1; overflow: hidden; }
+html[data-brand="ox"] .ox-ticker-track { display: flex; flex: none; animation: ox-ticker calc(var(--ox-ticker-n, 14) * 2.4s) linear infinite; }
+html[data-brand="ox"] .ox-ticker:hover .ox-ticker-track { animation-play-state: paused; }
+html[data-brand="ox"] .ox-ticker-item { display: inline-flex; min-width: max-content; min-height: 40px; align-items: center; gap: 8px; border-right: 1px solid #ffffff10; padding: 0 14px; color: #9c9c9c; font-family: var(--font-mono); font-size: 10px; }
+html[data-brand="ox"] .ox-ticker-item:hover { background: #ffffff06; color: #fff; }
+html[data-brand="ox"] .ox-ticker-item b { color: var(--color-lime); font-weight: 650; }
+html[data-brand="ox"] .ox-identicon { display: inline-block; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px #ffffff2a; }
+html[data-brand="ox"] .ox-ticker-empty { min-width: 0; flex: 1; overflow: hidden; padding: 0 14px; color: #9a9a9a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+html[data-brand="ox"] .ox-ticker-action { display: inline-flex; flex: none; align-self: stretch; align-items: center; gap: 6px; border-left: 1px solid #ffffff17; padding: 0 14px; color: #c9ccc5; font-size: 10px; font-weight: 600; white-space: nowrap; }
+html[data-brand="ox"] .ox-ticker-action:hover, html[data-brand="ox"] .ox-ticker-action span { color: var(--color-lime); }
+@keyframes ox-ticker { to { transform: translateX(-100%); } }
+
+html[data-brand="ox"] .ox-desk { margin: 0 0 16px; }
+html[data-brand="ox"] .ox-desk-tabs { display: none; }
+html[data-brand="ox"] .ox-desk-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+html[data-brand="ox"] .ox-desk-col { position: relative; display: flex; min-width: 0; height: 70vh; min-height: 420px; max-height: 780px; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; border: 1px solid #ffffff22; border-radius: 20px; background: #1c1c1c; scrollbar-width: thin; scrollbar-color: #ffffff2a transparent; }
+html[data-brand="ox"] .ox-desk-head { position: sticky; z-index: 2; top: 0; display: grid; gap: 10px; border-bottom: 1px solid #ffffff1b; padding: 14px 16px 12px; background: #1c1c1cf2; backdrop-filter: blur(12px); }
+html[data-brand="ox"] .ox-desk-title { display: grid; gap: 3px; }
+html[data-brand="ox"] .ox-desk-kicker { color: var(--color-lime); font-family: var(--font-mono); font-size: 9px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+html[data-brand="ox"] .ox-desk-title h2 { margin: 0; color: #f0f0ee; font-size: 15px; font-weight: 560; letter-spacing: -.02em; }
+html[data-brand="ox"] .ox-desk-figure { display: grid; min-width: 0; gap: 3px; }
+html[data-brand="ox"] .ox-desk-figure strong { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; color: #f3f3f1; font-size: 20px; font-weight: 650; letter-spacing: -.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+html[data-brand="ox"] .ox-desk-figure strong .prov { align-self: center; }
+html[data-brand="ox"] .ox-desk-unit { color: #9a9a9a; font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 500; letter-spacing: 0; }
+html[data-brand="ox"] .ox-desk-figure small { color: #9a9a9a; font-size: 10.5px; line-height: 1.45; }
+html[data-brand="ox"] .ox-desk-figure.due strong { color: var(--color-lime); }
+html[data-brand="ox"] .ox-desk-body { min-width: 0; flex: 1; padding: 4px 8px 10px; }
+html[data-brand="ox"] .ox-desk-empty { margin: 0; padding: 14px 8px 8px; color: #9a9a9a; font-size: 12px; line-height: 1.55; }
+html[data-brand="ox"] .ox-desk-skeleton { display: grid; gap: 8px; padding: 10px 8px; }
+html[data-brand="ox"] .ox-desk-skeleton i { display: block; height: 44px; border-radius: 12px; background: linear-gradient(110deg, #ffffff05 20%, #ffffff0c 40%, #ffffff05 60%) #202020; background-size: 200% 100%; animation: oxShimmer 1.6s linear infinite; }
+
+/* One coin on the desk. */
+html[data-brand="ox"] .ox-line { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 52px; border-radius: 12px; padding: 6px 8px; color: #ededed; transition: background .14s; }
+html[data-brand="ox"] .ox-line:hover { background: #ffffff08; }
+html[data-brand="ox"] .ox-line-art { display: block; width: 34px; height: 34px; }
+html[data-brand="ox"] .ox-line-art img, html[data-brand="ox"] .ox-line-art > div { border-radius: 9px !important; color: var(--color-lime); }
+html[data-brand="ox"] .ox-line-id { display: grid; min-width: 0; gap: 3px; }
+html[data-brand="ox"] .ox-line-id strong { overflow: hidden; color: #f2f2f0; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+html[data-brand="ox"] .ox-line-id small { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; color: #8f8f8f; font-size: 10px; }
+html[data-brand="ox"] .ox-line-id small b { color: #b9c2ad; font-family: var(--font-mono); font-weight: 600; }
+html[data-brand="ox"] .ox-line-cap { display: grid; gap: 3px; text-align: right; font-variant-numeric: tabular-nums; }
+html[data-brand="ox"] .ox-line-cap strong { color: #ececea; font-family: var(--font-mono); font-size: 11px; font-weight: 600; white-space: nowrap; }
+html[data-brand="ox"] .ox-line-cap strong.figure-dash { color: #7f7f7f; }
+html[data-brand="ox"] .ox-line-cap small { max-width: 120px; overflow: hidden; color: #8f8f8f; font-family: var(--font-mono); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+html[data-brand="ox"] .ox-line-change { min-width: 52px; font-family: var(--font-mono); font-size: 11px; font-weight: 650; text-align: right; font-variant-numeric: tabular-nums; }
+html[data-brand="ox"] .ox-line-change.positive { color: #75f6aa; }
+html[data-brand="ox"] .ox-line-change.negative { color: #ff7a82; }
+html[data-brand="ox"] .ox-line-change.dim { color: #7f7f7f; }
+html[data-brand="ox"] .ox-line-tag { display: inline-flex; align-items: center; border: 1px solid #ffffff22; border-radius: 6px; padding: 1px 6px; color: #b5b5b5; font-family: var(--font-mono); font-size: 8px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+html[data-brand="ox"] .ox-line-tag.hot { border-color: #ff9a5c88; background: #ff9a5c14; color: #ffb98a; }
+html[data-brand="ox"] .ox-line-tag.migrated { border-color: #d7f58055; background: #d7f5800f; color: var(--color-lime); }
+html[data-brand="ox"] .ox-line-tag.boost { border-color: #ffb84d66; color: #ffcf70; }
+
+/* The money tape inside a column: two lines, not three columns; the transaction on its own row. */
+html[data-brand="ox"] .ox-desk .money-tape li { grid-template-columns: 48px minmax(0, 1fr); gap: 4px 10px; padding: 9px 8px; border-bottom-color: #ffffff12; font-size: 12px; line-height: 1.4; }
+html[data-brand="ox"] .ox-desk .money-tape li.feed-empty { padding: 14px 8px 8px; color: #9a9a9a; font-size: 12px; line-height: 1.55; }
+html[data-brand="ox"] .ox-desk .money-when { font-size: 10px; }
+html[data-brand="ox"] .ox-desk .money-what { color: #b5b5b5; }
+html[data-brand="ox"] .ox-desk .money-tx { grid-column: 2; font-size: 10px; }
+html[data-brand="ox"] .ox-desk .money-tape-foot { margin: 6px 8px 0; }
+html[data-brand="ox"] .ox-desk .prov-key { margin-top: 10px; color: #8a8a8a; font-size: 10px; line-height: 1.6; }
+html[data-brand="ox"] .ox-social-grid.single { grid-template-columns: 1fr; }
+
+@media (max-width: 1000px) {
+  html[data-brand="ox"] .ox-desk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  html[data-brand="ox"] .ox-desk-grid > :last-child { grid-column: 1 / -1; height: 52vh; }
+}
+@media (max-width: 640px) {
+  html[data-brand="ox"] main.site-main.ox-main:has(> .ox-home) { padding-right: 16px; padding-left: 16px; }
+  html[data-brand="ox"] .ox-ticker { margin: 0 -16px 10px; border-right: 0; border-left: 0; border-radius: 0; }
+  html[data-brand="ox"] .ox-ticker-action { display: none; }
+  html[data-brand="ox"] .ox-desk-tabs { display: flex; gap: 4px; margin-bottom: 8px; border: 1px solid #ffffff0d; border-radius: 14px; padding: 4px; background: #252525; }
+  html[data-brand="ox"] .ox-desk-tabs button { flex: 1; min-height: 38px; border: 0; border-radius: 10px; background: transparent; color: #a6a6a6; font-size: 12px; font-weight: 600; cursor: pointer; }
+  html[data-brand="ox"] .ox-desk-tabs button.active { background: #383838; color: #fff; }
+  html[data-brand="ox"] .ox-desk-grid { display: block; }
+  html[data-brand="ox"] .ox-desk-col { height: 62vh; min-height: 380px; }
+  html[data-brand="ox"] .ox-desk-grid > :last-child { height: 62vh; }
+  html[data-brand="ox"] .ox-desk-col:not(.is-open) { display: none; }
+  html[data-brand="ox"] .ox-line { grid-template-columns: 32px minmax(0, 1fr) auto auto; gap: 8px; padding: 6px 4px; }
+  html[data-brand="ox"] .ox-line-change { min-width: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-brand="ox"] .ox-ticker-track { animation: none; }
+  html[data-brand="ox"] .ox-ticker-track[aria-hidden="true"] { display: none; }
+  html[data-brand="ox"] .ox-ticker-run { overflow-x: auto; scrollbar-width: none; }
+  html[data-brand="ox"] .ox-ticker-label i { animation: none; }
+}

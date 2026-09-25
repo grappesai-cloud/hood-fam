@@ -246,6 +246,10 @@ export function describe(row: TapeRow): ReactNode {
     }
     case "buyback_wanted":
       return <>a buyback of {coin} is queued for the keeper</>;
+    case "airdrop":
+      return <>{who(x.wallet ?? x.account ?? x.recipient ?? x.claimer)} claimed {money()} from the season drop{x.season != null && <>, season {String(x.season)}</>}</>;
+    case "graduated":
+      return <>{coin} migrated to the pool with {money(x.pair_amount ?? x.liquidity ?? x.to_pool ?? x.toPool ?? row.amount)}</>;
     default:
       return <>{row.kind.replace(/_/g, " ")} {money()}{row.token && <> on {coin}</>}</>;
   }

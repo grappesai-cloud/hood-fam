@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { createPublicClient, http, isAddress, parseAbi, type Address } from "viem";
+import { createPublicClient, http, isAddress, parseAbi, zeroAddress, type Address } from "viem";
 import { z } from "zod";
 
 import { pairAsset, robinhood } from "@hood/sdk";
@@ -143,6 +143,31 @@ async function usdTotal(
     ? `${names} ${unpriced.length === 1 ? "has" : "have"} no dollar price and ${unpriced.length === 1 ? "is" : "are"} left out`
     : usd == null && legs.length ? "no price source for these assets" : usd == null ? "nothing has moved yet" : null;
   return { usd, reason };
+}
+
+/// Money that reached a wallet without the wallet lifting a finger: a pot pushing dividends, Payday
+/// paying the hour, a row of a season's airdrop being claimed (permissionless, and always paid to
+/// the listed account). One shape over the three tables, so /earners and /paid add up the same
+/// thing. `$1` is the window in whole days; `$2` is the machine list to leave out.
+const AUTO_PAID = `
+  select holder as address, asset, amount, ts, 'push' as source
+    from pot_payouts where ts > now() - make_interval(days => $1::int)
+  union all
+  select wallet, asset, amount, ts, 'payday'
+    from payday_payouts where ts > now() - make_interval(days => $1::int)
+  union all
+  select account, asset, amount, ts, 'airdrop'
+    from airdrop_payouts where ts > now() - make_interval(days => $1::int)`;
+
+/// Dollars per smallest unit of each priced asset, for ranking inside the query: the amount times
+/// this is the leg in dollars. An asset nobody can price is left out, so its wallets rank by what
+/// they were paid in native, the same rule /shame ranks by count under.
+async function unitPrices(assets: string[], metas: Map<string, AssetMeta>): Promise<{ asset: string; unit: number }[]> {
+  const units = await Promise.all(assets.map(async (asset) => {
+    const quote = await pairUsdQuote(asset);
+    return quote.usd == null ? null : { asset, unit: quote.usd / 10 ** metaOf(metas, asset).decimals };
+  }));
+  return units.filter((u): u is { asset: string; unit: number } => u != null);
 }
 
 /// `bag_events.extra` carries the Bag's source and outlet. The indexer may store the enum as its
@@ -365,6 +390,11 @@ const pageQuery = z.object({
   before: z.coerce.number().int().positive().optional(),
 });
 const limitQuery = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) });
+const earnersQuery = z.object({
+  days: z.coerce.number().int().min(1).max(90).default(7),
+  limit: z.coerce.number().int().min(1).max(200).default(30),
+});
+const paidQuery = z.object({ days: z.coerce.number().int().min(1).max(90).default(1) });
 const hourQuery = z.object({ hour: z.coerce.number().int().min(0).max(10_000_000).optional() });
 const headQuery = z.object({ head: z.coerce.number().int().min(0).optional() });
 
@@ -377,11 +407,13 @@ function tokenParam(req: { params: unknown }, reply: FastifyReply): string | nul
 }
 
 export function registerBag(app: FastifyInstance, opts: { systemTraders?: string[] } = {}) {
-  /// Wallets that never take a Payday share: the protocol's own contracts, the new Bag machines,
-  /// and whatever the server already keeps out of the trader boards.
+  /// Wallets that never take a Payday share and never count as somebody paid: the protocol's own
+  /// contracts, the new Bag machines, the season drop, and whatever the server already keeps out
+  /// of the trader boards.
   const excluded = Array.from(new Set([
     ...SYSTEM,
     ...BAG_ENV_KEYS.map(envAddress).filter((a): a is string => Boolean(a)),
+    ...[envAddress("HOOD_SEASON_DROP")].filter((a): a is string => Boolean(a)),
     ...(opts.systemTraders ?? []).map((a) => a.toLowerCase()),
   ]));
 
@@ -568,6 +600,104 @@ export function registerBag(app: FastifyInstance, opts: { systemTraders?: string
         return y.count - x.count;
       });
       return { rows: rows.slice(0, limit) };
+    });
+  });
+
+  // ---------------------------------------------------------------- /earners
+
+  /// The wallets the machine paid the most in the window, without them asking: pushed dividends,
+  /// Payday shares and airdrop claims, summed per asset. Ranked in dollars where the assets have
+  /// a price and by native otherwise, inside the query, so the cut is taken over every wallet and
+  /// not over whichever ones a first page happened to hold.
+  app.get("/earners", async (req, reply) => {
+    const parsed = earnersQuery.safeParse(req.query);
+    if (!parsed.success) return bad(reply, parsed.error.issues[0]?.message ?? "bad request");
+    const { days, limit } = parsed.data;
+    return cachedFor(`earners:${days}:${limit}`, 30_000, async () => {
+      const { rows: assets } = await pool.query<{ asset: string }>(
+        `select distinct asset from (${AUTO_PAID}) p where p.address <> all($2::text[])`, [days, excluded],
+      );
+      const metas = await assetMetas(assets.map((a) => a.asset));
+      const prices = await unitPrices(assets.map((a) => a.asset), metas);
+      const { rows } = await pool.query<{
+        address: string; usd: string | null; native: string; pushes: number; payday: number; airdrops: number;
+        last_ts: Date; paid: { asset: string; amount: string }[];
+      }>(
+        `with paid as (${AUTO_PAID}),
+              px as (select * from jsonb_to_recordset($3::jsonb) as x(asset text, unit numeric)),
+              legs as (
+                select p.address, p.asset, sum(p.amount) as amount, max(p.ts) as last_ts,
+                       count(*) filter (where p.source = 'push')::int as pushes,
+                       count(*) filter (where p.source = 'payday')::int as payday,
+                       count(*) filter (where p.source = 'airdrop')::int as airdrops
+                  from paid p where p.address <> all($2::text[])
+                 group by p.address, p.asset),
+              ranked as (
+                select l.address,
+                       sum(l.amount * px.unit) as usd,
+                       coalesce(sum(l.amount) filter (where l.asset = $4), 0) as native,
+                       sum(l.pushes)::int as pushes, sum(l.payday)::int as payday, sum(l.airdrops)::int as airdrops,
+                       max(l.last_ts) as last_ts,
+                       jsonb_agg(jsonb_build_object('asset', l.asset, 'amount', l.amount::text) order by l.amount desc) as paid
+                  from legs l left join px on px.asset = l.asset
+                 group by l.address)
+         select * from ranked order by usd desc nulls last, native desc, last_ts desc limit $5`,
+        [days, excluded, JSON.stringify(prices), zeroAddress, limit],
+      );
+      const out = await Promise.all(rows.map(async (r) => {
+        const legs = r.paid.map((leg) => ({ asset: leg.asset, amount: dec(leg.amount), ...metaOf(metas, leg.asset) }));
+        const total = await usdTotal(legs);
+        return {
+          address: r.address, paid: legs, usd: total.usd, usdReason: total.reason,
+          pushes: Number(r.pushes), payday: Number(r.payday), airdrops: Number(r.airdrops), last_ts: r.last_ts,
+        };
+      }));
+      return { days, rows: out };
+    });
+  });
+
+  // ------------------------------------------------------------------- /paid
+
+  /// What the machine paid people in the window, per asset, over the same three sources: the
+  /// landing page's "paid to people today". `wallets` is distinct recipients across every asset;
+  /// `events` is every payout line.
+  app.get("/paid", async (req, reply) => {
+    const parsed = paidQuery.safeParse(req.query);
+    if (!parsed.success) return bad(reply, parsed.error.issues[0]?.message ?? "bad request");
+    const { days } = parsed.data;
+    return cachedFor(`paid:${days}`, 10_000, async () => {
+      // One pass with a rollup: the per-asset rows, then one row with asset null for the whole
+      // window, which is where a distinct count of wallets across assets has to come from.
+      interface PaidRow { asset: string | null; amount: string; events: number; wallets: number; pushes: number; payday: number; airdrops: number }
+      const { rows } = await pool.query<PaidRow>(
+        `select p.asset, coalesce(sum(p.amount), 0) as amount, count(*)::int as events,
+                count(distinct p.address)::int as wallets,
+                count(*) filter (where p.source = 'push')::int as pushes,
+                count(*) filter (where p.source = 'payday')::int as payday,
+                count(*) filter (where p.source = 'airdrop')::int as airdrops
+           from (${AUTO_PAID}) p where p.address <> all($2::text[])
+          group by rollup (p.asset)`,
+        [days, excluded],
+      );
+      const perAsset = rows.filter((r): r is PaidRow & { asset: string } => r.asset != null);
+      const all = rows.find((r) => r.asset == null);
+      const metas = await assetMetas(perAsset.map((r) => r.asset));
+      const totals = perAsset
+        .map((r) => ({ asset: r.asset, ...metaOf(metas, r.asset), amount: dec(r.amount), events: Number(r.events), wallets: Number(r.wallets) }))
+        .sort((x, y) => (BigInt(y.amount) > BigInt(x.amount) ? 1 : BigInt(y.amount) < BigInt(x.amount) ? -1 : 0));
+      const usd = await usdTotal(totals);
+      return {
+        days,
+        since: new Date(Date.now() - days * 86_400_000).toISOString(),
+        totals,
+        usd: usd.usd,
+        usdReason: usd.reason,
+        wallets: Number(all?.wallets ?? 0),
+        events: Number(all?.events ?? 0),
+        pushes: Number(all?.pushes ?? 0),
+        payday: Number(all?.payday ?? 0),
+        airdrops: Number(all?.airdrops ?? 0),
+      };
     });
   });
 

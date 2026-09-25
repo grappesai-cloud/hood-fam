@@ -571,6 +571,27 @@ create table if not exists vault_rewards (
 );
 create index if not exists vault_rewards_asset_id on vault_rewards (asset, id desc);
 
+-- The season airdrop, one row per claim (HoodSeasonDrop.Claimed). The asset is the drop's, off its
+-- DropOpened log or the contract's own drops(season) view; address(0) is native. Kept apart from
+-- the tape so a wallet's airdrop total is one indexed sum rather than a scan of bag_events.
+create table if not exists airdrop_payouts (
+  id        bigserial primary key,
+  season    bigint not null,
+  account   text not null,
+  asset     text not null,
+  amount    numeric(78,0) not null,
+  block     bigint not null,
+  tx        text not null,
+  log_index int not null,
+  ts        timestamptz not null,
+  unique (tx, log_index)
+);
+create index if not exists airdrop_payouts_account on airdrop_payouts (account);
+create index if not exists airdrop_payouts_ts on airdrop_payouts (ts);
+-- /earners and /paid read the three payout tables between two timestamps: a range scan on ts.
+create index if not exists pot_payouts_ts on pot_payouts (ts);
+create index if not exists payday_payouts_ts on payday_payouts (ts);
+
 -- Payday reads the hour's points between two timestamps, which is a range scan on ts.
 create index if not exists points_ts on points (ts);
 `;
