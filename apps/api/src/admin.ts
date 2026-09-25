@@ -46,6 +46,15 @@ export const contracts = () => ({
   portal: process.env.HOOD_PORTAL ?? null,
   directDeployer: process.env.HOOD_DIRECT_DEPLOYER ?? null,
   buybackModule: process.env.HOOD_BUYBACK_MODULE ?? null,
+  referrals: process.env.HOOD_REFERRALS ?? null,
+  // the Bag and its outlets; the house coin stays null until it launches
+  bag: process.env.HOOD_BAG ?? null,
+  payday: process.env.HOOD_PAYDAY ?? null,
+  burnClock: process.env.HOOD_BURN_CLOCK ?? null,
+  boosts: process.env.HOOD_BOOSTS ?? null,
+  graduationHook: process.env.HOOD_GRADUATION_HOOK ?? null,
+  openingAuction: process.env.HOOD_OPENING_AUCTION ?? null,
+  houseCoin: process.env.HOOD_HOUSE_COIN ?? null,
 });
 
 /// The chain's head, for the overview's "how far behind is the indexer". A node that does not

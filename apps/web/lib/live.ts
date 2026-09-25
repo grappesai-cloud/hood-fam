@@ -46,6 +46,41 @@ export interface LiveGraduated {
   at: string;
 }
 
+/// A fee event off a launch's own router or splitter: the indexer wrote a fee row and says which
+/// kind, so a page showing the fee flow can move without waiting for its timer.
+export interface LiveFee {
+  token: string;
+  kind: string;
+  amount: string;
+  tx: string;
+  at: string;
+}
+
+/// One row of the money tape, as the indexer wrote it: the Bag's own inflows and outflows, the
+/// pots' payouts, Payday, the burn clock, boosts, penalties. `kind` is the bag_events kind and
+/// `extra` carries what that kind carries (payer, reason, outlet, holders, ...). `token` is null
+/// for an event that belongs to the platform rather than to one launch, and `asset` address(0)
+/// is native ETH.
+export interface LiveBag {
+  kind: string;
+  token: string | null;
+  asset: string | null;
+  amount: string;
+  tx: string;
+  at: string;
+  extra: Record<string, unknown> | null;
+}
+
+/// King of the hill on one launch: a new king took the crown, or the timer ran out and `won` says
+/// who the pot went to.
+export interface LiveKing {
+  token: string;
+  king: string | null;
+  pot: string;
+  ends_at: string | null;
+  won?: { king: string; amount: string };
+}
+
 export interface LiveOptions {
   /// Which launches this listener cares about. Empty means the whole market, which is what a board
   /// wants and what a token page never does.
@@ -54,9 +89,12 @@ export interface LiveOptions {
   onLaunch?: (launch: LiveLaunch) => void;
   onGraduated?: (event: LiveGraduated) => void;
   onMessage?: (message: ChatMessage) => void;
+  onFee?: (fee: LiveFee) => void;
+  onBag?: (event: LiveBag) => void;
+  onKing?: (event: LiveKing) => void;
 }
 
-const EVENTS = ["trade", "launch", "graduated", "message"] as const;
+const EVENTS = ["trade", "launch", "graduated", "message", "fee", "bag", "king"] as const;
 type EventName = (typeof EVENTS)[number];
 
 interface Listener {
@@ -168,8 +206,12 @@ function schedule() {
 /// shell runs a tape of its own on ["pit-tape"]. A token page holds ["token"], ["trades"] and
 /// ["holders"], all keyed by address, and the chart adds ["candles"]. Inventing new keys here would
 /// leave the old ones to their timers and refresh nothing anybody is looking at.
-const BOARD_QUERIES = new Set(["tokens", "stats", "tape", "pit-tape", "activity", "top-traders"]);
-const TOKEN_QUERIES = new Set(["token", "trades", "holders", "candles"]);
+///
+/// The Bag page reads ["bag"], ["bag-tape", token, kinds], ["shame"], ["boosts", hour] and
+/// ["vault"] (lib/bag.ts names them); a token page adds ["pot"], ["king"], ["penalties"] and
+/// ["auction"], all keyed by address like the rest of the token keys.
+const BOARD_QUERIES = new Set(["tokens", "stats", "tape", "pit-tape", "activity", "top-traders", "ledger", "bag", "bag-tape", "shame", "boosts", "vault"]);
+const TOKEN_QUERIES = new Set(["token", "trades", "holders", "candles", "pot", "king", "penalties", "auction"]);
 
 /// A busy launch trades several times a second. Refetching on each one would redraw the board under
 /// the reader's cursor and reorder the rows they were halfway through, so events are collected and
@@ -225,7 +267,7 @@ function receive(name: EventName, event: MessageEvent) {
   // Once per event, not once per component listening to it. Three subscribers on a token page
   // asking for the same refresh is three requests for one trade, because invalidating a query that
   // is already in flight cancels it and starts it again.
-  if (name === "trade" || name === "graduated") queue(typeof token === "string" ? token : undefined);
+  if (name === "trade" || name === "graduated" || name === "fee" || name === "bag" || name === "king") queue(typeof token === "string" ? token : undefined);
   else if (name === "launch") queue();
   for (const listener of listeners) {
     if (listener.tokens.length) {
@@ -331,10 +373,15 @@ export function useLive(options: LiveOptions = {}): boolean {
       tokens: watching ? watching.split(",") : [],
       deliver(name, payload) {
         const handlers = latest.current;
+        // Each event to its own handler and nothing else. A catch-all here once handed every
+        // `fee` event to `onMessage`, and the chat drew them as messages nobody had written.
         if (name === "trade") handlers.onTrade?.(payload as LiveTrade);
         else if (name === "launch") handlers.onLaunch?.(payload as LiveLaunch);
         else if (name === "graduated") handlers.onGraduated?.(payload as LiveGraduated);
-        else handlers.onMessage?.(payload as ChatMessage);
+        else if (name === "message") handlers.onMessage?.(payload as ChatMessage);
+        else if (name === "fee") handlers.onFee?.(payload as LiveFee);
+        else if (name === "bag") handlers.onBag?.(payload as LiveBag);
+        else if (name === "king") handlers.onKing?.(payload as LiveKing);
       },
     });
     return unsubscribe;

@@ -5,11 +5,18 @@
 //   npm run safe -- info [<safe>]
 //   npm run safe -- accept                       every hood.fam contract waiting for the Safe, one batch
 //   npm run safe -- call <target> "<fn(types)>" [args...] [--value <wei>]
+//   npm run safe -- referral <token> <to> <bps>  a referral leg on one launch, out of the protocol's
+//                                                share (at most 5000 bps); `0x0 0` clears it
+//   npm run safe -- keeper <address>             one batch: router, payday and burnClock .setKeeper
+//   npm run safe -- housecoin <coin> <currency0> <currency1> <fee> <tickSpacing> <hooks>
+//                                                burnClock.setHouseCoin(coin, PoolKey), plus
+//                                                staking.setHouseToken(coin) while the Vault has none
 //   npm run safe -- status <safeTxHash>
 //
-// `accept` and `call` always write a Transaction Builder file: in Safe{Wallet}, Apps ->
-// Transaction Builder, drop the file in, and every signer sees each call decoded before signing.
-// That path needs no key on this machine and no API key anywhere, and it is the normal one.
+// `accept`, `call`, `referral`, `keeper` and `housecoin` always write a Transaction Builder file: in
+// Safe{Wallet}, Apps -> Transaction Builder, drop the file in, and every signer sees each call
+// decoded before signing. That path needs no key on this machine and no API key anywhere, and it
+// is the normal one.
 //
 // Optional, on top of the file:
 //   --sign      sign with the keys in SAFE_SIGNER_KEYS (comma separated) or --keystore <label,...>
@@ -22,10 +29,12 @@
 //               only from a registered key.
 //
 // Environment: RPC_URL (default: the public 4663 RPC), HOOD_SAFE (the protocol Safe), and the
-// deployment's HOOD_FACTORY / HOOD_PORTAL / HOOD_BRIDGE_FACTORY / HOOD_SEASON_DROP.
+// deployment's HOOD_FACTORY / HOOD_FEE_ROUTER / HOOD_PORTAL / HOOD_BRIDGE_FACTORY / HOOD_SEASON_DROP /
+// HOOD_REFERRALS, plus, since the Bag: HOOD_PAYDAY / HOOD_BURN_CLOCK / HOOD_BOOSTS / HOOD_GRADUATOR /
+// HOOD_GRADUATION_HOOK / HOOD_OPENING_AUCTION / HOOD_STAKING.
 
 import { writeFileSync } from "node:fs";
-import { createPublicClient, createWalletClient, encodeFunctionData, getAddress, http, isAddress, parseAbiItem, zeroAddress } from "viem";
+import { createPublicClient, createWalletClient, encodeFunctionData, getAddress, http, isAddress, parseAbi, parseAbiItem, zeroAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   buildSafeTransaction,
@@ -78,10 +87,36 @@ const env = (name) => {
 /// The deployment, by the names the owner actually says.
 const TARGETS = {
   factory: env("HOOD_FACTORY"),
+  router: env("HOOD_FEE_ROUTER"),
   portal: env("HOOD_PORTAL"),
   bridge: env("HOOD_BRIDGE_FACTORY"),
   drop: env("HOOD_SEASON_DROP"),
+  referrals: env("HOOD_REFERRALS"),
+  // the Bag's side. None of these is Ownable: payday, burn and boosts ask the factory's owner,
+  // the graduator too, the hook and the auction take no owner call at all.
+  payday: env("HOOD_PAYDAY"),
+  burn: env("HOOD_BURN_CLOCK"),
+  boosts: env("HOOD_BOOSTS"),
+  graduator: env("HOOD_GRADUATOR"),
+  hook: env("HOOD_GRADUATION_HOOK"),
+  auction: env("HOOD_OPENING_AUCTION"),
+  staking: env("HOOD_STAKING"),
 };
+
+/// The ones with an owner of their own (Ownable2Step), which `accept` and `info` ask about.
+const OWNED = ["factory", "portal", "bridge", "drop", "referrals"];
+
+const wiringAbi = parseAbi([
+  "function keeper() view returns (address)",
+  "function houseCoin() view returns (address)",
+  "function houseToken() view returns (address)",
+  "function bag() view returns (address)",
+  "function hook() view returns (address)",
+  "function slotPrice() view returns (uint256)",
+  "function setKeeper(address next)",
+  "function setHouseToken(address token)",
+  "function setHouseCoin(address coin, (address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) key)",
+]);
 
 function target(name) {
   if (isAddress(name)) return getAddress(name);
@@ -186,6 +221,10 @@ async function info() {
   console.log(`balance     ${await client.getBalance({ address: safe.address })} wei`);
   for (const [name, address] of Object.entries(TARGETS)) {
     if (!address) continue;
+    if (!OWNED.includes(name)) {
+      console.log(`${name.padEnd(11)} ${address}  no owner of its own (asks the factory's owner, or nobody)`);
+      continue;
+    }
     const [owner, pending] = await Promise.all([
       client.readContract({ address, abi: ownable2StepAbi, functionName: "owner" }),
       client.readContract({ address, abi: ownable2StepAbi, functionName: "pendingOwner" }).catch(() => zeroAddress),
@@ -195,13 +234,34 @@ async function info() {
       : `owned by ${owner}`;
     console.log(`${name.padEnd(11)} ${address}  ${role}`);
   }
+  // the wiring the Safe is responsible for, read live; a dash where the contract is not configured
+  const view = async (name, fn) => {
+    const address = TARGETS[name];
+    if (!address) return "-  (not configured)";
+    try {
+      const v = await client.readContract({ address: getAddress(address), abi: wiringAbi, functionName: fn });
+      return typeof v === "bigint" ? `${v} wei` : v === zeroAddress ? "0x0  (unset)" : v;
+    } catch (e) {
+      return `?  (${e.shortMessage ?? e.message})`;
+    }
+  };
+  console.log("");
+  console.log(`router.keeper()        ${await view("router", "keeper")}`);
+  console.log(`payday.keeper()        ${await view("payday", "keeper")}`);
+  console.log(`burnClock.keeper()     ${await view("burn", "keeper")}`);
+  console.log(`burnClock.houseCoin()  ${await view("burn", "houseCoin")}`);
+  console.log(`staking.houseToken()   ${await view("staking", "houseToken")}`);
+  console.log(`factory.bag()          ${await view("factory", "bag")}`);
+  console.log(`portal.bag()           ${await view("portal", "bag")}`);
+  console.log(`graduator.hook()       ${await view("graduator", "hook")}`);
+  console.log(`boosts.slotPrice()     ${await view("boosts", "slotPrice")}`);
 }
 
 async function accept() {
   const safe = await protocolSafe(option("--safe"));
   const calls = [];
   for (const [name, address] of Object.entries(TARGETS)) {
-    if (!address) continue;
+    if (!address || !OWNED.includes(name)) continue;
     const [owner, pending] = await Promise.all([
       client.readContract({ address, abi: ownable2StepAbi, functionName: "owner" }),
       client.readContract({ address, abi: ownable2StepAbi, functionName: "pendingOwner" }).catch(() => zeroAddress),
@@ -238,6 +298,97 @@ async function call() {
   await send(safe, [{ to: target(to), value, data, label }], `hood.fam ${item.name}`, label);
 }
 
+/// One launch's referral leg, carved out of the protocol's share. The registry refuses more than
+/// half, and a referrer that cannot take a transfer blocks that launch's protocol claim until this
+/// same command clears it with `0x0 0`.
+async function referral() {
+  const [token, to, bps] = positional;
+  if (!token || !to || bps === undefined) die("referral <token> <to> <bps>   (0x0 0 clears it)");
+  if (!isAddress(token)) die(`${token} is not a token address`);
+  const recipient = /^0x0*$/.test(to) ? zeroAddress : to;
+  if (!isAddress(recipient)) die(`${to} is not an address`);
+  const n = Number(bps);
+  if (!Number.isInteger(n) || n < 0 || n > 5000) die("bps is a whole number from 0 to 5000 (half of the protocol's share)");
+  if (n !== 0 && recipient === zeroAddress) die("a referral with bps needs somebody to pay; 0x0 0 clears it");
+  const safe = await protocolSafe(option("--safe"));
+  const item = parseAbiItem("function setReferral(address token, address to, uint16 bps)");
+  const data = encodeFunctionData({ abi: [item], functionName: "setReferral", args: [getAddress(token), getAddress(recipient), n] });
+  const label = n === 0
+    ? `referrals.setReferral(${getAddress(token)}, cleared)`
+    : `referrals.setReferral(${getAddress(token)}, ${getAddress(recipient)}, ${n} bps)`;
+  await send(safe, [{ to: target("referrals"), value: 0n, data, label }], "hood.fam referral", label);
+}
+
+/// The keeper wallet, on the three contracts that take one, in one batch. The factory owner is
+/// the only caller each of them accepts, which is this Safe. Zero disables; a rotation is the same
+/// command with the new wallet.
+async function keeper() {
+  const [who] = positional;
+  if (!who) die("keeper <address>   (0x0 disables it)");
+  const next = /^0x0*$/.test(who) ? zeroAddress : who;
+  if (!isAddress(next)) die(`${who} is not an address`);
+  const safe = await protocolSafe(option("--safe"));
+  const data = encodeFunctionData({ abi: wiringAbi, functionName: "setKeeper", args: [getAddress(next)] });
+  const calls = [];
+  for (const [name, label] of [["router", "feeRouter"], ["payday", "payday"], ["burn", "burnClock"]]) {
+    const address = TARGETS[name];
+    if (!address) {
+      console.log(`${label.padEnd(11)} not configured, skipped`);
+      continue;
+    }
+    calls.push({ to: getAddress(address), value: 0n, data, label: `${label}.setKeeper(${getAddress(next)})` });
+  }
+  if (calls.length === 0) die("none of HOOD_FEE_ROUTER, HOOD_PAYDAY, HOOD_BURN_CLOCK is set");
+  await send(safe, calls, "hood.fam keeper", `setKeeper(${getAddress(next)}) on ${calls.length} contract(s)`);
+}
+
+/// The house coin, once it exists: the burn clock learns the coin and the pool it buys it from,
+/// and the Vault learns the coin if it has none yet. Both are once-only on chain, so the Safe sees
+/// the whole PoolKey decoded before signing.
+async function housecoin() {
+  const [coin, currency0, currency1, fee, tickSpacing, hooks] = positional;
+  if (!coin || !currency0 || !currency1 || fee === undefined || tickSpacing === undefined || !hooks) {
+    die("housecoin <coin> <currency0> <currency1> <fee> <tickSpacing> <hooks>   (hooks 0x0 for a plain pool)");
+  }
+  for (const [name, value] of [["coin", coin], ["currency0", currency0], ["currency1", currency1]]) {
+    if (!isAddress(value)) die(`${name}: ${value} is not an address`);
+  }
+  const hooksAddress = /^0x0*$/.test(hooks) ? zeroAddress : hooks;
+  if (!isAddress(hooksAddress)) die(`hooks: ${hooks} is not an address`);
+  const c0 = getAddress(currency0);
+  const c1 = getAddress(currency1);
+  const coinAddress = getAddress(coin);
+  if (coinAddress !== c0 && coinAddress !== c1) die("the coin has to be currency0 or currency1 of the pool");
+  if (BigInt(c0) >= BigInt(c1)) die("currency0 must sort below currency1, the way Uniswap v4 keys a pool");
+  const feeN = Number(fee);
+  const spacingN = Number(tickSpacing);
+  if (!Number.isInteger(feeN) || feeN < 0 || feeN > 1_000_000) die("fee is the pool's LP fee in hundredths of a bip (3000 = 0.3%)");
+  if (!Number.isInteger(spacingN) || spacingN <= 0 || spacingN > 32767) die("tickSpacing is a positive whole number");
+
+  const safe = await protocolSafe(option("--safe"));
+  const key = { currency0: c0, currency1: c1, fee: feeN, tickSpacing: spacingN, hooks: getAddress(hooksAddress) };
+  const calls = [{
+    to: target("burn"), value: 0n,
+    data: encodeFunctionData({ abi: wiringAbi, functionName: "setHouseCoin", args: [coinAddress, key] }),
+    label: `burnClock.setHouseCoin(${coinAddress}, {${c0}, ${c1}, ${feeN}, ${spacingN}, ${key.hooks}})`,
+  }];
+  if (TARGETS.staking) {
+    const current = await client.readContract({ address: target("staking"), abi: wiringAbi, functionName: "houseToken" }).catch(() => undefined);
+    if (current === zeroAddress) {
+      calls.push({
+        to: target("staking"), value: 0n,
+        data: encodeFunctionData({ abi: wiringAbi, functionName: "setHouseToken", args: [coinAddress] }),
+        label: `staking.setHouseToken(${coinAddress})`,
+      });
+    } else if (current && current.toLowerCase() !== coinAddress.toLowerCase()) {
+      die(`the Vault already holds a different coin (${current}); refusing to name another for the burn clock`);
+    } else if (current) {
+      console.log("staking     already holds this coin; only the burn clock is set");
+    }
+  }
+  await send(safe, calls, "hood.fam house coin", `the house coin ${coinAddress}: burn clock pool key${calls.length > 1 ? " and the Vault's coin" : ""}`);
+}
+
 async function status() {
   const [hash] = positional;
   if (!hash) die("status <safeTxHash>");
@@ -247,9 +398,9 @@ async function status() {
   console.log(s.executed ? `executed    ${s.transactionHash} ${s.successful ? "(success)" : "(FAILED)"}` : "not executed yet");
 }
 
-const commands = { predict, info, accept, call, status };
+const commands = { predict, info, accept, call, referral, keeper, housecoin, status };
 if (!commands[command]) {
-  console.log("usage: npm run safe -- predict|info|accept|call|status   (see the top of scripts/safe.mjs)");
+  console.log("usage: npm run safe -- predict|info|accept|call|referral|keeper|housecoin|status   (see the top of scripts/safe.mjs)");
   process.exit(command ? 1 : 0);
 }
 await commands[command]();

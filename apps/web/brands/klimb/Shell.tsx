@@ -23,6 +23,10 @@ import { brand } from "@/brands";
 /// become one scrolling line inside it. The page itself never scrolls sideways.
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
+  // Read here, not at module scope: this file is imported by the brand's index, which is what
+  // exports `brand`, so at module load the import is still being evaluated and reading it there
+  // crashes the build the moment webpack happens to evaluate this file first.
+  const routes = brand.nav;
 
   return (
     <>
@@ -31,7 +35,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <Link href="/" className="kl-rail-brand" aria-label="Klimb home"><Wordmark /></Link>
 
           <nav className="kl-routes" aria-label="Main navigation">
-            {ROUTES.map((r) => (
+            {routes.map((r) => (
               <Link key={r.href} href={r.href} className={path === r.href ? "kl-route active" : "kl-route"}
                 aria-current={path === r.href ? "page" : undefined}>
                 {r.label}
@@ -70,10 +74,6 @@ export function Shell({ children }: { children: ReactNode }) {
     </>
   );
 }
-
-/// The rail reads the brand's own list. It used to be a copy kept here, which drifted the moment
-/// the routes changed: the bridge was taken out of every brand and this rail still offered it.
-const ROUTES = brand.nav;
 
 /// The same wallet behaviour as the shared nav: the connector is chosen for the surroundings (the
 /// Safe when framed by Safe{Wallet}, the injected wallet in a browser, WalletConnect on a phone),

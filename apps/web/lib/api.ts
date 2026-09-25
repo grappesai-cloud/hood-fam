@@ -90,6 +90,7 @@ export interface TokenRow {
   /// comes free. Zero and null when the creator kept their first buy liquid, which is also a fact.
   first_buy_locked: string; first_buy_unlock_at: string | null;
   sold: string; curve_supply: string; reserve: string; price: string;
+  price_24h_ago?: string | null;
   volume_24h: string; volume_total: string; trades_total: number;
   launched_at: string; graduated_at: string | null;
   mode: "curve" | "direct";
@@ -105,6 +106,60 @@ export interface TokenRow {
   max_hold_bps: number | null; max_buy_bps: number | null; restrictions_end_block: string | null;
   alloc_creator_bps: number | null; alloc_buyback_bps: number | null;
   alloc_dividends_bps: number | null; alloc_liquidity_bps: number | null;
+  /// One unit of the pair in dollars, with where that came from, or `null` and why not. Never 0.
+  usd?: UsdQuote;
+  /// A referral the owner set by hand on this launch: who is paid a slice of the protocol's share,
+  /// and the slice in basis points of that share. Null when nobody is.
+  referral_to?: string | null; referral_bps?: number | null;
+  /// The launch's pot: the contract that pays this token's holders in the token's quote. A curve
+  /// launch gets one from the factory, a direct launch uses its splitter. Null on launches printed
+  /// before the Bag existed, and absent from an API that does not know about pots yet.
+  pot?: string | null;
+  /// Whether this launch holds a boost slot on the board for the current hour.
+  boosted?: boolean;
+}
+
+/// The sell-side penalties a launch turned on at print time, as the indexer stored them. Zero is
+/// off; every one is fixed for the life of the launch.
+export interface PenaltyConfig {
+  jeet_tax_bps: number | null; jeet_window_seconds: number | null;
+  whale_tax_bps: number | null; whale_tick_limit: number | null;
+  king_bps: number | null; penalties_to_vault: boolean | null;
+  auction_blocks: number | null;
+}
+
+/// Where a dollar figure came from. `feed` is the Chainlink ETH/USD feed, `pool` a USDG pool this
+/// API read, `resolver` the best pool it could find for a pair nobody registered, `fallback` a
+/// number an operator set, `dollar` the stablecoin itself.
+export interface UsdQuote {
+  usd: number | null;
+  source: "dollar" | "feed" | "pool" | "resolver" | "fallback" | null;
+  reason: string | null;
+}
+
+/// One payout on the ledger: a flush of a curve's router, a sweep of a direct launch's splitter, a
+/// protocol claim, a creator claim or a buyback, with the transaction that did it.
+export interface LedgerRow {
+  id: number; token: string; kind: "flushed" | "swept" | "protocol_claimed" | "creator_claimed" | "bought_back" | "referral_paid";
+  amount: string; result: string; recipient: string | null;
+  to_stakers: string | null; to_buyback: string | null; to_liquidity: string | null; to_creator: string | null;
+  tx: string; ts: string;
+  symbol: string; name: string; image: string; mode: "curve" | "direct";
+  pair_token: string; pair_symbol: string | null; pair_decimals: number | null;
+}
+
+export interface LedgerPairTotal {
+  pair_token: string; pair_symbol: string | null; pair_decimals: number | null;
+  distributions: string; tokens: string; distributed: string;
+  to_stakers: string; to_buyback: string; to_liquidity: string; to_creator: string;
+  to_dividends: string; to_protocol: string; to_referrers: string; burned: string;
+  usd: UsdQuote; distributedUsd: number | null;
+}
+
+export interface LedgerResponse {
+  rows: LedgerRow[];
+  totals: { pairs: LedgerPairTotal[]; usd: { total: number | null; reason: string | null } };
+  nextBefore: number | null;
 }
 
 export interface ActivityRow {
@@ -141,4 +196,8 @@ export interface TokenDetail extends TokenRow {
   holders: number;
   fees: { accrued: string; flushed: string };
   staking: { staked: string; positions: string };
+  /// Everything ever booked for this token's holders, in the quote's smallest unit: the sum of the
+  /// pot's deposits. Null when the launch has no pot; absent from an API that predates pots.
+  paid_to_holders?: string | null;
+  penalties?: PenaltyConfig | null;
 }

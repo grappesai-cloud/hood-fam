@@ -9,9 +9,11 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Phase} from "./HoodTypes.sol";
 import {CurveMath} from "./libraries/CurveMath.sol";
 import {PairTransfer} from "./libraries/PairTransfer.sol";
+import {IHoodBag} from "./interfaces/IHoodBag.sol";
 import {IHoodCurve} from "./interfaces/IHoodCurve.sol";
 import {IHoodFactory} from "./interfaces/IHoodFactory.sol";
 import {IHoodFeeRouter} from "./interfaces/IHoodFeeRouter.sol";
+import {IHoodReferrals} from "./interfaces/IHoodReferrals.sol";
 import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
 
 /// @title HoodCurve
@@ -20,6 +22,10 @@ import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
 /// @dev Everything that matters is immutable and set at launch. There is no owner, no pause, no
 ///      parameter setter and no path for anybody to take the reserve out other than selling back
 ///      into the curve or graduating into the pool.
+///
+///      Every protocol leg leaves through the Bag, pinned at launch: the trade legs when somebody
+///      claims them, the graduation fee inside `finalize`. The Bag has no owner and splits by rules
+///      fixed at its deploy, so pinning it is pinning the rules this launch was sold under.
 contract HoodCurve is IHoodCurve, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -29,7 +35,8 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         address factory;
         address token;
         address pairToken;
-        address treasury;
+        address bag;
+        address pot;
         address feeRouter;
         address graduationHandler;
         uint256 curveSupply;
@@ -46,7 +53,10 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     address public immutable factory;
     address public immutable token;
     address public immutable pairToken;
-    address public immutable treasury;
+    /// @notice Where every protocol leg goes. Pinned: a Bag swapped later cannot reach this launch.
+    address public immutable bag;
+    /// @notice The launch's pot, named to the Bag at graduation so Confetti lands in the right room.
+    address public immutable pot;
     address public immutable feeRouter;
     /// @dev Pinned at launch. A later change of the launchpad's default handler cannot reach a
     ///      token that is already trading.
@@ -77,6 +87,7 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     event SoldOut(uint256 reserve);
     event Graduated(uint256 tokenAmount, uint256 pairAmount, uint256 graduationFee);
     event ProtocolClaimed(address indexed to, uint256 amount);
+    event ReferralPaid(address indexed to, uint256 amount);
 
     error NotTrading();
     error NotSoldOut();
@@ -92,7 +103,8 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         factory = p.factory;
         token = p.token;
         pairToken = p.pairToken;
-        treasury = p.treasury;
+        bag = p.bag;
+        pot = p.pot;
         feeRouter = p.feeRouter;
         graduationHandler = p.graduationHandler;
         curveSupply = p.curveSupply;
@@ -231,6 +243,10 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     /// @notice Permissionless. Opens the pool once the curve has sold out.
     /// @dev Kept out of the last buy on purpose: a pool deployment that reverts must never be able
     ///      to hold a trade hostage. Anyone can call this, in the same block if they want.
+    ///
+    ///      The graduation fee is not booked: it goes into the Bag in this same call, and the Bag
+    ///      pays a quarter of it (Confetti) into this launch's pot right here, so the holders who
+    ///      bonded the curve are paid in the transaction that bonded it.
     function finalize() external nonReentrant {
         if (phase != Phase.Sold) revert NotSoldOut();
         phase = Phase.Graduated;
@@ -250,23 +266,61 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
                 IGraduationHandler.graduate, (token, pairToken, tokenAmount, pairForLp, poolFee, tickSpacing)
             )
         );
-        protocolClaimable += graduationFee;
+        if (graduationFee != 0) {
+            IHoodBag(bag).takeGraduationFee{value: _forBag(graduationFee)}(pairToken, graduationFee, token, pot);
+        }
 
         emit Graduated(tokenAmount, pairForLp, graduationFee);
     }
 
-    /// @notice Permissionless. Pays the protocol's booked fees to the treasury pinned at launch.
+    /// @notice Permissionless. Pays the protocol's booked trade legs into the Bag pinned at
+    ///         launch, less the referral leg the factory's registry names for this token, if any.
     /// @dev Pulled rather than pushed, for the reason in `_payFees`. The keeper calls it; if the
     ///      keeper dies anybody can, and until somebody does the money sits here untouched.
+    ///
+    ///      The registry is read through the factory and every failure on that road (no registry,
+    ///      a registry with no code, a registry that reverts) means "no referral", so nothing the
+    ///      owner points the factory at can hold this claim hostage. A referrer that REJECTS the
+    ///      transfer does revert the claim, and only this launch's: the owner clears the referral
+    ///      in the registry to unblock it.
     function claimProtocol() external nonReentrant returns (uint256 amount) {
         amount = protocolClaimable;
         if (amount == 0) revert NothingToClaim();
         protocolClaimable = 0;
-        PairTransfer.push(pairToken, treasury, amount);
-        emit ProtocolClaimed(treasury, amount);
+        (address referrer, uint256 cut) = _referral(amount);
+        if (cut != 0) {
+            PairTransfer.push(pairToken, referrer, cut);
+            emit ReferralPaid(referrer, cut);
+        }
+        uint256 net = amount - cut;
+        IHoodBag(bag).takeTradeFee{value: _forBag(net)}(pairToken, net, token);
+        emit ProtocolClaimed(bag, net);
     }
 
     // ---------------------------------------------------------------- internals
+
+    /// @dev The Bag's payment convention: native rides as value, an ERC-20 is approved and pulled.
+    ///      Returns the value to attach and leaves the approval in place when the pair is a token.
+    function _forBag(uint256 amount) internal returns (uint256 value) {
+        if (pairToken == address(0)) return amount;
+        IERC20(pairToken).forceApprove(bag, amount);
+        return 0;
+    }
+
+    /// @dev The referral leg of `amount`, or (0, 0) whenever the registry cannot be read. A cut
+    ///      larger than the amount, or one with nobody to pay, is a registry that lies and is
+    ///      ignored the same way.
+    function _referral(uint256 amount) internal view returns (address to, uint256 cut) {
+        address registry;
+        try IHoodFactory(factory).referrals() returns (address r) {
+            registry = r;
+        } catch {}
+        if (registry == address(0) || registry.code.length == 0) return (address(0), 0);
+        try IHoodReferrals(registry).split(token, amount) returns (address to_, uint256 cut_) {
+            if (to_ == address(0) || cut_ > amount) return (address(0), 0);
+            return (to_, cut_);
+        } catch {}
+    }
 
     /// @dev Fee charged on a gross amount the buyer hands in.
     function _feeOnGross(uint256 gross) internal view returns (uint256) {
@@ -307,11 +361,11 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         }
     }
 
-    /// @dev The protocol's leg is BOOKED, not sent. Every trade calls this, so a treasury that
-    ///      cannot take a transfer (an EIP-7702 delegation on this chain, a Safe with a reverting
-    ///      fallback, a blacklisted stablecoin address) would otherwise stop every trade on every
-    ///      curve that names it, and the address is an immutable. Nobody else's money may depend on
-    ///      the treasury accepting funds, so `claimProtocol` pulls it instead.
+    /// @dev The protocol's leg is BOOKED, not sent. Every trade calls this, so a Bag that could not
+    ///      take a transfer (a paused outlet behind it, a blacklisted stablecoin address somewhere
+    ///      down its chain) would otherwise stop every trade on every curve that names it, and the
+    ///      address is an immutable. Nobody else's money may depend on the Bag accepting funds, so
+    ///      `claimProtocol` pulls it instead.
     function _payFees(uint256 protocolFee, uint256 creatorFee) internal {
         protocolClaimable += protocolFee;
         if (creatorFee != 0) {

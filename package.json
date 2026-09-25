@@ -38,6 +38,9 @@
     "solidity-bytes-utils": "^0.8.4"
   },
   "private": true,
+  "overrides": {
+    "axios": "^1.20.0"
+  },
   "workspaces": [
     "packages/*",
     "apps/*"

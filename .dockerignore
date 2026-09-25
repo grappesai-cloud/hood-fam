@@ -4,6 +4,9 @@ node_modules
 **/node_modules
 .next
 **/.next
+# scratch build dirs from local dev servers (.next-ox-*, .next-w2-*): gigabytes of cache, never image material
+.next-*
+**/.next-*
 dist
 **/dist
 out

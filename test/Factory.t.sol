@@ -7,10 +7,13 @@ import {BaseTest} from "./Base.t.sol";
 import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodFactory} from "../src/HoodFactory.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
+import {HoodToken} from "../src/HoodToken.sol";
 import {HoodTokenLock} from "../src/HoodTokenLock.sol";
 import {CurveConfig, FeeSplit, Launch, LaunchParams} from "../src/HoodTypes.sol";
+import {BagSource, PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {IHoodPot} from "../src/interfaces/IHoodPot.sol";
 import {PairTransfer} from "../src/libraries/PairTransfer.sol";
-import {MockQuote, MockTaxQuote} from "./mocks/Mocks.sol";
+import {MockBag, MockPot, MockQuote, MockTaxQuote} from "./mocks/Mocks.sol";
 
 contract FactoryTest is BaseTest {
     function test_any_creator_can_launch_against_a_custom_erc20_without_owner_permission() public {
@@ -84,12 +87,214 @@ contract FactoryTest is BaseTest {
         assertLt(address(staking).code.length, 24_576, "staking");
         assertLt(address(router).code.length, 24_576, "fee router");
         assertLt(address(factory.deployer()).code.length, 24_576, "deployer");
+        assertLt(address(factory.deployer().potDeployer()).code.length, 24_576, "pot deployer");
     }
 
-    function test_launch_fee_goes_to_the_treasury() public {
-        uint256 before = treasury.balance;
-        _launch(_toCreator());
-        assertEq(treasury.balance - before, LAUNCH_FEE);
+    function test_the_launch_fee_goes_into_the_bag_as_a_house_fee() public {
+        uint256 before = address(bag).balance;
+        (address token,) = _launch(_toCreator());
+        assertEq(address(bag).balance - before, LAUNCH_FEE);
+        assertEq(bag.totalIn(address(0), BagSource.House), LAUNCH_FEE, "booked as a house fee");
+        MockBag.Take memory take = bag.lastTake();
+        assertEq(take.token, token, "against the launch that paid it");
+        assertEq(take.from, address(factory));
+        assertEq(treasury.balance, 0, "the treasury is not paid directly any more");
+    }
+
+    /// @dev A curve pins its Bag for life. Launched before one is named, it could never claim a fee
+    ///      or finalize, so the launch is refused instead of printing a token that cannot graduate.
+    function test_a_launch_needs_the_bag() public {
+        HoodFactory bare = new HoodFactory(owner, treasury, makeAddr("deployer"));
+        vm.startPrank(owner);
+        bare.setModules(address(router), address(staking), address(graduator));
+        bare.setLaunchFee(LAUNCH_FEE);
+        bare.addConfig(_config());
+        vm.stopPrank();
+
+        vm.prank(creator);
+        vm.expectRevert(HoodFactory.NoBag.selector);
+        bare.launch{value: LAUNCH_FEE}(_params(_toCreator()));
+
+        // named once, and only once
+        vm.prank(owner);
+        bare.setBag(address(bag));
+        assertEq(bare.bag(), address(bag));
+        vm.prank(owner);
+        vm.expectRevert(HoodFactory.ModulesAlreadySet.selector);
+        bare.setBag(makeAddr("another bag"));
+    }
+
+    function test_the_launch_fee_is_capped() public {
+        assertEq(factory.MAX_LAUNCH_FEE(), 0.01 ether);
+        vm.prank(owner);
+        vm.expectRevert(HoodFactory.BadFee.selector);
+        factory.setLaunchFee(0.01 ether + 1);
+        vm.prank(owner);
+        factory.setLaunchFee(0.01 ether);
+        assertEq(factory.launchFee(), 0.01 ether);
+    }
+
+    // ---------------------------------------------------------------- the pot
+
+    function test_a_launch_prints_a_pot_and_names_it_on_the_token() public {
+        (address token, HoodCurve curve) = _launch(_toCreator());
+        Launch memory l = factory.getLaunch(token);
+        assertTrue(l.pot != address(0), "every curve launch gets a pot");
+        assertEq(l.pot, curve.pot(), "the curve knows it");
+        assertEq(HoodToken(token).pot(), l.pot, "the token knows it");
+        assertEq(IHoodPot(l.pot).token(), token);
+        assertEq(IHoodPot(l.pot).asset(), address(0), "paid in the launch's quote");
+        assertEq(curve.bag(), address(bag), "and the curve pins the bag");
+
+        // named once, by the factory alone
+        vm.prank(bob);
+        vm.expectRevert(HoodToken.NotFactory.selector);
+        HoodToken(token).setPot(bob);
+        vm.prank(address(factory));
+        vm.expectRevert(HoodToken.PotAlreadySet.selector);
+        HoodToken(token).setPot(bob);
+    }
+
+    function test_a_dollar_launch_gets_a_dollar_pot() public {
+        CurveConfig memory c = _config();
+        c.pairToken = address(usd);
+        c.startCap = 5_000e6;
+        c.graduationCap = 50_000e6;
+        vm.prank(owner);
+        uint256 usdConfig = factory.addConfig(c);
+        LaunchParams memory p = _params(_toCreator());
+        p.pairToken = address(usd);
+        p.configId = usdConfig;
+        p.symbol = "USDPOT";
+        (address token,) = _launch(_toCreator(), p, LAUNCH_FEE);
+        assertEq(IHoodPot(factory.getLaunch(token).pot).asset(), address(usd));
+    }
+
+    /// @dev The token's side of the wire, on its own: every balance move reaches the pot with the
+    ///      balances after the move, the mint before the pot is named reaches nobody.
+    function test_the_token_tells_its_pot_about_every_balance_move() public {
+        HoodToken t = new HoodToken("Wire", "WIRE", "", "", 1_000e18, alice, address(this));
+        MockPot mock = new MockPot(address(t), address(0));
+        assertEq(t.factory(), address(this));
+        assertEq(t.pot(), address(0));
+        assertEq(mock.syncCount(), 0, "the mint happened before there was a pot");
+
+        vm.prank(bob);
+        vm.expectRevert(HoodToken.NotFactory.selector);
+        t.setPot(address(mock));
+        vm.expectRevert(HoodToken.ZeroAddress.selector);
+        t.setPot(address(0));
+        t.setPot(address(mock));
+
+        vm.prank(alice);
+        t.transfer(bob, 400e18);
+        MockPot.Sync memory s = mock.lastSync();
+        assertEq(mock.syncCount(), 1);
+        assertEq(s.from, alice);
+        assertEq(s.to, bob);
+        assertEq(s.fromBalance, 600e18, "alice's balance after the move");
+        assertEq(s.toBalance, 400e18, "bob's balance after the move");
+
+        vm.prank(bob);
+        t.burn(100e18);
+        s = mock.lastSync();
+        assertEq(s.from, bob);
+        assertEq(s.to, address(0));
+        assertEq(s.fromBalance, 300e18);
+        assertEq(s.toBalance, 0, "a burn has no receiver");
+
+        vm.expectRevert(HoodToken.PotAlreadySet.selector);
+        t.setPot(address(mock));
+    }
+
+    function test_a_direct_launch_records_its_splitter_as_its_pot() public {
+        address direct = makeAddr("directToken");
+        address splitter = makeAddr("splitter");
+        vm.prank(owner);
+        factory.setPortal(address(this));
+        factory.registerDirectLaunch(direct, creator, address(0), makeAddr("hook"), splitter, makeAddr("locker"), "DIR", "");
+        assertEq(factory.getLaunch(direct).pot, splitter);
+        PenaltyConfig memory none = factory.penaltiesOf(direct);
+        assertEq(none.jeetTaxBps, 0, "a direct launch keeps its penalties in its hook");
+    }
+
+    // ---------------------------------------------------------------- penalties
+
+    function _somePenalties() internal pure returns (PenaltyConfig memory) {
+        return PenaltyConfig({
+            jeetTaxBps: 1_000,
+            jeetWindowSeconds: 10 minutes,
+            whaleTaxBps: 500,
+            whaleTickLimit: 300,
+            kingBps: 2_000,
+            penaltiesToVault: true
+        });
+    }
+
+    function test_penalties_are_stored_per_launch_for_the_graduation_hook() public {
+        LaunchParams memory p = _params(_toCreator());
+        p.penalties = _somePenalties();
+        (address token,) = _launch(_toCreator(), p, LAUNCH_FEE);
+
+        PenaltyConfig memory pc = factory.penaltiesOf(token);
+        assertEq(pc.jeetTaxBps, 1_000);
+        assertEq(pc.jeetWindowSeconds, 10 minutes);
+        assertEq(pc.whaleTaxBps, 500);
+        assertEq(pc.whaleTickLimit, 300);
+        assertEq(pc.kingBps, 2_000);
+        assertTrue(pc.penaltiesToVault);
+
+        // a launch that chose nothing reads as nothing, and so does a token nobody launched
+        LaunchParams memory q = _params(_toCreator());
+        q.symbol = "PLAIN";
+        q.salt = bytes32(uint256(2));
+        (address plain,) = _launch(_toCreator(), q, LAUNCH_FEE);
+        PenaltyConfig memory none = factory.penaltiesOf(plain);
+        assertEq(none.jeetTaxBps, 0);
+        assertEq(none.whaleTaxBps, 0);
+        assertEq(none.kingBps, 0);
+        assertFalse(none.penaltiesToVault);
+        assertEq(factory.penaltiesOf(makeAddr("nobody")).jeetWindowSeconds, 0);
+    }
+
+    function test_penalties_past_the_caps_are_refused_and_the_caps_themselves_are_not() public {
+        PenaltyConfig memory pc = _somePenalties();
+        pc.jeetTaxBps = 2_501;
+        _expectBadPenalties(pc);
+        pc = _somePenalties();
+        pc.whaleTaxBps = 2_501;
+        _expectBadPenalties(pc);
+        pc = _somePenalties();
+        pc.jeetWindowSeconds = 1 hours + 1;
+        _expectBadPenalties(pc);
+        pc = _somePenalties();
+        pc.whaleTickLimit = 2_001;
+        _expectBadPenalties(pc);
+        pc = _somePenalties();
+        pc.kingBps = 5_001;
+        _expectBadPenalties(pc);
+
+        // exactly at every cap is a launch
+        pc = PenaltyConfig({
+            jeetTaxBps: 2_500,
+            jeetWindowSeconds: 1 hours,
+            whaleTaxBps: 2_500,
+            whaleTickLimit: 2_000,
+            kingBps: 5_000,
+            penaltiesToVault: false
+        });
+        LaunchParams memory p = _params(_toCreator());
+        p.penalties = pc;
+        (address token,) = _launch(_toCreator(), p, LAUNCH_FEE);
+        assertEq(factory.penaltiesOf(token).kingBps, 5_000);
+    }
+
+    function _expectBadPenalties(PenaltyConfig memory pc) internal {
+        LaunchParams memory p = _params(_toCreator());
+        p.penalties = pc;
+        vm.prank(creator);
+        vm.expectRevert(HoodFactory.BadPenalties.selector);
+        factory.launch{value: LAUNCH_FEE}(p);
     }
 
     /// @dev The refund after a creator's first buy is what the curve handed back, not whatever the
@@ -279,17 +484,43 @@ contract FactoryTest is BaseTest {
         assertEq(address(factory).balance, 0);
     }
 
+    function test_an_oversized_erc20_first_buy_refunds_only_its_own_change() public {
+        CurveConfig memory c = _config();
+        c.pairToken = address(usd);
+        c.startCap = 5_000e6;
+        c.graduationCap = 50_000e6;
+        vm.prank(owner);
+        uint256 usdConfig = factory.addConfig(c);
+
+        LaunchParams memory p = _params(_toCreator());
+        p.pairToken = address(usd);
+        p.configId = usdConfig;
+        p.symbol = "USDREFUND";
+        p.firstBuy = 100_000e6;
+
+        usd.mint(creator, p.firstBuy);
+        usd.mint(address(factory), 77e6); // a prior stray must not go to this creator
+        vm.startPrank(creator);
+        usd.approve(address(factory), p.firstBuy);
+        (, address curve,) = factory.launch{value: LAUNCH_FEE}(p);
+        vm.stopPrank();
+
+        assertEq(uint8(HoodCurve(payable(curve)).phase()), 1, "the curve sold out");
+        assertGt(usd.balanceOf(creator), 70_000e6, "unused quote returned to creator");
+        assertEq(usd.balanceOf(address(factory)), 77e6, "stray balance preserved");
+    }
+
     function test_economics_are_pinned_by_the_creator() public {
         LaunchParams memory p = _params(_toCreator());
         p.econ = factory.previewLaunchEconomics(configId, address(0));
 
         // the launchpad moves its fee between the quote and the signature
         vm.prank(owner);
-        factory.setLaunchFee(1 ether);
+        factory.setLaunchFee(0.005 ether);
 
         vm.prank(creator);
         vm.expectRevert(HoodFactory.BadEconomics.selector);
-        factory.launch{value: 1 ether}(p);
+        factory.launch{value: 0.005 ether}(p);
     }
 
     function test_a_disabled_preset_cannot_be_used_but_live_tokens_keep_trading() public {
@@ -433,9 +664,11 @@ contract FactoryTest is BaseTest {
         assertGt(out, 0);
         assertEq(IERC20(token).balanceOf(alice), out);
         assertEq(usd.balanceOf(address(curve)), curve.reserve() + curve.protocolClaimable());
-        assertGt(curve.protocolClaimable(), 0);
+        uint256 booked = curve.protocolClaimable();
+        assertGt(booked, 0);
         curve.claimProtocol();
-        assertGt(usd.balanceOf(treasury), 0);
+        assertEq(usd.balanceOf(address(bag)), booked, "the bag pulls the dollars it was approved for");
+        assertEq(bag.totalIn(address(usd), BagSource.Trade), booked);
         assertGt(router.accrued(token), 0);
 
         // sell back

@@ -12,7 +12,7 @@ import {HoodFeeRouter} from "../../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../../src/HoodStaking.sol";
 import {CurveMath} from "../../src/libraries/CurveMath.sol";
 import {CurveConfig, FeeSplit, LaunchParams, Phase} from "../../src/HoodTypes.sol";
-import {MockGraduator} from "../mocks/Mocks.sol";
+import {MockBag, MockGraduator} from "../mocks/Mocks.sol";
 
 /// @notice Drives one native-paired curve with random buys, sells and donations from a pool of
 ///         actors. It exists so the invariants below are checked against sequences a human would
@@ -86,6 +86,9 @@ contract CurveSolvencyInvariant is StdInvariant, Test {
     HoodFeeRouter internal router;
     HoodStaking internal staking;
     MockGraduator internal graduator;
+    /// @notice Where every platform fee lands. A mock that records and holds; the real Bag has its
+    ///         own suite.
+    MockBag internal bag;
 
     HoodCurve internal curve;
     address internal token;
@@ -102,9 +105,11 @@ contract CurveSolvencyInvariant is StdInvariant, Test {
         staking = new HoodStaking(address(factory));
         router = new HoodFeeRouter(address(factory), address(staking));
         graduator = new MockGraduator(address(factory));
+        bag = new MockBag(treasury);
 
         vm.startPrank(owner);
         factory.setModules(address(router), address(staking), address(graduator));
+        factory.setBag(address(bag));
         factory.setLaunchFee(0);
         uint256 configId = factory.addConfig(
             CurveConfig({
@@ -114,8 +119,8 @@ contract CurveSolvencyInvariant is StdInvariant, Test {
                 startCap: 1 ether,
                 graduationCap: 10 ether,
                 liquidityBps: 9000,
-                protocolFeeBps: 30,
-                creatorFeeBps: 70,
+                protocolFeeBps: 70,
+                creatorFeeBps: 30,
                 poolFee: 3000,
                 tickSpacing: 60,
                 enabled: true

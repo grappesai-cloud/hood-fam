@@ -60,6 +60,7 @@ async function main() {
       const s = await seedDemo({ wipe: on.has("wipe"), art: !on.has("no-art"), days, seed: flags.seed });
       console.log(`seeded ${s.launches} launches, ${s.trades} trades, ${s.stakes} locked positions, ${s.tickets} tickets`);
       console.log(`points rows: ${s.points}   wallets: ${s.wallets}   art: ${s.art}`);
+      console.log(`bag: ${s.bag.tape} tape rows, ${s.bag.penalties} penalties, ${s.bag.potDeposits} pot deposits, ${s.bag.paydayEpochs} payday epochs`);
       console.log(`history: ${s.from.toISOString()} -> ${s.to.toISOString()}`);
       console.log(`the wallet to look at: ${s.showcase}`);
       console.log(`  /portfolio?address=${s.showcase}`);

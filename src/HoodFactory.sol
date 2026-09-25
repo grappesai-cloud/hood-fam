@@ -10,14 +10,23 @@ import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {CurveConfig, FeeSplit, Launch, LaunchMode, LaunchParams} from "./HoodTypes.sol";
+import {PenaltyConfig} from "./bag/BagTypes.sol";
 import {HoodCurve} from "./HoodCurve.sol";
 import {HoodDeployer} from "./HoodDeployer.sol";
 import {PairTransfer} from "./libraries/PairTransfer.sol";
 import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
+import {IHoodBag} from "./interfaces/IHoodBag.sol";
 import {IHoodCurve} from "./interfaces/IHoodCurve.sol";
 import {IHoodFactory} from "./interfaces/IHoodFactory.sol";
 import {IHoodStaking} from "./interfaces/IHoodStaking.sol";
+import {IHoodToken} from "./interfaces/IHoodToken.sol";
 import {IHoodTokenLock} from "./interfaces/IHoodTokenLock.sol";
+
+/// @dev The one administrative call the factory makes into a pot. Not on IHoodPot, whose surface
+///      is for payers and holders.
+interface IHoodPotAdmin {
+    function exclude(address who) external;
+}
 
 /// @title HoodFactory
 /// @notice The launchpad. Prints a token, opens its curve, keeps the registry, and runs the
@@ -39,6 +48,8 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     ///         refresh on every single trade.
     uint64 internal constant LOCK_REFRESH = 1 hours;
     bytes32 internal constant EMPTY_HASH = keccak256("");
+    /// @notice The launch fee is owner-settable up to here and no further.
+    uint256 public constant MAX_LAUNCH_FEE = 0.01 ether;
 
     struct VolumeWindow {
         uint64 start;
@@ -56,12 +67,21 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     address public firstBuyLocker;
     /// @notice Handler handed to new launches. Live curves keep the one they were born with.
     address public graduationHandler;
-    /// @notice Charged on every launch, in native currency, paid to the treasury.
+    /// @notice Charged on every launch, in native currency, paid into the Bag as a house fee.
     uint256 public launchFee;
+    /// @notice The referral registry a curve reads when the protocol's share is claimed. Zero
+    ///         turns the leg off for every curve launched here.
+    address public referrals;
+    /// @notice The Bag: where the launch fee goes, and where every curve launched here sends its
+    ///         protocol legs. Set once. No launch is possible before it is.
+    address public bag;
 
     uint256 public configCount;
     mapping(uint256 configId => CurveConfig) internal _configs;
     mapping(address token => Launch) internal _launches;
+    /// @dev Kept off the Launch row so the modules that load a row on every flush do not pay for
+    ///      fields only the graduation hook reads.
+    mapping(address token => PenaltyConfig) internal _penalties;
     mapping(address curve => address token) public tokenOfCurve;
     /// @notice The direct-launch portal, allowed to register launches of its own kind.
     address public portal;
@@ -101,6 +121,10 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         string twitter,
         string telegram
     );
+    /// @dev Fires right after `Launched`, in the same transaction, for every curve launch.
+    event PotDeployed(address indexed token, address indexed pot);
+    /// @dev Fires after `PotDeployed`, all zero when the creator turned nothing on.
+    event LaunchPenalties(address indexed token, PenaltyConfig penalties);
     event CreatorFeeRecipientTransferred(address indexed token, address indexed from, address indexed to);
     event ConfigAdded(uint256 indexed configId);
     event ConfigEnabled(uint256 indexed configId, bool enabled);
@@ -110,6 +134,8 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     event PortalSet(address portal);
     event DirectLaunchRegistered(address indexed token, address indexed creator, address hook);
     event TreasurySet(address treasury);
+    event BagSet(address bag);
+    event ReferralsSet(address referrals);
     event LaunchFeeSet(uint256 fee);
     event PairAllowed(address pairToken, bool allowed, uint256 lockThreshold);
     event CustomPairLaunched(address indexed pairToken, uint8 decimals, uint256 indexed configId);
@@ -135,6 +161,8 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     error UnsupportedPairDecimals();
     error NotPortal();
     error AlreadyRegistered();
+    error NoBag();
+    error BadPenalties();
 
     /// @dev Takes refunds from a creator's first buy on the way back out to them.
     receive() external payable {}
@@ -198,9 +226,28 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         emit TreasurySet(treasury_);
     }
 
+    /// @notice Names the Bag. Once: every curve pins it at launch, and the Bag itself has no owner
+    ///         and no setter, so there is nothing a second Bag could be for except a second set of
+    ///         rules under tokens already sold on the first.
+    function setBag(address bag_) external onlyOwner {
+        if (bag_ == address(0)) revert ZeroAddress();
+        if (bag != address(0)) revert ModulesAlreadySet();
+        bag = bag_;
+        emit BagSet(bag_);
+    }
+
+    /// @notice Sets the launch fee, up to `MAX_LAUNCH_FEE`.
     function setLaunchFee(uint256 fee) external onlyOwner {
+        if (fee > MAX_LAUNCH_FEE) revert BadFee();
         launchFee = fee;
         emit LaunchFeeSet(fee);
+    }
+
+    /// @notice Points every curve, live ones included, at a referral registry. Zero switches the
+    ///         leg off; a registry that fails to answer is treated the same way by the curves.
+    function setReferrals(address referrals_) external onlyOwner {
+        referrals = referrals_;
+        emit ReferralsSet(referrals_);
     }
 
     function setPair(address pairToken, bool allowed, uint256 threshold) external onlyOwner {
@@ -242,6 +289,11 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
 
     function feeSplit(address token) external view returns (FeeSplit memory) {
         return _launches[token].feeSplit;
+    }
+
+    /// @inheritdoc IHoodFactory
+    function penaltiesOf(address token) external view returns (PenaltyConfig memory) {
+        return _penalties[token];
     }
 
     /// @notice Hash of everything that decides a launch's economics right now.
@@ -362,17 +414,31 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         if (p.feeSplit.stakersBps != 0 && IHoodStaking(staking).houseToken() == address(0)) revert NoHouseToken();
         if (p.feeSplit.creatorBps != 0 && p.creatorFeeRecipient == address(0)) revert ZeroAddress();
         _checkFirstBuyLock(p, msg.value - launchFee_);
+        _validatePenalties(p.penalties);
 
         bytes32 sHash = symbolHash(p.symbol);
         bytes32 iHash = keccak256(bytes(p.image));
         if (symbolLockedUntil[sHash] > block.timestamp) revert TickerLockedError();
         if (bytes(p.image).length != 0 && imageLockedUntil[iHash] > block.timestamp) revert ImageLockedError();
 
-        (token, curve) = _deploy(p, c);
-        _register(token, curve, p, configId, sHash, iHash);
+        address pot;
+        (token, curve, pot) = _deploy(p, c);
+        _register(token, curve, pot, p, configId, sHash, iHash);
 
-        PairTransfer.push(address(0), treasury, launchFee_);
+        // The fee is the house's, and the house is paid through the Bag like everything else, so
+        // the Bag's tape shows it. Skipped at zero: nothing to book, nothing to emit.
+        if (launchFee_ != 0) IHoodBag(bag).takeHouseFee{value: launchFee_}(address(0), launchFee_, token);
         bought = _firstBuy(p, token, curve, msg.value - launchFee_);
+    }
+
+    /// @dev The creator's options are capped where a tax stops being a deterrent and becomes a
+    ///      trap: a quarter on a flip or a dump, an hour to count as a flip, twenty percent of
+    ///      price move to count as a dump, half of the holder share into the king pot.
+    function _validatePenalties(PenaltyConfig calldata pc) internal pure {
+        if (pc.jeetTaxBps > 2_500 || pc.whaleTaxBps > 2_500) revert BadPenalties();
+        if (pc.jeetWindowSeconds > 1 hours) revert BadPenalties();
+        if (pc.whaleTickLimit > 2_000) revert BadPenalties();
+        if (pc.kingBps > 5_000) revert BadPenalties();
     }
 
     function _validateConfig(CurveConfig memory c) internal pure {
@@ -398,9 +464,20 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         if ((p.pairToken == address(0) ? nativeLeft : p.firstBuy) == 0) revert NoFirstBuy();
     }
 
-    function _deploy(LaunchParams calldata p, CurveConfig memory c) internal returns (address token, address curve) {
+    function _deploy(LaunchParams calldata p, CurveConfig memory c)
+        internal
+        returns (address token, address curve, address pot)
+    {
+        // A curve pins its Bag for life. Without one it could never claim a fee or finalize, so a
+        // launch before the Bag is named would print a token that can never graduate.
+        address bag_ = bag;
+        if (bag_ == address(0)) revert NoBag();
+
         bytes32 salt = keccak256(abi.encode(msg.sender, p.salt));
         token = deployer.deployToken(p.name, p.symbol, p.image, p.description, c.totalSupply, address(this), salt);
+        // Named before the supply moves, so the pot sees every balance from the first transfer.
+        pot = deployer.deployPot(address(this), token, p.pairToken);
+        IHoodToken(token).setPot(pot);
 
         // Filled field by field rather than as one literal: as a literal this is sixteen live
         // values at once and the Yul optimizer runs out of stack slots.
@@ -408,7 +485,8 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         ip.factory = address(this);
         ip.token = token;
         ip.pairToken = p.pairToken;
-        ip.treasury = treasury;
+        ip.bag = bag_;
+        ip.pot = pot;
         ip.feeRouter = feeRouter;
         ip.graduationHandler = graduationHandler;
         ip.curveSupply = Math.mulDiv(c.totalSupply, c.curveSupplyBps, BPS);
@@ -422,6 +500,15 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         ip.tickSpacing = c.tickSpacing;
 
         curve = deployer.deployCurve(ip, salt);
+        // Nobody who holds tokens for the machine's own sake earns from the pot: the curve and the
+        // graduator hold the supply on its way to buyers and to the pool, the pot never holds any,
+        // and the first-buy locker and the staking vault hold what is somebody else's for months
+        // with no way to pass a payout on. Excluded before the supply moves, so nothing to unwind.
+        _exclude(pot, curve);
+        _exclude(pot, graduationHandler);
+        _exclude(pot, pot);
+        _exclude(pot, firstBuyLocker);
+        _exclude(pot, staking);
         IERC20(token).safeTransfer(curve, c.totalSupply);
 
         // Open the pool now, at the price this launch is heading for, so nobody can open it first
@@ -432,9 +519,14 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
             catch {}
     }
 
+    function _exclude(address pot, address who) internal {
+        if (who != address(0)) IHoodPotAdmin(pot).exclude(who);
+    }
+
     function _register(
         address token,
         address curve,
+        address pot,
         LaunchParams calldata p,
         uint256 configId,
         bytes32 sHash,
@@ -456,12 +548,16 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
             firstBuyUnlockAt: 0,
             hook: address(0),
             splitter: address(0),
-            locker: address(0)
+            locker: address(0),
+            pot: pot
         });
         tokenOfCurve[curve] = token;
+        _penalties[token] = p.penalties;
 
         emit Launched(token, curve, msg.sender, configId, p.pairToken, p.feeSplit);
         emit LaunchMetadata(token, p.name, p.symbol, p.image, p.description, p.website, p.twitter, p.telegram);
+        emit PotDeployed(token, pot);
+        emit LaunchPenalties(token, p.penalties);
     }
 
     function _firstBuy(LaunchParams calldata p, address token, address curve, uint256 nativeLeft)
@@ -484,9 +580,13 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
             if (nativeLeft != 0) revert BadFee();
             uint256 amount = p.firstBuy;
             if (amount == 0) return 0;
-            IERC20(p.pairToken).safeTransferFrom(msg.sender, address(this), amount);
+            // The curve refunds an oversized buy to its caller (this factory), not directly to
+            // the creator. Measure this launch's balance delta so existing stray funds stay put.
+            uint256 before = IERC20(p.pairToken).balanceOf(address(this));
+            PairTransfer.pull(p.pairToken, msg.sender, amount, 0);
             IERC20(p.pairToken).forceApprove(curve, amount);
             bought = IHoodCurve(curve).buy(amount, 0, to);
+            PairTransfer.push(p.pairToken, msg.sender, IERC20(p.pairToken).balanceOf(address(this)) - before);
         }
         if (to != msg.sender) _lockFirstBuy(token, bought, p.firstBuyLock);
     }
@@ -554,7 +654,9 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
             firstBuyUnlockAt: 0,
             hook: hook,
             splitter: splitter,
-            locker: locker
+            locker: locker,
+            // A direct launch's splitter is its pot: same accumulator, same IHoodPot surface.
+            pot: splitter
         });
         emit DirectLaunchRegistered(token, creator, hook);
     }

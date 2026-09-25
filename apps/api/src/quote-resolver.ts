@@ -86,10 +86,11 @@ export async function resolveQuote(raw: string): Promise<ResolvedQuote> {
   const best = pools.filter((p): p is NonNullable<typeof p> => Boolean(p))
     .sort((a, b) => b.depthUsd - a.depthUsd)[0];
   if (!best) warnings.push("No live USDG liquidity was found. Buyers may not be able to acquire this quote token.");
-  else if (best.depthUsd < MIN_DEPTH_USD) warnings.push(`Only about $${Math.round(best.depthUsd).toLocaleString()} of USDG depth was found.`);
+  else if (best.depthUsd < MIN_DEPTH_USD) warnings.push(`The USDG balance of the best pool is only about $${Math.round(best.depthUsd).toLocaleString()}. This is not executable depth.`);
   // No static check can prove a token will never add a tax or blacklist the curve later. The curve
   // measures transfers and rejects taxed inputs, so say exactly what was and was not established.
   warnings.push("Transfer taxes and future blacklist changes cannot be proven off-chain; taxed transfers revert on the curve.");
+  warnings.push("The quote token can lose value independently of the new token. A pool balance is not a safety rating or a guaranteed exit price.");
 
   const value: ResolvedQuote = {
     address,

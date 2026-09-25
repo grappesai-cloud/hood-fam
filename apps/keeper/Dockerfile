@@ -1,4 +1,4 @@
-# The keeper. Does only what anybody else could do, just sooner.
+# The keeper. Routine permissionless work plus Safe-appointed curve buybacks.
 FROM node:22-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./

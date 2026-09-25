@@ -8,6 +8,10 @@ interface IHoodCurve {
     function pairToken() external view returns (address);
     function phase() external view returns (Phase);
     function graduationHandler() external view returns (address);
+    /// @notice The Bag every protocol leg of this curve is paid into, pinned at launch.
+    function bag() external view returns (address);
+    /// @notice The launch's pot, which takes the Confetti share of the graduation fee.
+    function pot() external view returns (address);
     function sold() external view returns (uint256);
     function reserve() external view returns (uint256);
     function bonus() external view returns (uint256);

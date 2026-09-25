@@ -19,6 +19,12 @@ import { HolderMap } from "@/components/HolderMap";
 import { TokenChat } from "@/components/TokenChat";
 import { DirectTradeBox } from "@/components/DirectTradeBox";
 import { DirectPanels } from "@/components/DirectPanels";
+import { HoldersPaid } from "@/components/token/HoldersPaid";
+import { PenaltyTape } from "@/components/token/PenaltyTape";
+import { KingOfHill } from "@/components/token/KingOfHill";
+import { BoostBadge } from "@/components/token/BoostBadge";
+import { BoostBuy } from "@/components/token/BoostBuy";
+import { AuctionPanel } from "@/components/token/AuctionPanel";
 import dynamic from "next/dynamic";
 // lightweight-charts is ~45 kB and the chart is a widget, not the first thing a trader needs. Split
 // it out of the token page's initial bundle and mount it after hydration, behind a matching box, so
@@ -31,6 +37,8 @@ import { LockElsewhere, StakePanel } from "@/components/StakePanel";
 import { ago, compact, fmt, imageUrl, launchProgress, machineLabel, pairDecimals, pairSymbol, safeUrl, splitOf, screenerLinks, shortAddress, splitLabel, telegramUrl, twitterUrl } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
 import { FeeFlow } from "@/components/FeeFlow";
+import { Figure, Prov, usdCompact, type Provenance } from "@/components/Provenance";
+import { sortedPair, uniswapAddLiquidityUrl, uniswapPoolUrl, uniswapSwapUrl } from "@/lib/links";
 
 interface PoolKey { currency0: Address; currency1: Address; fee: number; tickSpacing: number; hooks: Address }
 
@@ -108,10 +116,38 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
   const poolId = isDirect ? data.pool_id : graduatedKey ? poolIdOf(graduatedKey) : null;
   const hasPool = isDirect || graduated;
   const links = screenerLinks(data.token, poolId);
+  // The pool's key, for the links into Uniswap's own app: a direct launch's is on the row, a
+  // graduated curve token's is whatever the graduator opened. Nothing here is a form of ours.
+  const poolKey = isDirect && data.hook && data.pool_fee != null && data.tick_spacing != null
+    ? (() => {
+        const [currency0, currency1] = sortedPair(data.token, data.pair_token);
+        return { currency0, currency1, fee: data.pool_fee, tickSpacing: data.tick_spacing, hooks: data.hook };
+      })()
+    : graduatedKey
+      ? { currency0: graduatedKey.currency0, currency1: graduatedKey.currency1, fee: Number(graduatedKey.fee), tickSpacing: Number(graduatedKey.tickSpacing), hooks: graduatedKey.hooks }
+      : null;
+  // The cap is the last trade's price times what is left of the supply: both measured, the product
+  // derived. In dollars only when the pair has a price source, and it says which one.
+  const cap = (BigInt(data.price || "0") * totalSupply) / 10n ** 18n;
+  const capUsd = data.usd?.usd != null ? (Number(cap) / 10 ** dec) * data.usd.usd : null;
+  const usdKind: Provenance = data.usd?.source === "feed" || data.usd?.source === "resolver" ? "reported" : "derived";
+  // What the fee machinery has actually paid on this launch. A curve pays on a flush; a direct
+  // launch pays on a sweep, which the API files under what came in.
+  const paidOut = BigInt((isDirect ? data.fees?.accrued : data.fees?.flushed) ?? "0");
+  // The pot's receipts, under the payout line on either machine. King of the hill is a splitter
+  // option, so it only ever has a panel on a launch whose penalties turned it on.
+  const kingBps = data.penalties?.king_bps ?? 0;
+  const holdersPaid = (
+    <HoldersPaid token={data.token} pot={data.pot} paidToHolders={data.paid_to_holders} decimals={dec} symbol={sym} />
+  );
   const supplyFacts = (
     <>
       <Fact label="supply" value={`${compact(totalSupply)} ${data.symbol}`} />
       {burned > 0n && <Fact label="burned" value={`${compact(burned)} ${data.symbol}`} />}
+      {data.referral_to && (data.referral_bps ?? 0) > 0 && (
+        <Fact label={`brought by ${shortAddress(data.referral_to)}`}
+          value={`${((data.referral_bps ?? 0) / 100).toFixed(0)}% of the protocol's share`} />
+      )}
     </>
   );
 
@@ -131,6 +167,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
               }`}>
                 {isDirect ? "Live in pool" : machineLabel(data)}
               </span>
+              {data.boosted && <BoostBadge />}
             </div>
             <p className="text-sm dim">{data.description}</p>
             <div className="mt-1 flex flex-wrap gap-3 text-xs dim">
@@ -139,6 +176,9 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
               {isDirect && data.splitter && <a className="hover:text-[var(--color-lime)]" href={`${EXPLORER}/address/${data.splitter}`} target="_blank" rel="noreferrer">splitter</a>}
               {hasPool && <a className="hover:text-[var(--color-lime)]" href={links.dexscreener} target="_blank" rel="noreferrer">dexscreener</a>}
               {hasPool && links.geckoterminal && <a className="hover:text-[var(--color-lime)]" href={links.geckoterminal} target="_blank" rel="noreferrer">geckoterminal</a>}
+              {hasPool && <a className="hover:text-[var(--color-lime)]" href={uniswapSwapUrl(data.token, data.pair_token)} target="_blank" rel="noreferrer">trade on uniswap</a>}
+              {poolKey && <a className="hover:text-[var(--color-lime)]" href={uniswapAddLiquidityUrl(poolKey)} target="_blank" rel="noreferrer">add liquidity</a>}
+              {poolId && <a className="hover:text-[var(--color-lime)]" href={uniswapPoolUrl(poolId)} target="_blank" rel="noreferrer">pool</a>}
               {safeUrl(data.website) && <a className="hover:text-[var(--color-lime)]" href={safeUrl(data.website)!} target="_blank" rel="noreferrer noopener">website</a>}
               {twitterUrl(data.twitter) && <a className="hover:text-[var(--color-lime)]" href={twitterUrl(data.twitter)!} target="_blank" rel="noreferrer noopener">x</a>}
               {telegramUrl(data.telegram) && <a className="hover:text-[var(--color-lime)]" href={telegramUrl(data.telegram)!} target="_blank" rel="noreferrer noopener">telegram</a>}
@@ -156,8 +196,13 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
             </div>
           </div>
           <div className="token-hero-cap text-right">
-            <div className="mono text-lg">{compact((BigInt(data.price || "0") * totalSupply) / 10n ** 18n, dec)} {sym}</div>
-            <div className="text-xs dim">MARKET CAP</div>
+            <div className="mono text-lg">{compact(cap, dec)} {sym}</div>
+            <div className="text-xs dim">MARKET CAP <Prov kind="derived" /></div>
+            {capUsd != null ? (
+              <div className="mono text-sm">{usdCompact(capUsd)} <Prov kind={usdKind} /></div>
+            ) : (
+              <div className="text-xs dim figure-reason"><span className="figure-dash">—</span> {data.usd?.reason ?? "no dollar price for this pair"}</div>
+            )}
             <WatchButton token={data.token} className="mt-2" />
           </div>
         </header>
@@ -172,13 +217,15 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
               <Fact label="24h volume" value={`${compact(BigInt(data.volume_24h || "0"), dec)} ${sym}`} />
               <Fact label="holders" value={String(data.holders)} />
               <Fact label="trades" value={String(data.trades_total)} />
-              <Fact label="pool fee" value={`${((data.pool_fee ?? 0) / 10_000).toFixed(2)}%`} />
+              <Fact label="pool fee" value={data.pool_fee == null ? null : `${(data.pool_fee / 10_000).toFixed(2)}%`} reason="the pool's shape has not been indexed yet" />
               {supplyFacts}
               {data.alloc_dividends_bps != null && (
                 <Fact label="tax paid to holders"
                   value={data.alloc_dividends_bps === 0 ? "none on this launch" : `${(data.alloc_dividends_bps / 100).toFixed(0)}% of the creator's share`} />
               )}
             </div>
+            <PaidOut amount={paidOut} decimals={dec} symbol={sym} token={data.token} />
+            {holdersPaid}
           </section>
         ) : (
         <section className="panel token-tape p-4">
@@ -196,6 +243,8 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
             <Fact label="trades" value={String(data.trades_total)} />
             {supplyFacts}
           </div>
+          <PaidOut amount={paidOut} decimals={dec} symbol={sym} token={data.token} />
+          {holdersPaid}
         </section>
         )}
 
@@ -217,13 +266,17 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
               source={`fee on every trade`}
               waiting={`${fmt((accrued as bigint | undefined) ?? 0n, dec, 6)} ${sym} waiting to be pushed`}
             />
-            <button className="btn btn-ghost mt-2 w-full text-xs"
-              disabled={!me || ((accrued as bigint | undefined) ?? 0n) === 0n}
-              onClick={() => writeContractAsync({
-                address: addresses.feeRouter, abi: hoodFeeRouterAbi, functionName: "flush", args: [data.token as Address],
-              })}>
-              push the fees through (anyone can)
-            </button>
+            {(data.split_buyback_bps ?? 0) > 0 ? (
+              <p className="mt-2 text-xs dim">The buyback trades against a quoted price floor. The Safe-appointed keeper sends this fee onward.</p>
+            ) : (
+              <button className="btn btn-ghost mt-2 w-full text-xs"
+                disabled={!me || ((accrued as bigint | undefined) ?? 0n) === 0n}
+                onClick={() => writeContractAsync({
+                  address: addresses.feeRouter, abi: hoodFeeRouterAbi, functionName: "flush", args: [data.token as Address],
+                })}>
+                push the fees through (anyone can)
+              </button>
+            )}
           </div>
           )}
 
@@ -255,6 +308,8 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
 
         <GraduationRace current={data.token} />
 
+        <PenaltyTape token={data.token} />
+
         {/* The sound toggle is the tape's, and sits on top of it. It is a sibling rather than a
             child because Tape.tsx is the shared tape every brand's board runs too, and is not this
             page's to rewrite. */}
@@ -263,7 +318,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
           <Tape token={data.token} symbol={data.symbol} pairToken={data.pair_token} />
         </div>
 
-        <TokenChat token={data.token} symbol={data.symbol} creator={data.creator} launchedAt={data.launched_at} />
+        <TokenChat token={data.token} symbol={data.symbol} creator={data.creator} pairToken={data.pair_token} launchedAt={data.launched_at} />
       </div>
 
       <aside className="space-y-4">
@@ -301,6 +356,13 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
             symbol={data.symbol} phase={data.phase} />
         )}
 
+        {/* The opening auction only exists while it is open, and the panel decides that itself. */}
+        <AuctionPanel token={data.token as Address} />
+
+        {kingBps > 0 && (
+          <KingOfHill token={data.token} splitter={data.splitter} kingBps={kingBps} decimals={dec} symbol={sym} />
+        )}
+
         {!isDirect && data.phase === 1 && (
           <button className="btn w-full" onClick={() => writeContractAsync({
             address: data.curve as Address, abi: hoodCurveAbi, functionName: "finalize", args: [],
@@ -313,6 +375,8 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
             the house coin's own page this is the room itself; everywhere else it is a sentence
             saying where the room is and that nothing here can be locked. */}
         {isHouse ? <StakePanel /> : <LockElsewhere token={data.token as Address} />}
+
+        <BoostBuy token={data.token as Address} symbol={data.symbol} boosted={data.boosted} />
 
         {isCreator && (
           <div className="panel p-4 text-sm">
@@ -337,11 +401,21 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+/// Every fact on this page is our indexer's own count unless it says otherwise.
+function Fact({ label, value, kind = "measured", reason }: {
+  label: string; value: string | null; kind?: Provenance; reason?: string;
+}) {
+  return <Figure label={label} value={value} kind={kind} reason={reason} />;
+}
+
+/// The one line that turns the split into receipts: what has actually left, and where the rest of
+/// the story is.
+function PaidOut({ amount, decimals, symbol, token }: { amount: bigint; decimals: number; symbol: string; token: string }) {
   return (
-    <div>
-      <div className="mono">{value}</div>
-      <div className="dim">{label}</div>
-    </div>
+    <p className="paid-out">
+      paid out so far <span className="mono">{fmt(amount, decimals, 4)} {symbol}</span> <Prov kind="measured" />
+      <span className="prov-sep">·</span>
+      <Link href={`/ledger?token=${token}`}>every payout, on the ledger →</Link>
+    </p>
   );
 }

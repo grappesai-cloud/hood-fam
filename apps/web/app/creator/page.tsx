@@ -127,8 +127,8 @@ function Launch({ t, me }: { t: TokenRow; me: Address }) {
   const sym = pairSymbol(t.pair_token, t);
   const progress = launchProgress(t);
   const isCreator = same(t.creator, me);
-  // The creator leg pays a wallet, which is what makes the flush their claim and the recipient
-  // something they can hand over.
+  // The creator leg normally pays the named wallet during flush. If that wallet refuses a
+  // transfer, only its own share is deferred and can be redirected by that same wallet.
   const keeps = !direct && (t.split_creator_bps ?? 0) > 0;
   // Any part of the fee that buys back has to swap, and a swap after graduation needs a price floor.
   const buysBack = !direct && (t.split_buyback_bps ?? 0) > 0;
@@ -153,6 +153,12 @@ function Launch({ t, me }: { t: TokenRow; me: Address }) {
   });
   const recipient = recipientRaw as Address | undefined;
   const paysMe = same(recipient, me);
+  const { data: deferredRaw } = useReadContract({
+    address: feeRouter ?? zeroAddress, abi: hoodFeeRouterAbi, functionName: "creatorClaimable",
+    args: [me, t.pair_token as Address],
+    query: { enabled: Boolean(feeRouter) && keeps, refetchInterval: 12_000 },
+  });
+  const deferred = deferredRaw as bigint | undefined;
 
   const { data: splitterData } = useReadContracts({
     contracts: [
@@ -189,8 +195,7 @@ function Launch({ t, me }: { t: TokenRow; me: Address }) {
     !feeRouter ? "the fee router is not configured on this deployment"
     : accrued === undefined ? "still reading what the router is holding"
     : accrued === 0n ? "nothing is waiting in the router"
-    : graduated && buysBack ? "a graduated buy back and burn buys on the open market, so its flush needs a price floor and goes through the keeper"
-    : t.phase === 1 && buysBack ? "the curve is sold out: open the pool first"
+    : buysBack ? "a buyback needs a quoted price floor and runs through the Safe-appointed keeper"
     : undefined;
 
   const collectReason =
@@ -257,11 +262,25 @@ function Launch({ t, me }: { t: TokenRow; me: Address }) {
           {keeps && (
             <Row label="paid to" value={<><Addr address={recipient} missing="reading" />{paysMe && <span className="text-[var(--color-lime)]"> · you</span>}</>} />
           )}
+          {keeps && deferred !== undefined && deferred > 0n && (
+            <>
+              <Row label="payment held for you" value={amount(deferred)} />
+              <Action
+                id="claim-deferred"
+                label="claim held payment"
+                note="The original payout could not reach this wallet. You can send it to this connected wallet, or claim to another address on chain."
+                pending={pending}
+                onClick={() => send("claim-deferred", () => writeContractAsync({
+                  address: feeRouter!, abi: hoodFeeRouterAbi, functionName: "claimCreator", args: [t.pair_token as Address, me],
+                }))}
+              />
+            </>
+          )}
           <Action
             id="flush"
             label={keeps && paysMe ? "claim what is waiting to my wallet" : "push the fees through"}
             note={keeps
-              ? `Anybody can send it. It lands at ${recipient ? shortAddress(recipient) : "the fee recipient"}, in one hop.`
+              ? `Anybody can send it. It pays ${recipient ? shortAddress(recipient) : "the fee recipient"}; if that wallet rejects payment, its share is held for it to claim.`
               : `Anybody can send it. On this launch it goes to: ${splitLabel(t).toLowerCase()}.`}
             reason={flushReason}
             pending={pending}
@@ -300,7 +319,7 @@ function Launch({ t, me }: { t: TokenRow; me: Address }) {
             reason={claimReason}
             pending={pending}
             onClick={() => send("claim", () => writeContractAsync({
-              address: splitter!, abi: hoodRevenueSplitterAbi, functionName: "claim", args: [me],
+              address: splitter!, abi: hoodRevenueSplitterAbi, functionName: "claimCreator", args: [me],
             }))}
           />
           <Action

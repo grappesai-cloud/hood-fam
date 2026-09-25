@@ -10,10 +10,10 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
-import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
-import {SqrtPriceMath} from "@uniswap/v4-core/src/libraries/SqrtPriceMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+
+import {BuybackMath} from "./lib/BuybackMath.sol";
 
 interface ISplitter {
     function releaseBuyback() external returns (uint256);
@@ -31,6 +31,8 @@ interface IBurnable {
 
 interface IHookTax {
     function buyTaxBps() external view returns (uint16);
+    /// @dev The block the hook's own inline buyback last ran in; one buyback per block across both.
+    function lastBuybackBlock() external view returns (uint64);
 }
 
 interface IPortalLaunches {
@@ -57,8 +59,9 @@ contract HoodBuybackModule is IUnlockCallback, ReentrancyGuard {
 
     /// @notice How far one run may move the price, in ticks: about three percent. A run is
     ///         permissionless, so this is what keeps a stranger's run from being a stranger's
-    ///         sandwich; what does not fit under the limit waits for the next run.
-    int24 public constant MAX_IMPACT_TICKS = 296;
+    ///         sandwich; what does not fit under the limit waits for the next run. The hook's
+    ///         inline buyback ("bots buy the dip") is held to the same number.
+    int24 public constant MAX_IMPACT_TICKS = BuybackMath.MAX_IMPACT_TICKS;
     /// @notice Quote a run could not spend inside the impact limit, kept here for the next run.
     mapping(address token => uint256) public carried;
     /// @notice The block a token's last run landed in. One run per token per block.
@@ -87,9 +90,6 @@ contract HoodBuybackModule is IUnlockCallback, ReentrancyGuard {
         uint256 buyTaxBps;
     }
 
-    uint256 internal constant BPS = 10_000;
-    uint256 internal constant PIPS = 1_000_000;
-
     constructor(address poolManager_, address portal_) {
         poolManager = IPoolManager(poolManager_);
         portal = portal_;
@@ -105,6 +105,9 @@ contract HoodBuybackModule is IUnlockCallback, ReentrancyGuard {
             IPortalLaunches(portal).getLaunch(token);
         if (!exists) revert UnknownLaunch();
         if (lastRunBlock[token] == uint64(block.number)) revert AlreadyRanThisBlock();
+        // The hook buys the dip inline on penalised sells, under the same cap; the two together
+        // are still one run a block, or the cap bounds one swap and nothing else.
+        if (IHookTax(hook).lastBuybackBlock() == uint64(block.number)) revert AlreadyRanThisBlock();
         lastRunBlock[token] = uint64(block.number);
 
         uint256 released;
@@ -142,35 +145,13 @@ contract HoodBuybackModule is IUnlockCallback, ReentrancyGuard {
 
         // The limit is a few percent off the price at this instant. The swap stops there and the
         // rest of the pot is carried, which is what makes a permissionless run safe to expose.
-        (uint160 sqrtP, int24 tick,,) = poolManager.getSlot0(c.key.toId());
-        int24 limitTick = c.zeroForOne ? tick - MAX_IMPACT_TICKS : tick + MAX_IMPACT_TICKS;
-        if (limitTick < TickMath.MIN_TICK + 1) limitTick = TickMath.MIN_TICK + 1;
-        if (limitTick > TickMath.MAX_TICK - 1) limitTick = TickMath.MAX_TICK - 1;
-        uint160 sqrtLimit = TickMath.getSqrtPriceAtTick(limitTick);
-
         // The hook taxes an exact input on the amount OFFERED, before the pool says how much it
         // could fill under the limit. So the input is sized to what the limit admits: the quote
         // that moves the in-range liquidity to the limit, grossed up for the pool's fee and the
         // hook's base tax. The limit stays on the swap as the backstop.
-        uint128 liquidity = poolManager.getLiquidity(c.key.toId());
-        if (liquidity == 0 && c.zeroForOne) {
-            // A fresh launch quoted in the chain's own currency sits exactly on the position's upper
-            // edge, where nothing is in range until the first buy crosses in. The tick's own net
-            // liquidity is what the pool will pick up on that crossing.
-            (, int128 net) = poolManager.getTickLiquidity(c.key.toId(), tick);
-            if (net < 0) liquidity = uint128(-net);
-        }
-        uint256 needed = liquidity == 0
-            ? 0
-            : c.zeroForOne
-                ? SqrtPriceMath.getAmount0Delta(sqrtLimit, sqrtP, liquidity, true)
-                : SqrtPriceMath.getAmount1Delta(sqrtP, sqrtLimit, liquidity, true);
-        uint256 amountIn;
-        if (needed != 0) {
-            uint256 gross = (needed * PIPS) / (PIPS - c.key.fee);
-            gross = (gross * BPS) / (BPS - c.buyTaxBps) + 1;
-            amountIn = gross < c.amount ? gross : c.amount;
-        }
+        (uint256 amountIn, uint160 sqrtLimit) =
+            BuybackMath.sizeToCap(poolManager, c.key, c.zeroForOne, c.buyTaxBps, MAX_IMPACT_TICKS);
+        if (amountIn > c.amount) amountIn = c.amount;
         if (amountIn == 0) return abi.encode(uint256(0));
 
         BalanceDelta delta = poolManager.swap(

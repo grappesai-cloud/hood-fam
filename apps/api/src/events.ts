@@ -14,7 +14,10 @@ import { pool } from "./db.js";
 /// of them needs.
 const CHANNEL = "hood_events";
 
-export type StreamEvent = "trade" | "launch" | "graduated" | "message";
+/// `bag` is one row of the money tape as it lands (kind, token, asset, amount, tx, at, extra); `king`
+/// is a king-of-the-hill round moving (token, king, pot, ends_at, and `won` once the timer ran out).
+/// Both carry the token when the event has one, so a `?tokens=` reader gets its own pot and penalties.
+export type StreamEvent = "trade" | "launch" | "graduated" | "message" | "fee" | "bag" | "king";
 
 /// Postgres refuses a NOTIFY payload over 8000 bytes, and it refuses it on the write that sent it,
 /// so an oversized one must never reach it. A chat body is capped at 280 characters and a trade is

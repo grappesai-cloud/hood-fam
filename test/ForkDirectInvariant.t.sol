@@ -15,7 +15,10 @@ import {HoodLaunchHook} from "../src/direct/HoodLaunchHook.sol";
 import {HoodLocker} from "../src/direct/HoodLocker.sol";
 import {HoodRevenueSplitter} from "../src/direct/HoodRevenueSplitter.sol";
 import {HoodBuybackModule} from "../src/direct/HoodBuybackModule.sol";
+import {HoodOpeningAuction} from "../src/direct/HoodOpeningAuction.sol";
 import {Allocations, DirectConfig, Socials} from "../src/direct/DirectTypes.sol";
+import {PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {MockBag} from "./mocks/DirectMocks.sol";
 import {ExactInputSingleParams, PoolKey as RhPoolKey, V4Actions} from "../src/interfaces/IExternal.sol";
 
 interface IPermit2 {
@@ -169,8 +172,12 @@ contract DirectForkInvariant is StdInvariant, Test {
         portal = new HoodPortal(owner, treasury, address(deployer), address(impl), POOL_MANAGER, POSITION_MANAGER, PERMIT2);
         deployer.initialize(address(portal));
         buyback = new HoodBuybackModule(POOL_MANAGER, address(portal));
-        vm.prank(owner);
+        MockBag bag = new MockBag();
+        vm.startPrank(owner);
         portal.setBuybackModule(address(buyback));
+        portal.setBag(address(bag));
+        portal.setAuction(address(new HoodOpeningAuction(address(portal))));
+        vm.stopPrank();
         vm.deal(creator, 10 ether);
 
         bytes32 hookSalt = _mineHookSalt();
@@ -178,7 +185,9 @@ contract DirectForkInvariant is StdInvariant, Test {
             buyTaxBps: 500, sellTaxBps: 500, snipeTaxBps: 0, snipeDecaySeconds: 0,
             restrictionBlocks: 0, maxHoldBps: 10_000, maxBuyBps: 10_000,
             tickStart: TICK_START, tickBond: TICK_BOND,
-            allocations: Allocations(2_500, 2_500, 4_000, 1_000)
+            allocations: Allocations(2_500, 2_500, 4_000, 1_000),
+            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
+            auctionBlocks: 0
         });
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
             name: "Inv", symbol: "INV", logo: "", description: "",
@@ -186,10 +195,10 @@ contract DirectForkInvariant is StdInvariant, Test {
             poolFee: POOL_FEE, tickSpacing: SPACING, config: config, salt: bytes32(uint256(1)), initialBuy: 0
         });
         vm.prank(creator);
-        HoodPortal.Addresses memory out = portal.createLaunch{value: 0.0005 ether}(input, hookSalt);
+        HoodPortal.Addresses memory out = portal.createLaunch{value: 0.002 ether}(input, hookSalt);
 
         token = HoodLaunchToken(out.token);
-        hook = HoodLaunchHook(out.hook);
+        hook = HoodLaunchHook(payable(out.hook));
         splitter = HoodRevenueSplitter(payable(out.splitter));
         locker = HoodLocker(payable(out.locker));
 

@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 import {FeeSplit, Launch, Phase} from "./HoodTypes.sol";
 import {PairTransfer} from "./libraries/PairTransfer.sol";
+import {IHoodBag} from "./interfaces/IHoodBag.sol";
 import {IHoodCurve} from "./interfaces/IHoodCurve.sol";
 import {IHoodFactory} from "./interfaces/IHoodFactory.sol";
 import {IHoodFeeRouter} from "./interfaces/IHoodFeeRouter.sol";
@@ -18,8 +19,8 @@ import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
 /// @notice Holds the creator leg of every trading fee and, on a permissionless flush, spends it
 ///         across the four destinations the creator picked at launch.
 /// @dev The split is read from the registry, where it is written once and never changed. This
-///      contract has no owner and no withdrawal: whatever is booked for a token can only leave
-///      along that token's split, and the four legs always add up to the whole of it.
+///      contract has no owner. A recipient that refuses payment cannot block the other legs:
+///      its own share is held for that recipient to claim to an address that accepts it.
 contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -27,13 +28,21 @@ contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
 
     IHoodFactory public immutable factory;
     IHoodStaking public immutable staking;
+    /// @notice The sole hot wallet allowed to execute price-sensitive buybacks.
+    /// @dev The factory owner (a Safe in production) can also execute or rotate it.
+    address public keeper;
 
     /// @notice Pair wei booked for a token and not yet spent.
     mapping(address token => uint256) public accrued;
     /// @dev Pair wei this contract knows about, per asset. Anything above it is a stray donation.
     mapping(address asset => uint256) public accounted;
+    /// @notice Failed creator payouts, reserved for the recipient that was named when flushed.
+    mapping(address recipient => mapping(address asset => uint256)) public creatorClaimable;
 
     event Accrued(address indexed token, uint256 amount);
+    event CreatorPayoutDeferred(address indexed token, address indexed recipient, address indexed asset, uint256 amount);
+    event CreatorPayoutClaimed(address indexed recipient, address indexed asset, address indexed to, uint256 amount);
+    event KeeperSet(address indexed oldKeeper, address indexed newKeeper);
     event Flushed(
         address indexed token,
         uint256 amount,
@@ -50,6 +59,11 @@ contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
     error NothingToFlush();
     error NeedsSwapFloor();
     error NeedsFinalize();
+    error NothingToClaim();
+    error ZeroAddress();
+    error UnexpectedPayout();
+    error NotOwner();
+    error NotKeeper();
 
     constructor(address factory_, address staking_) {
         factory = IHoodFactory(factory_);
@@ -57,6 +71,12 @@ contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
     }
 
     receive() external payable {}
+
+    function setKeeper(address next) external {
+        if (msg.sender != factory.owner()) revert NotOwner();
+        emit KeeperSet(keeper, next);
+        keeper = next;
+    }
 
     /// @inheritdoc IHoodFeeRouter
     function accrue(address token, uint256 amount) external payable {
@@ -78,10 +98,25 @@ contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
         _flush(token, 0, false);
     }
 
-    /// @notice Permissionless flush with a slippage floor, which applies to the buyback leg only.
+    /// @notice Owner/keeper-only flush with a quoted slippage floor on the buyback leg.
+    /// @dev A permissionless caller can pass a dust floor and sandwich the visible fee pot, so
+    ///      only the owner-appointed executor may choose the floor. The owner can rotate it.
     ///         The other three legs do exactly what they do in a plain flush.
     function flushBuyback(address token, uint256 minTokensOut) external nonReentrant {
+        if (msg.sender != keeper && msg.sender != factory.owner()) revert NotKeeper();
+        if (minTokensOut == 0) revert NeedsSwapFloor();
         _flush(token, minTokensOut, true);
+    }
+
+    /// @notice A recipient whose payout failed may redirect only its own reserved funds.
+    function claimCreator(address asset, address to) external nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        uint256 amount = creatorClaimable[msg.sender][asset];
+        if (amount == 0) revert NothingToClaim();
+        creatorClaimable[msg.sender][asset] = 0;
+        accounted[asset] -= amount;
+        PairTransfer.push(asset, to, amount);
+        emit CreatorPayoutClaimed(msg.sender, asset, to, amount);
     }
 
     function _flush(address token, uint256 minTokensOut, bool withFloor) internal {
@@ -116,7 +151,26 @@ contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
         bool offTheCurve;
         if (toBuyback != 0) (burned, offTheCurve) = _buyback(l, token, toBuyback, minTokensOut);
         if (toLiquidity != 0) _liquidity(l, token, toLiquidity);
-        if (toCreator != 0) PairTransfer.push(l.pairToken, l.creatorFeeRecipient, toCreator);
+        if (toCreator != 0 && !_houseCoinLeg(l, toCreator)) {
+            bool paid;
+            if (l.pairToken == address(0)) {
+                // Cap callback gas so a hostile recipient cannot consume the entire flush.
+                (paid,) = l.creatorFeeRecipient.call{value: toCreator, gas: 30_000}("");
+            } else {
+                uint256 before = IERC20(l.pairToken).balanceOf(address(this));
+                paid = IERC20(l.pairToken).trySafeTransfer(l.creatorFeeRecipient, toCreator);
+                uint256 spent = before - IERC20(l.pairToken).balanceOf(address(this));
+                // A nonstandard token may move funds and still return false. Never reserve those
+                // funds a second time, and never continue after an inexact outgoing transfer.
+                if (spent != 0 && spent != toCreator) revert UnexpectedPayout();
+                paid = spent == toCreator;
+            }
+            if (!paid) {
+                creatorClaimable[l.creatorFeeRecipient][l.pairToken] += toCreator;
+                accounted[l.pairToken] += toCreator;
+                emit CreatorPayoutDeferred(token, l.creatorFeeRecipient, l.pairToken, toCreator);
+            }
+        }
 
         // Two things come back from a buy off the curve: the creator fee on the buyback itself,
         // which the curve books through `accrue` like any trade, and whatever rounding kept the
@@ -135,6 +189,18 @@ contract HoodFeeRouter is IHoodFeeRouter, ReentrancyGuard {
     }
 
     // ---------------------------------------------------------------- the four legs
+
+    /// @dev The house coin names the Bag as its creator. That leg is not a payout to a wallet but
+    ///      an intake with rules of its own (half Vault, half burn), so it goes in the Bag's door
+    ///      rather than at its receive. Read live, not pinned: the Bag is set once on the factory.
+    ///      Returns true when it paid, so the ordinary creator payout is skipped.
+    function _houseCoinLeg(Launch memory l, uint256 amount) internal returns (bool) {
+        address bag = factory.bag();
+        if (bag == address(0) || l.creatorFeeRecipient != bag) return false;
+        _approvePair(l.pairToken, bag, amount);
+        IHoodBag(bag).takeHouseCoinLeg{value: _value(l.pairToken, amount)}(l.pairToken, amount);
+        return true;
+    }
 
     /// @dev Each leg is floored and the last one with a share takes the remainder, so four legs
     ///      always add up to exactly what was booked and no wei is ever left behind in here.

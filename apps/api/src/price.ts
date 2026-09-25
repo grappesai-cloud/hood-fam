@@ -28,6 +28,7 @@ const ETH_USD_FEED = "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9" as Address;
 /// that: on a chain with no feed at all (a local run), it is the only price there is.
 const FALLBACK_ETH_USD = Number(process.env.HOOD_ETH_USD ?? 0);
 let ethUsd = { price: FALLBACK_ETH_USD, at: 0 };
+let ethUsdSource: UsdSource | null = FALLBACK_ETH_USD > 0 ? "fallback" : null;
 let warnedNoPrice = false;
 
 export async function ethUsdPrice(): Promise<number> {
@@ -38,9 +39,13 @@ export async function ethUsdPrice(): Promise<number> {
       abi: [parseAbiItem("function latestAnswer() view returns (int256)")],
       functionName: "latestAnswer",
     })) as bigint;
-    if (answer > 0n) ethUsd = { price: Number(answer) / 1e8, at: Date.now() };
+    if (answer > 0n) {
+      ethUsd = { price: Number(answer) / 1e8, at: Date.now() };
+      ethUsdSource = "feed";
+    }
   } catch {
     ethUsd = { price: ethUsd.price || FALLBACK_ETH_USD, at: Date.now() };
+    if (!ethUsdSource && ethUsd.price > 0) ethUsdSource = "fallback";
   }
   if (ethUsd.price === 0 && !warnedNoPrice) {
     warnedNoPrice = true;
@@ -169,31 +174,62 @@ const getSlot0Abi = parseAbiItem(
 
 const poolPrices = new Map<string, { price: number; at: number }>();
 
-/// What one whole unit of a pair asset is worth in dollars.
-export async function pairUsdPrice(pairToken: string): Promise<number> {
-  const asset = PAIR_ASSETS[pairToken.toLowerCase()];
-  if (!asset) {
-    try { return (await resolveQuote(pairToken)).usd; } catch { return 0; }
-  }
-  if (asset.isDollar) return 1;
-  if (!asset.usdPool) return ethUsdPrice();
+/// Where a dollar figure came from, said next to it. A page that prints "$1.2M" owes the reader
+/// the source: a Chainlink feed, a USDG pool this process read, the resolver's best pool for a
+/// pair nobody registered, or a number an operator typed into HOOD_ETH_USD. And when there is no
+/// source, the answer is `null` with the reason, never a zero: a zero reads as a measurement
+/// somebody took, and nobody took it.
+export type UsdSource = "dollar" | "feed" | "pool" | "resolver" | "fallback";
+export interface UsdQuote { usd: number | null; source: UsdSource | null; reason: string | null }
 
+export async function pairUsdQuote(pairToken: string): Promise<UsdQuote> {
+  const key = pairToken.toLowerCase();
+  const asset = PAIR_ASSETS[key];
+  if (!asset) {
+    try {
+      const resolved = await resolveQuote(key);
+      if (resolved.usd > 0) return { usd: resolved.usd, source: "resolver", reason: null };
+      return { usd: null, source: null, reason: `no USDG pool quotes ${resolved.symbol}` };
+    } catch {
+      return { usd: null, source: null, reason: "this pair is not in the price registry and no pool quotes it" };
+    }
+  }
+  if (asset.isDollar) return { usd: 1, source: "dollar", reason: null };
+  if (!asset.usdPool) {
+    const eth = await ethUsdPrice();
+    if (eth > 0) return { usd: eth, source: ethUsdSource ?? "feed", reason: null };
+    return { usd: null, source: null, reason: "the ETH/USD feed is unreachable and no fallback price is set" };
+  }
+  const price = await poolPrice(key, asset);
+  if (price > 0) return { usd: price, source: "pool", reason: null };
+  return { usd: null, source: null, reason: `the ${asset.symbol}/USDG pool could not be read` };
+}
+
+/// What one whole unit of a pair asset is worth in dollars, or zero when nobody knows. The zero is
+/// for the callers that add dollars up (points, season takes), where an unknown pair contributes
+/// nothing; anything a reader sees goes through `pairUsdQuote` and prints the reason instead.
+export async function pairUsdPrice(pairToken: string): Promise<number> {
+  return (await pairUsdQuote(pairToken)).usd ?? 0;
+}
+
+async function poolPrice(pairToken: string, asset: PairAsset): Promise<number> {
   const cached = poolPrices.get(pairToken);
   if (cached && Date.now() - cached.at < 60_000 && cached.price > 0) return cached.price;
   try {
-    const sqrtPriceX96 = asset.usdPool.kind === "v3"
+    const usdPool = asset.usdPool!;
+    const sqrtPriceX96 = usdPool.kind === "v3"
       ? ((await client.readContract({
-          address: asset.usdPool.pool, abi: [slot0Abi], functionName: "slot0",
+          address: usdPool.pool, abi: [slot0Abi], functionName: "slot0",
         })) as readonly [bigint, ...unknown[]])[0]
       : ((await client.readContract({
-          address: STATE_VIEW, abi: [getSlot0Abi], functionName: "getSlot0", args: [asset.usdPool.poolId],
+          address: STATE_VIEW, abi: [getSlot0Abi], functionName: "getSlot0", args: [usdPool.poolId],
         })) as readonly [bigint, ...unknown[]])[0];
     // A pool's price is token1 per token0 in RAW units, so the two decimals decide the scale: a
     // share has eighteen and the dollar six, but wrapped bitcoin has eight, and assuming the
     // eighteen priced it at eight hundred trillion dollars a coin.
     const raw = (Number(sqrtPriceX96) / 2 ** 96) ** 2;
     const scale = 10 ** (asset.decimals - 6);
-    const price = asset.usdPool.assetIsToken0 ? raw * scale : scale / raw;
+    const price = usdPool.assetIsToken0 ? raw * scale : scale / raw;
     if (Number.isFinite(price) && price > 0) poolPrices.set(pairToken, { price, at: Date.now() });
   } catch {
     // Keep the last good answer: a pool that cannot be read for a minute must not price a day of

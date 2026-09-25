@@ -1,15 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { ProvenanceKey } from "@/components/Provenance";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type TokenRow } from "@/lib/api";
 import { useLive } from "@/lib/live";
-import { ago, compact, imageUrl, launchProgress, pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
+import { ago, compact, fmt, imageUrl, launchProgress, pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
 import { Artwork } from "@/components/Artwork";
 import { GraduationRace } from "@/components/GraduationRace";
 import { FomoFeed } from "@/components/FomoFeed";
 import { TopTraders } from "@/components/TopTraders";
+import { BoostedRow, pinBoosted } from "@/components/board/BoostedRow";
+import { PaydayStrip } from "@/components/board/PaydayStrip";
+import { LastTen } from "@/components/board/LastTen";
+import { BoostBadge } from "@/components/token/BoostBadge";
 
 const SORTS = [
   { key: "volume", label: "Trending", query: "sort=volume" },
@@ -19,7 +24,7 @@ const SORTS = [
   { key: "graduated", label: "Graduated", query: "sort=graduated&status=graduated" },
   { key: "culture", label: "Culture pairs", query: "sort=volume&category=culture" },
   { key: "direct", label: "Direct pool", query: "sort=volume&category=direct" },
-  { key: "locked", label: "Low risk", query: "sort=volume&category=locked" },
+  { key: "locked", label: "Dev locked", query: "sort=volume&category=locked" },
 ] as const;
 
 type SortKey = (typeof SORTS)[number]["key"];
@@ -27,7 +32,7 @@ type SortKey = (typeof SORTS)[number]["key"];
 export function Explore() {
   const [sort, setSort] = useState<SortKey>("volume");
   const [q, setQ] = useState("");
-  const [view, setView] = useState<"board" | "cards">("cards");
+  const [view, setView] = useState<"board" | "cards">("board");
   const search = useRef<HTMLInputElement>(null);
   const query = SORTS.find((item) => item.key === sort)?.query ?? "sort=new";
 
@@ -35,7 +40,7 @@ export function Explore() {
 
   const stats = useQuery({
     queryKey: ["stats"],
-    queryFn: () => api<{ launches: string; graduated: string; volume_24h: string; trades: string; traders: string }>("/stats"),
+    queryFn: () => api<{ launches: string; graduated: string; volume_24h: string; volume_24h_native?: string; trades: string; traders: string }>("/stats"),
   });
   const tokens = useQuery({
     queryKey: ["tokens", sort, q],
@@ -58,7 +63,8 @@ export function Explore() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const rows = tokens.data?.tokens ?? [];
+  // Whoever paid for the hour sits first, whatever the tab; the tab still orders the rest.
+  const rows = pinBoosted(tokens.data?.tokens ?? []);
   const hasMarketActivity = Number(stats.data?.launches ?? 0) > 0 || rows.length > 0 || Boolean(trending.data?.tokens.length);
 
   return (
@@ -113,6 +119,8 @@ export function Explore() {
           <div><span className="ox-heading-kicker">The market</span><h2 id="discover-title">Explore tokens</h2></div>
           <p>New launches, active curves and graduated markets in one place.</p>
         </div>
+
+        <BoostedRow variant="ox" />
 
         <div className="ox-discover-controls">
           <div className="ox-sort-tabs" role="tablist" aria-label="Sort tokens">
@@ -183,10 +191,14 @@ export function Explore() {
         <section className="ox-market-strip" aria-label="Platform activity">
           <MarketStat label="Tokens launched" value={stats.data?.launches ?? "—"} />
           <MarketStat label="Graduated" value={stats.data?.graduated ?? "—"} />
-          <MarketStat label="24h volume" value={stats.data ? `${compact(BigInt(stats.data.volume_24h || "0"))} ETH` : "—"} hot />
+          <MarketStat label="24h volume · ETH pairs" value={stats.data ? `${compact(BigInt(stats.data.volume_24h_native ?? stats.data.volume_24h ?? "0"))} ETH` : "—"} hot />
           <MarketStat label="Active traders" value={stats.data?.traders ?? "—"} />
+          <PaydayStrip />
+          <ProvenanceKey />
         </section>
       ) : null}
+
+      {hasMarketActivity ? <LastTen variant="ox" /> : null}
 
       {hasMarketActivity ? (
         <>
@@ -238,8 +250,8 @@ function MarketBoard({ tokens }: { tokens: TokenRow[] }) {
       <table className="ox-board-table">
         <thead>
           <tr>
-            <th>Token</th><th>Market cap</th><th>24h volume</th><th>Trades</th>
-            <th>Liquidity</th><th>Graduation</th><th>Age</th><th aria-label="Trade" />
+            <th>Token / pair</th><th>Market cap</th><th>Price</th><th>24h</th><th>24h volume</th>
+            <th>Trading fee</th><th>Graduation</th><th>Age</th><th aria-label="Trade" />
           </tr>
         </thead>
         <tbody>{tokens.map((token) => <BoardRow key={token.token} token={token} />)}</tbody>
@@ -252,6 +264,12 @@ function BoardRow({ token }: { token: TokenRow }) {
   const decimals = pairDecimals(token.pair_token, token);
   const unit = pairSymbol(token.pair_token, token);
   const cap = (BigInt(token.price || "0") * BigInt(token.total_supply || "0")) / 10n ** 18n;
+  const oldPrice = BigInt(token.price_24h_ago || "0");
+  const change = oldPrice > 0n ? Number(((BigInt(token.price || "0") - oldPrice) * 10_000n) / oldPrice) / 100 : null;
+  const price = BigInt(token.price || "0");
+  const priceLabel = price > 0n && price < 10n ** BigInt(Math.max(0, decimals - 6))
+    ? `${fmt(price * 1_000_000n, decimals, 6)} / 1M`
+    : fmt(price, decimals, 8);
   const progress = token.mode === "direct" || token.status === "graduated" ? 1 : launchProgress(token);
   const done = progress >= 1;
 
@@ -260,13 +278,14 @@ function BoardRow({ token }: { token: TokenRow }) {
       <td>
         <Link className="ox-board-token" href={`/token/${token.token}`}>
           <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={42} rounded="rounded-lg" />
-          <span><strong>${token.symbol} {isDevLocked(token) ? <em className="ox-dev-lock">🔒 DEV LOCKED</em> : null}</strong><small>{token.name} · {shortAddress(token.token)}</small></span>
+          <span><strong>${token.symbol} {isDevLocked(token) ? <em className="ox-dev-lock">🔒 DEV LOCKED</em> : null} {token.boosted ? <BoostBadge className="ox-boost-tag" /> : null}</strong><small>{token.name} · {unit} pair · {shortAddress(token.token)}</small></span>
         </Link>
       </td>
       <td><strong>{compact(cap, decimals)}</strong><small>{unit}</small></td>
+      <td><strong>{priceLabel}</strong><small>{unit}</small></td>
+      <td><strong className={change === null ? "dim" : change >= 0 ? "positive" : "negative"}>{change === null ? "—" : `${change >= 0 ? "+" : ""}${change.toFixed(1)}%`}</strong><small>{change === null ? "no trade history" : "vs 24h ago"}</small></td>
       <td><strong>{compact(BigInt(token.volume_24h || "0"), decimals)}</strong><small>{unit}</small></td>
-      <td><strong>{token.trades_total.toLocaleString()}</strong><small>lifetime</small></td>
-      <td><strong>{compact(BigInt(token.reserve || "0"), decimals)}</strong><small>{unit}</small></td>
+      <td><strong>{token.mode === "direct" ? `${((token.buy_tax_bps ?? 0) / 100).toFixed(1)}% / ${((token.sell_tax_bps ?? 0) / 100).toFixed(1)}%` : "Curve fee"}</strong><small>{token.mode === "direct" ? "buy / sell + pool fee" : "see token terms"}</small></td>
       <td>
         <span className="ox-board-progress-label"><b>{done ? "Pool live" : `${Math.round(progress * 100)}%`}</b><small>{done ? "graduated" : "to graduation"}</small></span>
         <span className={`${done ? "ox-board-progress done" : "ox-board-progress"}${progress >= .85 && !done ? " hot" : ""}`}><i style={{ width: `${Math.min(100, progress * 100)}%` }} /></span>
@@ -291,6 +310,7 @@ function Token({ token }: { token: TokenRow }) {
         <Artwork src={imageUrl(token.image)} symbol={token.symbol} size={180} rounded="rounded-none" />
         <span className={done ? "ox-status done" : "ox-status"}>{status}</span>
         {isDevLocked(token) ? <span className="ox-card-lock">🔒 Dev locked</span> : null}
+        {token.boosted ? <BoostBadge className="ox-card-boost" /> : null}
         <span className="ox-age">{ago(token.launched_at)} ago</span>
       </div>
       <div className="ox-token-body">

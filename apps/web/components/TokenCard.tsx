@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { TokenRow } from "@/lib/api";
 import { ago, compact, imageUrl, launchProgress, pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
 import { Artwork } from "./Artwork";
+import { BoostBadge } from "./token/BoostBadge";
 
 /// One launch. The picture leads, full width across the top, but on a wide strip rather than the
 /// tall square it used to be: the same artwork gets more area and the card stays short enough that
@@ -29,6 +30,7 @@ export function TokenCard({ t, spotlight, flag }: { t: TokenRow; spotlight?: boo
         <Artwork src={imageUrl(t.image)} symbol={t.symbol} size={520} rounded="rounded-none" />
         <span className="token-art-badge">{flag ?? tag}</span>
         {devLocked && <span className="token-locked" title="The creator's first buy is held by the locker and cannot be sold until it comes free">dev locked</span>}
+        {t.boosted && <BoostBadge className="token-boosted" />}
         <span className="token-age">{ago(t.launched_at)}</span>
       </div>
 

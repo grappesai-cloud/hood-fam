@@ -8,6 +8,16 @@ import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodFactory} from "../src/HoodFactory.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
+import {BagSource} from "../src/bag/BagTypes.sol";
+import {MockBag} from "./mocks/Mocks.sol";
+
+contract RejectingCreatorRecipient {
+    receive() external payable { revert("no native payments"); }
+
+    function claim(HoodFeeRouter router, address asset, address to) external {
+        router.claimCreator(asset, to);
+    }
+}
 
 /// @notice The four roads the creator leg of the trading fee can take, and the split that decides
 ///         how much of it takes each one.
@@ -52,6 +62,33 @@ contract FeeSplitTest is BaseTest {
         assertLt(router.accrued(token), booked);
     }
 
+    function test_only_safe_or_appointed_keeper_can_choose_a_buyback_floor() public {
+        (address token, HoodCurve curve) = _launch(_toBuyback());
+        _buy(curve, alice, 1 ether);
+        uint256 supplyBefore = IERC20(token).totalSupply();
+
+        vm.prank(alice);
+        vm.expectRevert(HoodFeeRouter.NotKeeper.selector);
+        router.flushBuyback(token, 1);
+
+        vm.expectRevert(HoodFeeRouter.NeedsSwapFloor.selector);
+        router.flushBuyback(token, 0);
+
+        vm.prank(alice);
+        vm.expectRevert(HoodFeeRouter.NotOwner.selector);
+        router.setKeeper(alice);
+
+        vm.prank(owner);
+        router.setKeeper(bob);
+        assertEq(router.keeper(), bob);
+        vm.expectRevert(HoodFeeRouter.NotKeeper.selector);
+        router.flushBuyback(token, 1);
+
+        vm.prank(bob);
+        router.flushBuyback(token, 1);
+        assertLt(IERC20(token).totalSupply(), supplyBefore, "the appointed keeper completed the buyback");
+    }
+
     function test_liquidity_compounding_deepens_what_the_token_graduates_into() public {
         (address token, HoodCurve curve) = _launch(_toLiquidity());
         _buy(curve, alice, 2 ether);
@@ -83,6 +120,29 @@ contract FeeSplitTest is BaseTest {
         assertGt(bob.balance, bobBefore);
     }
 
+    function test_rejecting_creator_cannot_block_liquidity_and_can_claim_elsewhere() public {
+        (address token, HoodCurve curve) = _launch(_split(0, 0, 5000, 5000));
+        RejectingCreatorRecipient rejector = new RejectingCreatorRecipient();
+        vm.prank(creator);
+        factory.transferCreatorFeeRecipient(token, address(rejector));
+        _buy(curve, alice, 2 ether);
+
+        uint256 booked = router.accrued(token);
+        uint256 creatorShare = booked - booked / 2;
+        router.flush(token);
+
+        assertEq(curve.bonus(), booked / 2, "the other leg still completes");
+        assertEq(router.accrued(token), 0);
+        assertEq(router.creatorClaimable(address(rejector), address(0)), creatorShare);
+        assertEq(address(router).balance, router.accounted(address(0)), "the rejected share stays reserved");
+
+        uint256 before = creator.balance;
+        rejector.claim(router, address(0), creator);
+        assertEq(creator.balance - before, creatorShare);
+        assertEq(router.creatorClaimable(address(rejector), address(0)), 0);
+        assertEq(address(router).balance, router.accounted(address(0)));
+    }
+
     /// @dev There is no leg for "charge nothing": a launch that wants traders to pay the protocol
     ///      and nobody else picks a preset whose creator fee is zero, and then nothing is booked.
     function test_a_preset_with_no_creator_fee_never_books_anything_to_split() public {
@@ -95,15 +155,117 @@ contract FeeSplitTest is BaseTest {
         p.configId = freeConfig;
         (address token, HoodCurve curve) = _launch(_toStakers(), p, LAUNCH_FEE);
         assertEq(curve.creatorFeeBps(), 0);
-        assertEq(curve.protocolFeeBps(), 30);
+        assertEq(curve.protocolFeeBps(), 70);
 
-        uint256 treasuryBefore = treasury.balance;
+        uint256 bagBefore = address(bag).balance;
         _buy(curve, alice, 1 ether);
         assertEq(router.accrued(token), 0, "nothing is ever booked when the creator leg is zero");
-        // the protocol's leg is booked on the curve and pulled out by anybody
-        assertApproxEqRel(curve.protocolClaimable(), 0.003 ether, 0.01e18);
+        // the protocol's leg is booked on the curve and pulled into the bag by anybody
+        assertApproxEqRel(curve.protocolClaimable(), 0.007 ether, 0.01e18);
         curve.claimProtocol();
-        assertApproxEqRel(treasury.balance - treasuryBefore, 0.003 ether, 0.01e18);
+        assertApproxEqRel(address(bag).balance - bagBefore, 0.007 ether, 0.01e18);
+    }
+
+    // ---------------------------------------------------------------- the house coin
+
+    /// @dev The house coin names the Bag as its creator. Its creator leg is not a payout to a
+    ///      wallet: it goes in through the Bag's own door for it, so the Bag can split it (half
+    ///      Vault, half burn) and the tape can say where it came from.
+    function test_the_house_coins_creator_leg_goes_through_the_bags_door() public {
+        LaunchParams memory p = _params(_toCreator());
+        p.creatorFeeRecipient = address(bag);
+        p.symbol = "HOUSE";
+        p.salt = bytes32(uint256(4242));
+        (address token, HoodCurve curve) = _launch(_toCreator(), p, LAUNCH_FEE);
+        assertEq(factory.creatorFeeRecipient(token), address(bag));
+
+        _buy(curve, alice, 1 ether);
+        uint256 booked = router.accrued(token);
+        assertGt(booked, 0);
+        uint256 bagBefore = address(bag).balance;
+        uint256 takes = bag.takeCount();
+
+        router.flush(token);
+
+        assertEq(address(bag).balance - bagBefore, booked, "the whole leg reaches the bag");
+        assertEq(bag.totalIn(address(0), BagSource.HouseCoin), booked, "booked as the house coin's leg");
+        assertEq(bag.takeCount(), takes + 1, "in one intake");
+        MockBag.Take memory take = bag.lastTake();
+        assertEq(uint8(take.source), uint8(BagSource.HouseCoin));
+        assertEq(take.from, address(router));
+        assertEq(router.accrued(token), 0);
+        assertEq(router.creatorClaimable(address(bag), address(0)), 0, "never deferred: the door took it");
+        assertEq(address(router).balance, router.accounted(address(0)), "the router holds what it booked");
+    }
+
+    /// @dev The other legs around it are untouched, and a buyback off the curve still hands its
+    ///      change back to the router's books the same way.
+    function test_the_house_coin_leg_sits_next_to_the_other_legs() public {
+        LaunchParams memory p = _params(_split(0, 5000, 0, 5000));
+        p.creatorFeeRecipient = address(bag);
+        p.symbol = "HOUSE";
+        p.salt = bytes32(uint256(4243));
+        (address token, HoodCurve curve) = _launch(_split(0, 5000, 0, 5000), p, LAUNCH_FEE);
+        _buy(curve, alice, 2 ether);
+
+        uint256 booked = router.accrued(token);
+        uint256 supplyBefore = IERC20(token).totalSupply();
+        uint256 bagBefore = address(bag).balance;
+        router.flushBuyback(token, 1);
+
+        assertLt(IERC20(token).totalSupply(), supplyBefore, "the buyback leg still burns");
+        assertEq(address(bag).balance - bagBefore, booked - booked / 2, "the creator leg, dust included, is the bag's");
+        assertEq(bag.totalIn(address(0), BagSource.HouseCoin), booked - booked / 2);
+        assertEq(address(router).balance, router.accounted(address(0)), "the change came back on the books");
+    }
+
+    /// @dev A stream handed to the Bag later behaves the same as one born there.
+    function test_a_fee_stream_handed_to_the_bag_goes_through_its_door_from_then_on() public {
+        (address token, HoodCurve curve) = _launch(_toCreator());
+        _buy(curve, alice, 1 ether);
+        uint256 creatorBefore = creator.balance;
+        router.flush(token);
+        assertGt(creator.balance, creatorBefore, "paid to the creator while it is theirs");
+
+        vm.prank(creator);
+        factory.transferCreatorFeeRecipient(token, address(bag));
+        _buy(curve, alice, 1 ether);
+        uint256 booked = router.accrued(token);
+        uint256 bagBefore = address(bag).balance;
+        router.flush(token);
+        assertEq(address(bag).balance - bagBefore, booked);
+        assertEq(bag.totalIn(address(0), BagSource.HouseCoin), booked);
+    }
+
+    function test_the_house_coin_leg_is_pulled_when_the_pair_is_a_dollar() public {
+        CurveConfig memory c = _config();
+        c.pairToken = address(usd);
+        c.startCap = 5_000e6;
+        c.graduationCap = 50_000e6;
+        vm.prank(owner);
+        uint256 usdConfig = factory.addConfig(c);
+
+        LaunchParams memory p = _params(_toCreator());
+        p.pairToken = address(usd);
+        p.configId = usdConfig;
+        p.creatorFeeRecipient = address(bag);
+        p.symbol = "USDHOUSE";
+        p.salt = bytes32(uint256(4244));
+        (address token, HoodCurve curve) = _launch(_toCreator(), p, LAUNCH_FEE);
+
+        usd.mint(alice, 100_000e6);
+        vm.startPrank(alice);
+        usd.approve(address(curve), type(uint256).max);
+        curve.buy(5_000e6, 0, alice);
+        vm.stopPrank();
+
+        uint256 booked = router.accrued(token);
+        assertGt(booked, 0);
+        router.flush(token);
+        assertEq(usd.balanceOf(address(bag)), booked, "the bag pulled the dollars it was approved for");
+        assertEq(bag.totalIn(address(usd), BagSource.HouseCoin), booked);
+        assertEq(usd.allowance(address(router), address(bag)), 0, "and nothing is left approved");
+        assertEq(router.accounted(address(usd)), usd.balanceOf(address(router)));
     }
 
     // ---------------------------------------------------------------- the split

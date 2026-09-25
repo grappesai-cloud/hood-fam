@@ -11,7 +11,7 @@ import {HoodCurve} from "../../src/HoodCurve.sol";
 import {HoodFeeRouter} from "../../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../../src/HoodStaking.sol";
 import {CurveConfig, FeeSplit, LaunchParams} from "../../src/HoodTypes.sol";
-import {MockGraduator} from "../mocks/Mocks.sol";
+import {MockBag, MockGraduator} from "../mocks/Mocks.sol";
 
 /// @notice Random stake / unstake / claim / demote / reward on one launch's staking vault.
 contract StakeHandler is Test {
@@ -109,6 +109,9 @@ contract StakingSolvencyInvariant is StdInvariant, Test {
     HoodFeeRouter internal router;
     HoodStaking internal staking;
     MockGraduator internal graduator;
+    /// @notice Where every platform fee lands. A mock that records and holds; the real Bag has its
+    ///         own suite.
+    MockBag internal bag;
 
     address internal token;
     HoodCurve internal curve;
@@ -127,15 +130,17 @@ contract StakingSolvencyInvariant is StdInvariant, Test {
         staking = new HoodStaking(address(factory));
         router = new HoodFeeRouter(address(factory), address(staking));
         graduator = new MockGraduator(address(factory));
+        bag = new MockBag(treasury);
 
         vm.startPrank(owner);
         factory.setModules(address(router), address(staking), address(graduator));
+        factory.setBag(address(bag));
         factory.setLaunchFee(0);
         uint256 configId = factory.addConfig(
             CurveConfig({
                 pairToken: address(0),
                 totalSupply: 1_000_000_000e18, curveSupplyBps: 8000, startCap: 1 ether,
-                graduationCap: 10 ether, liquidityBps: 9000, protocolFeeBps: 30, creatorFeeBps: 70,
+                graduationCap: 10 ether, liquidityBps: 9000, protocolFeeBps: 70, creatorFeeBps: 30,
                 poolFee: 3000, tickSpacing: 60, enabled: true
             })
         );

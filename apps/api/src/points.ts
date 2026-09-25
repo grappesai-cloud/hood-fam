@@ -15,6 +15,10 @@ export const POINTS = {
   perDollarBuy: 2,
   perDollarSell: 1,
   perDollarStakedPerMonth: 10,
+  /// The wall of shame bounty: what every holder present when a bot paid a penalty is credited,
+  /// per penalty, before their rank multiplies it. Small on purpose: it is a thank-you for being
+  /// there, and anything bigger would make holding a token that bots hit a strategy.
+  bounty: 1,
 } as const;
 
 /// What bringing somebody is worth: a tenth of what they earn by trading, paid on top rather than
@@ -55,7 +59,7 @@ export async function volumeUsd30d(address: string): Promise<number> {
 
 interface AwardInput {
   address: string;
-  kind: "launch" | "trade_buy" | "trade_sell" | "stake" | "referral" | "quest";
+  kind: "launch" | "trade_buy" | "trade_sell" | "stake" | "referral" | "quest" | "bounty";
   token?: string;
   /// Dollars: traded, for a trade; locked, for a stake. It is what the row stores, and for trades
   /// it is also what rank is bought with, so it stays the plain dollar figure in both cases.
@@ -83,6 +87,9 @@ export async function award(input: AwardInput) {
     // dollars, so they are not multiplied by a rank either. Paying them through the same table is
     // what puts them in the season, in the leaderboard and in the drop without a second ledger.
     : input.kind === "referral" || input.kind === "quest" ? input.flat ?? 0
+    // A bounty is one point for being a holder when a bot paid, and the rank multiplies it the way
+    // it multiplies a trade: the ref carries the penalty and the holder, so a re-read pays nothing twice.
+    : input.kind === "bounty" ? POINTS.bounty
     : input.usd * POINTS.perDollarStakedPerMonth * (input.months ?? 0) * (input.lockMultiplier ?? 1);
 
   const amount = input.kind === "referral" || input.kind === "quest" ? base : base * rank.multiplier;

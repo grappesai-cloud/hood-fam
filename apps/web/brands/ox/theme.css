@@ -448,12 +448,12 @@ main.site-main.ox-main { padding-right: 25px; padding-left: 25px; }
 .ox-board-wrap { overflow-x: auto; border: 1px solid #ffffff15; border-radius: 17px; background: #080a07; scrollbar-color: #b9ff3630 transparent; }
 .ox-board-table { width: 100%; min-width: 1040px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .ox-board-table thead { background: #ffffff06; }
-.ox-board-table th { height: 44px; padding: 0 14px; color: #686f64; font-family: var(--font-mono); font-size: 8px; font-weight: 650; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+.ox-board-table th { height: 44px; padding: 0 12px; color: #929990; font-family: var(--font-mono); font-size: 10px; font-weight: 650; letter-spacing: .05em; text-align: left; text-transform: uppercase; }
 .ox-board-table tbody tr { position: relative; border-top: 1px solid #ffffff0d; transition: background .14s, box-shadow .14s; }
 .ox-board-table tbody tr:hover { background: #b9ff3606; box-shadow: inset 2px 0 0 var(--color-lime); }
-.ox-board-table td { height: 66px; padding: 0 14px; color: #dce1d7; font-family: var(--font-mono); font-size: 10px; white-space: nowrap; }
-.ox-board-table td > strong, .ox-board-progress-label b { display: block; color: #e8ece4; font-size: 10px; font-weight: 650; }
-.ox-board-table td > small, .ox-board-progress-label small { display: block; margin-top: 4px; color: #60675d; font-size: 8px; }
+.ox-board-table td { height: 66px; padding: 0 12px; color: #dce1d7; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
+.ox-board-table td > strong, .ox-board-progress-label b { display: block; color: #e8ece4; font-size: 11px; font-weight: 650; }
+.ox-board-table td > small, .ox-board-progress-label small { display: block; margin-top: 4px; color: #9ca39a; font-size: 10px; }
 .ox-board-token { display: flex; min-width: 190px; align-items: center; gap: 10px; }
 .ox-board-token img, .ox-board-token > div { border-radius: 10px !important; }
 .ox-board-token > div { display: grid; place-items: center; color: var(--color-lime); }
@@ -502,11 +502,12 @@ main.site-main.ox-main { padding-right: 25px; padding-left: 25px; }
   .ox-live-tape + .ox-hero { border-radius: 22px; }
   .ox-sort-tabs button { padding: 0 8px; }
   .ox-view-switch button { width: 36px; }
-  .ox-board-table { min-width: 0; }
+  .ox-board-table { min-width: 455px; }
   .ox-board-table th:nth-child(3), .ox-board-table td:nth-child(3),
   .ox-board-table th:nth-child(4), .ox-board-table td:nth-child(4),
   .ox-board-table th:nth-child(5), .ox-board-table td:nth-child(5),
-  .ox-board-table th:nth-child(7), .ox-board-table td:nth-child(7) { display: none; }
+  .ox-board-table th:nth-child(8), .ox-board-table td:nth-child(8),
+  .ox-board-table th:nth-child(9), .ox-board-table td:nth-child(9) { display: none; }
   .ox-board-table th, .ox-board-table td { padding-right: 8px; padding-left: 8px; }
   .ox-board-token { min-width: 132px; gap: 8px; }
   .ox-board-token img, .ox-board-token > div { width: 36px !important; height: 36px !important; }
@@ -1843,6 +1844,7 @@ html[data-brand="ox"] .direct-preset {
   cursor: pointer;
   transition: border-color .16s, background .16s;
 }
+html[data-brand="ox"] .fee-outcome-section .direct-preset { min-height: 70px; gap: 5px; padding: 11px 12px; }
 html[data-brand="ox"] .direct-preset:hover { border-color: #c7e59582; background: #30382b; }
 html[data-brand="ox"] .direct-preset.selected { border-color: #c7e595a8; background: #34402f; }
 html[data-brand="ox"] .direct-preset strong { font-size: 13px; font-weight: 650; }
@@ -1881,6 +1883,12 @@ html[data-brand="ox"] .direct-advanced > summary::after { content: "+"; margin-l
 html[data-brand="ox"] .direct-advanced[open] > summary::after { content: "−"; }
 html[data-brand="ox"] .direct-advanced > summary span { color: #9da99a; font-size: 11px; font-weight: 450; }
 html[data-brand="ox"] .direct-advanced > :not(summary) { margin: 0 16px 16px; }
+@media (max-width: 640px) {
+  html[data-brand="ox"] .launch-content:has(.wizard-progress) .launch-guide { padding-bottom: 96px; }
+  html[data-brand="ox"] .launch-shell .page-intro p { display: none; }
+  html[data-brand="ox"] .launch-content:has(.wizard-progress) { margin-top: 12px; }
+  html[data-brand="ox"] .wizard-nav { position: fixed; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom)); left: 12px; z-index: 35; width: auto; margin: 0; padding: 10px; }
+}
 html[data-brand="ox"] .direct-advanced > .field-note { padding-top: 5px; }
 html[data-brand="ox"] .direct-advanced .field { min-width: 0; }
 html[data-brand="ox"] .direct-sim-wrap { margin-top: 14px; }
@@ -1933,6 +1941,7 @@ html[data-brand="ox"] .launch-review-ack { color: #f1f5ed; }
 @media (max-width: 640px) {
   html[data-brand="ox"] .direct-preset-grid,
   html[data-brand="ox"] .direct-preset-grid-three { grid-template-columns: 1fr; }
+  html[data-brand="ox"] .fee-outcome-section .direct-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   html[data-brand="ox"] .direct-preset { min-height: 72px; padding: 13px; }
   html[data-brand="ox"] .direct-sim-summary { gap: 5px; }
   html[data-brand="ox"] .direct-sim-summary > span { min-height: 65px; padding: 8px; }
@@ -2082,3 +2091,59 @@ html[data-brand="ox"] .ox-footer nav { color: #999; }
   html[data-brand="ox"] .launch-guide { padding: 18px 20px 25px; }
   html[data-brand="ox"] .launch-preview { padding: 28px 20px; }
 }
+
+/* ---------------------------------------------------------------- the Bag on ox: token page and board (W2) */
+/* The boost tag in ox's own small caps, inline next to the ticker on a board row. */
+html[data-brand="ox"] .ox-boost-tag { padding: 1px 6px; border-color: #ffb84d99; color: #ffcf70; font: 700 7px var(--font-mono); letter-spacing: .06em; vertical-align: middle; }
+html[data-brand="ox"] .ox-card-boost { position: absolute; z-index: 2; left: 11px; bottom: 11px; padding: 5px 8px; border-color: #ffb84d99; background: #0f0a04dc; font: 700 8px var(--font-mono); }
+/* The ox board row that paid for the hour carries a warm rule down its left edge. */
+html[data-brand="ox"] .ox-board-table tbody tr:has(.ox-boost-tag) { box-shadow: inset 2px 0 0 #ffb84d; }
+/* Payday inside ox's strip, and the two rows beneath the board, in ox's flatter surfaces. */
+html[data-brand="ox"] .ox-market-strip .payday-strip { padding: 11px 18px; border-top-color: #ffffff11; }
+html[data-brand="ox"] .payday-clock { color: var(--color-lime); font-size: 19px; }
+html[data-brand="ox"] .ox-boosted-row { margin: 0 0 16px; }
+html[data-brand="ox"] .ox-boosted-row .boosted-row-empty, html[data-brand="ox"] .ox-lastten .lastten-empty { border-radius: 10px; border-color: #ffffff1c; background: #121612; }
+html[data-brand="ox"] .ox-boosted-row .boosted-card, html[data-brand="ox"] .ox-lastten .lastten-card { border-radius: 10px; background: #121612; box-shadow: none; }
+html[data-brand="ox"] .ox-lastten { margin-top: 24px; }
+html[data-brand="ox"] .ox-lastten .lastten-kicker { color: var(--color-lime); letter-spacing: .14em; }
+html[data-brand="ox"] .ox-lastten h2 { font-size: 22px; letter-spacing: -.02em; }
+
+/* ---------------------------------------------------------------- the bag (ox)
+   The Bag page borrows the ledger's bones; ox only flattens the chips to its greys and makes room
+   for a sixth item on the mobile dock. */
+html[data-brand="ox"] .bag-copy { border-color: #ffffff29; background: #282828; color: #d4d8d1; }
+html[data-brand="ox"] .bag-copy:hover { border-color: #ffffff55; background: #373737; color: #fff; }
+html[data-brand="ox"] .bag-kinds { border: 1px solid #ffffff13; border-radius: 8px; padding: 3px; background: #1a1a1a; }
+html[data-brand="ox"] .bag-kinds .sort-tab { border-radius: 6px; padding: 8px 11px; color: #b1b8ac; font-size: 11px; }
+html[data-brand="ox"] .bag-kinds .sort-tab.active { border-color: transparent; background: #2b3728; color: #e4f2d6; }
+html[data-brand="ox"] .bag-sources, html[data-brand="ox"] .bag-fine { border-top-color: #ffffff1c; }
+@media (max-width: 640px) {
+  html[data-brand="ox"] .ox-mobile-nav { grid-template-columns: repeat(6, 1fr); }
+  html[data-brand="ox"] .ox-mobile-nav a { font-size: 6.5px; }
+}
+
+/* ---------------------------------------------------------------- penalties step, earnings figures */
+html[data-brand="ox"] .toggle { border-color: #ffffff24; background: #2a2a2a; color: #a0a0a0; }
+html[data-brand="ox"] .toggle-knob { background: #6a6a6a; }
+html[data-brand="ox"] .toggle.on { border-color: #d7f580a0; background: #2b2e25; color: #d7f580; }
+html[data-brand="ox"] .toggle.on .toggle-knob { background: #c7e595; box-shadow: none; }
+html[data-brand="ox"] .option-card { border-color: #ffffff24; border-radius: 15px; background: #252525; box-shadow: none; }
+html[data-brand="ox"] .option-card.on { border-color: #d7f580a0; background: #2b2e25; }
+html[data-brand="ox"] .option-card.fixed { background: #222; }
+html[data-brand="ox"] .option-card-title { color: #f0f2ed; font-weight: 650; }
+html[data-brand="ox"] .option-card-tag { border-color: #c7e59555; color: #c7e595; }
+html[data-brand="ox"] .option-card-body { color: #b5b5b5; }
+html[data-brand="ox"] .option-card.on .option-card-body { color: #d5e2c9; }
+html[data-brand="ox"] .option-card-fixed, html[data-brand="ox"] .option-facts-title { color: #9da99a; }
+html[data-brand="ox"] .option-card-controls { border-top-color: #ffffff1e; }
+html[data-brand="ox"] .option-facts { border-color: #ffffff23; background: #262a24; }
+html[data-brand="ox"] .option-facts strong { color: #e3f3ce; font-weight: 650; }
+html[data-brand="ox"] .option-facts span { color: #b8c3ae; }
+html[data-brand="ox"] .launch-mode-note { color: #a0a0a0; }
+html[data-brand="ox"] .earn-grid .figure .mono { color: #f0f2ed; }
+html[data-brand="ox"] .earn-when, html[data-brand="ox"] .vault-feeds li::before { color: #9da99a; }
+html[data-brand="ox"] .vault-feeds strong { color: #e3f3ce; font-weight: 650; }
+html[data-brand="ox"] .vault-feeds span { color: #b8c3ae; }
+html[data-brand="ox"] .tier { border-top-color: #ffffff1e; color: #b5b5b5; }
+html[data-brand="ox"] .tier .mono { color: #f0f2ed; }
+html[data-brand="ox"] .tier.top .mono { color: #c7e595; }

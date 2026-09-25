@@ -26,6 +26,8 @@ import {HoodLaunchToken} from "./HoodLaunchToken.sol";
 import {HoodLocker} from "./HoodLocker.sol";
 import {HoodRevenueSplitter} from "./HoodRevenueSplitter.sol";
 import {PairTransfer} from "../libraries/PairTransfer.sol";
+import {PenaltyConfig} from "../bag/BagTypes.sol";
+import {IHoodBag} from "../interfaces/IHoodBag.sol";
 
 interface IPositionManagerLite {
     function modifyLiquidities(bytes calldata unlockData, uint256 deadline) external payable;
@@ -34,6 +36,11 @@ interface IPositionManagerLite {
 
 interface IPermit2Lite {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
+}
+
+interface IOpeningAuction {
+    function register(address token, uint64 endBlock, uint256 minBid) external;
+    function SLOT_BLOCKS() external view returns (uint64);
 }
 
 interface IRegistry {
@@ -81,6 +88,14 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
     uint8 internal constant SETTLE_PAIR = 0x0d;
     /// @notice The longest the per-wallet caps may hold: two minutes at this chain's 100ms blocks.
     uint32 public constant MAX_RESTRICTION_BLOCKS = 1_200;
+    /// @notice The ceilings on what a launch may charge as penalties and how long it may auction.
+    uint16 public constant MAX_PENALTY_BPS = 2_500;
+    uint32 public constant MAX_JEET_WINDOW_SECONDS = 3_600;
+    uint24 public constant MAX_WHALE_TICK_LIMIT = 2_000;
+    uint16 public constant MAX_KING_BPS = 5_000;
+    uint32 public constant MAX_AUCTION_BLOCKS = 300;
+    /// @notice The launch fee can be raised by the owner, but never past this.
+    uint256 public constant MAX_LAUNCH_FEE = 0.01 ether;
     /// @notice The most a launch may print. Above this the caps and the position maths silently
     ///         truncate: `maxHold` is a uint128 and Permit2's allowance is a uint160.
     uint256 public constant MAX_SUPPLY = type(uint128).max;
@@ -96,7 +111,15 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
 
     address public treasury;
     address public registry;
-    uint256 public launchFee = 0.0005 ether;
+    /// @notice The Bag: where the launch fee goes, and where every hook sends the platform's fee.
+    ///         Set once; no launch can be created before it is.
+    address public bag;
+    /// @notice The shared sniper auction. Set once; a launch may only ask for an auction after.
+    address public auction;
+    /// @notice The referral registry a splitter reads when the protocol's tenth is claimed. Zero
+    ///         turns the leg off for every direct launch.
+    address public referrals;
+    uint256 public launchFee = 0.002 ether;
     /// @notice A gate on NEW launches only: a staged open, or a stop on printing. Existing tokens
     ///         never notice it.
     bool public launchEnabled = true;
@@ -119,11 +142,26 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
     );
     event DirectMetadata(address indexed token, string name, string symbol, string logo, string description);
     event TreasurySet(address treasury);
+    event ReferralsSet(address referrals);
     event LaunchFeeSet(uint256 fee);
     event QuoteAllowed(address quote, bool allowed);
     event RegistrySet(address registry);
     event LaunchGateSet(bool enabled, bool whitelistOnly);
     event WhitelistSet(address indexed who, bool allowed);
+    event BagSet(address bag);
+    event AuctionSet(address auction);
+    /// @notice The launch's penalty and auction settings, next to PoolOpened.
+    event LaunchRules(
+        address indexed token,
+        uint16 jeetTaxBps,
+        uint32 jeetWindowSeconds,
+        uint16 whaleTaxBps,
+        uint24 whaleTickLimit,
+        uint16 kingBps,
+        bool penaltiesToVault,
+        uint32 auctionBlocks,
+        uint64 auctionEndBlock
+    );
     /// @notice Everything an indexer needs to follow the pool without calling back into the hook.
     event PoolOpened(
         address indexed token,
@@ -154,6 +192,8 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
     error BadPoolFee();
     error BadWindow();
     error PoolAlreadyOpen();
+    error BadPenalty();
+    error NoAuction();
 
     struct LaunchInput {
         string name;
@@ -226,8 +266,30 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
     }
 
     function setLaunchFee(uint256 fee) external onlyOwner {
+        if (fee > MAX_LAUNCH_FEE) revert BadFee();
         launchFee = fee;
         emit LaunchFeeSet(fee);
+    }
+
+    /// @notice Names the Bag, once. Launches are refused until it is set.
+    function setBag(address bag_) external onlyOwner {
+        if (bag != address(0)) revert AlreadyWired();
+        bag = bag_;
+        emit BagSet(bag_);
+    }
+
+    /// @notice Names the shared opening auction, once.
+    function setAuction(address auction_) external onlyOwner {
+        if (auction != address(0)) revert AlreadyWired();
+        auction = auction_;
+        emit AuctionSet(auction_);
+    }
+
+    /// @notice Points every splitter, live ones included, at a referral registry. Zero switches
+    ///         the leg off; a registry that fails to answer is treated the same way by the splitters.
+    function setReferrals(address referrals_) external onlyOwner {
+        referrals = referrals_;
+        emit ReferralsSet(referrals_);
     }
 
     function setQuote(address quote, bool allowed) external onlyOwner {
@@ -246,7 +308,7 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
 
     /// @notice Whether `who` may launch right now. The app and any router read this first.
     function canLaunch(address who) public view returns (bool) {
-        if (!launchEnabled || buybackModule == address(0)) return false;
+        if (!launchEnabled || buybackModule == address(0) || bag == address(0)) return false;
         return !whitelistOnly || whitelisted[who];
     }
 
@@ -275,7 +337,7 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
     {
         DirectLaunch memory l = _launches[token];
         if (!l.exists) revert UnknownToken();
-        HoodLaunchHook hook = HoodLaunchHook(l.hook);
+        HoodLaunchHook hook = HoodLaunchHook(payable(l.hook));
         PoolKey memory key = hook.poolKey();
         (, currentTick,,) = poolManager.getSlot0(key.toId());
         bondTick = hook.tickBond();
@@ -317,7 +379,7 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         nonReentrant
         returns (Addresses memory out)
     {
-        if (buybackModule == address(0)) revert NotWired();
+        if (buybackModule == address(0) || bag == address(0)) revert NotWired();
         if (!launchEnabled) revert LaunchesPaused();
         if (whitelistOnly && !whitelisted[msg.sender]) revert NotWhitelisted();
         if (!quoteAllowed[p.quote]) revert QuoteNotAllowed();
@@ -326,6 +388,7 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         if (p.poolFee & DYNAMIC_FEE_FLAG != 0 || p.poolFee > MAX_LP_FEE) revert BadPoolFee();
         _checkTicks(p);
         _checkWindow(p.config);
+        _checkPenalties(p.config);
 
         bytes32 salt = keccak256(abi.encode(msg.sender, p.salt));
         out.token = deployer.cloneToken(tokenImplementation, salt);
@@ -371,6 +434,7 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         startTick[out.hook] = p.config.tickStart;
         _register(p, out, msg.sender);
         _announcePool(p, out.token, key);
+        _openAuction(p, out.token);
 
         uint256 spent = launchFee;
         if (p.initialBuy != 0) {
@@ -379,7 +443,8 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         }
         if (msg.value < spent) revert BadFee();
 
-        PairTransfer.push(address(0), treasury, launchFee);
+        // Creators pay to be seen: the fee is the house's, through the Bag.
+        IHoodBag(bag).takeHouseFee{value: launchFee}(address(0), launchFee, out.token);
         if (msg.value > spent) PairTransfer.push(address(0), msg.sender, msg.value - spent);
     }
 
@@ -442,6 +507,40 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         if (c.restrictionBlocks > MAX_RESTRICTION_BLOCKS) revert BadWindow();
         if (c.maxHoldBps == 0 || c.maxBuyBps == 0) revert BadWindow();
         if (c.maxHoldBps > 10_000 || c.maxBuyBps > (uint256(c.maxHoldBps) * 11) / 10) revert BadWindow();
+    }
+
+    /// @dev The ceilings that keep a penalty a penalty: a quarter of the trade at most, a flip
+    ///      window of an hour at most, a whale line no further than a doubling of the price, and
+    ///      an auction that ends within half a minute of blocks.
+    function _checkPenalties(DirectConfig calldata c) internal view {
+        PenaltyConfig calldata pc = c.penalties;
+        if (pc.jeetTaxBps > MAX_PENALTY_BPS || pc.whaleTaxBps > MAX_PENALTY_BPS) revert BadPenalty();
+        if (pc.jeetWindowSeconds > MAX_JEET_WINDOW_SECONDS || pc.whaleTickLimit > MAX_WHALE_TICK_LIMIT) revert BadPenalty();
+        if (pc.kingBps > MAX_KING_BPS) revert BadPenalty();
+        // a rate with no window, or a whale line at zero, is a tax on everyone wearing another name
+        if (pc.jeetTaxBps != 0 && pc.jeetWindowSeconds == 0) revert BadPenalty();
+        if (pc.whaleTaxBps != 0 && pc.whaleTickLimit == 0) revert BadPenalty();
+        if (c.auctionBlocks > MAX_AUCTION_BLOCKS) revert BadWindow();
+        if (c.auctionBlocks != 0 && auction == address(0)) revert NoAuction();
+    }
+
+    /// @dev The sniper auction, when the launch chose it: the window starts after the creator's
+    ///      block. For a launch quoted in the chain's own currency the first bid must at least
+    ///      match the launch fee; for any other quote the market sets the floor.
+    function _openAuction(LaunchInput calldata p, address token) internal {
+        uint32 blocks = p.config.auctionBlocks;
+        uint64 endBlock;
+        if (blocks != 0) {
+            endBlock = uint64(block.number) + blocks;
+            IOpeningAuction a = IOpeningAuction(auction);
+            a.register(token, endBlock, p.quote == address(0) ? launchFee : 0);
+            HoodLaunchToken(token).setOpeningAuction(auction, endBlock, a.SLOT_BLOCKS());
+        }
+        PenaltyConfig calldata pc = p.config.penalties;
+        emit LaunchRules(
+            token, pc.jeetTaxBps, pc.jeetWindowSeconds, pc.whaleTaxBps, pc.whaleTickLimit, pc.kingBps,
+            pc.penaltiesToVault, blocks, endBlock
+        );
     }
 
     function _announcePool(LaunchInput calldata p, address token, PoolKey memory key) internal {
@@ -522,12 +621,14 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         hp.snipeDecaySeconds = p.config.snipeDecaySeconds;
         hp.tickBond = p.config.tickBond;
         hp.buybackModule = buybackModule;
+        hp.bag = bag;
+        hp.penalties = p.config.penalties;
         hp.key = key;
-        HoodLaunchHook(out.hook).initialize(hp);
+        HoodLaunchHook(payable(out.hook)).initialize(hp);
 
         HoodRevenueSplitter(payable(out.splitter)).initialize(creatorFeeRecipient, out.locker, p.config.allocations);
+        HoodRevenueSplitter(payable(out.splitter)).setHook(out.hook);
         HoodRevenueSplitter(payable(out.splitter)).exclude(address(poolManager));
-        HoodRevenueSplitter(payable(out.splitter)).exclude(out.hook);
 
         // In v4 every pool's tokens sit in the PoolManager, so that is the address a buy comes from.
         HoodLaunchToken(out.token).setLaunchAddresses(

@@ -2,6 +2,9 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {BagRig} from "./helpers/BagRig.sol";
+import {HoodBag} from "../src/bag/HoodBag.sol";
+import {HoodGraduationHook} from "../src/graduation/HoodGraduationHook.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -105,7 +108,7 @@ contract CurveGradHandler is Test {
 /// @dev Fuzzes the exact C1 surface against real Uniswap v4: buy a curve out, try to poison the
 ///      pre-opened pool's price, then graduate, and prove the raise still lands in the pool at the
 ///      price the raise implies.
-contract ForkCurveGradInvariant is StdInvariant, Test {
+contract ForkCurveGradInvariant is StdInvariant, BagRig {
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant POSITION_MANAGER = 0x58daec3116aae6D93017bAAea7749052E8a04fA7;
     address internal constant UNIVERSAL_ROUTER = 0x8876789976dEcBfCbBbe364623C63652db8C0904;
@@ -116,6 +119,8 @@ contract ForkCurveGradInvariant is StdInvariant, Test {
     HoodStaking internal staking;
     HoodFeeRouter internal router;
     UniswapV4Graduator internal graduator;
+    HoodBag internal bag;
+    HoodGraduationHook internal hook;
     HoodCurve internal curve;
     address internal token;
     CurveGradHandler internal handler;
@@ -137,14 +142,18 @@ contract ForkCurveGradInvariant is StdInvariant, Test {
         staking = new HoodStaking(address(factory));
         router = new HoodFeeRouter(address(factory), address(staking));
         graduator = new UniswapV4Graduator(address(factory), POOL_MANAGER, POSITION_MANAGER, UNIVERSAL_ROUTER, PERMIT2, STATE_VIEW);
+        (bag,,) = _bagStack(address(factory), treasury, address(staking), POOL_MANAGER);
+        hook = _graduationHook(POOL_MANAGER, address(factory), address(bag), address(router), address(staking));
 
         vm.startPrank(owner);
         factory.setModules(address(router), address(staking), address(graduator));
+        factory.setBag(address(bag));
+        graduator.setHook(address(hook));
         factory.setLaunchFee(0);
         uint256 configId = factory.addConfig(CurveConfig({
             pairToken: address(0),
             totalSupply: 1_000_000_000e18, curveSupplyBps: 8000, startCap: 1 ether,
-            graduationCap: 10 ether, liquidityBps: 9000, protocolFeeBps: 30, creatorFeeBps: 70,
+            graduationCap: 10 ether, liquidityBps: 9000, protocolFeeBps: 70, creatorFeeBps: 30,
             poolFee: 3000, tickSpacing: 60, enabled: true
         }));
         vm.stopPrank();
@@ -160,8 +169,11 @@ contract ForkCurveGradInvariant is StdInvariant, Test {
         raiseTarget = curve.raiseTarget();
         lpSupply = curve.lpSupply();
 
+        // Every graduated pool carries the graduation hook now, so the key the nudger and the
+        // invariant look at names it. Before graduation the hook refuses swaps on the unregistered
+        // pool, which is one more wall in front of the C1 attack; the nudger swallows the revert.
         PoolKey memory key = PoolKey({
-            currency0: address(0), currency1: token, fee: 3000, tickSpacing: 60, hooks: address(0)
+            currency0: address(0), currency1: token, fee: 3000, tickSpacing: 60, hooks: address(hook)
         });
         poolId = keccak256(abi.encode(key));
 

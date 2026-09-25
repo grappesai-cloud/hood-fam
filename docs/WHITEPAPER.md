@@ -237,8 +237,7 @@ The protocol ships with an in-house audit and penetration-test package (`docs/AU
 (reserve solvency, supply conservation, token conservation) and of the season drop (a season never
 pays out more than it was funded). A full end-to-end rehearsal (`scripts/e2e/lifecycle.mjs`) drives
 the entire system on a local fork of 4663, from an empty chain to a claimed airdrop, asserting after
-every step. An external audit is a decision that has not yet been made, and this paper does not claim
-one.
+every step. No external audit is planned, and this paper does not claim independent certification.
 
 ## What this paper does not promise
 

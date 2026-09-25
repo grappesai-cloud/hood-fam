@@ -319,6 +319,7 @@ async function deploy() {
       && same(await read(address, twoStep, "owner"), deployer.address));
     await send(owner, address, twoStep, "acceptOwnership");
   }
+  await send(owner, a.feeRouter, parseAbi(["function setKeeper(address)"]), "setKeeper", [keeper.address]);
   return a;
 }
 
@@ -327,7 +328,7 @@ async function deploy() {
 /// Everything a real deploy wants checked once the dust settles: who owns what, who holds whose
 /// address, what got registered, and whether the economics hash still pins the presets that were
 /// announced. Pointed at a live deployment with --wiring-only and the addresses in the environment.
-export async function checkWiring({ client, a, owner: ownerAddress, treasury: treasuryAddress }) {
+export async function checkWiring({ client, a, owner: ownerAddress, treasury: treasuryAddress, keeper: expectedKeeper }) {
   const factoryAbi = parseAbi([
     "function owner() view returns (address)", "function pendingOwner() view returns (address)",
     "function treasury() view returns (address)", "function feeRouter() view returns (address)",
@@ -386,9 +387,15 @@ export async function checkWiring({ client, a, owner: ownerAddress, treasury: tr
     check("factory.deployer points at the bytecode holder", same(await get(a.factory, factoryAbi, "deployer"), a.bytecodeDeployer));
   }
 
-  const routerAbi = parseAbi(["function factory() view returns (address)", "function staking() view returns (address)"]);
+  const routerAbi = parseAbi([
+    "function factory() view returns (address)", "function staking() view returns (address)",
+    "function keeper() view returns (address)",
+  ]);
   check("feeRouter.factory points back at the factory", same(await get(a.feeRouter, routerAbi, "factory"), a.factory));
   check("feeRouter.staking points at the staking contract", same(await get(a.feeRouter, routerAbi, "staking"), a.staking));
+  const assignedKeeper = await get(a.feeRouter, routerAbi, "keeper");
+  check("feeRouter has an appointed buyback keeper", assignedKeeper !== zeroAddress, assignedKeeper);
+  if (expectedKeeper) check("feeRouter keeper is the intended wallet", same(assignedKeeper, expectedKeeper));
   check("staking.factory points back at the factory", same(await get(a.staking, routerAbi, "factory"), a.factory));
 
   // The two things the house coin model adds: somewhere for a creator's first buy to sit, and the
@@ -1178,13 +1185,13 @@ if (WIRING_ONLY) {
       buyback: need("HOOD_BUYBACK_MODULE"), bytecodeDeployer: process.env.HOOD_BYTECODE_DEPLOYER,
       seasonDrop: process.env.HOOD_SEASON_DROP,
     },
-    owner: need("OWNER"), treasury: need("TREASURY"),
+    owner: need("OWNER"), treasury: need("TREASURY"), keeper: process.env.KEEPER_ADDRESS,
   });
 } else {
   await startAnvil();
   const a = await deploy();
   step("3. the wiring a real deploy would want checked");
-  await checkWiring({ client: publicClient, a, owner: owner.address, treasury: treasury.address });
+  await checkWiring({ client: publicClient, a, owner: owner.address, treasury: treasury.address, keeper: keeper.address });
   await startApi(a);
   const curve = await curveMachine(a);
   const direct = await directMachine(a);

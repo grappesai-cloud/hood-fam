@@ -79,7 +79,7 @@ on every flush, so a launch can do several of these at once.
 | LP compounding | in | The `liquidityBps` leg. Into the raise before graduation, donated through the PoolManager after. |
 | Creator keep | in | The `creatorBps` leg. Transferable in one step by the current recipient only. |
 | Zero fee | in | Not a leg: a preset whose `creatorFeeBps` is zero, so nothing is ever booked to split. |
-| Claiming, pushing, keeper | in | Flushing is permissionless, and `apps/keeper` does it within a tick. |
+| Claiming, pushing, keeper | in | Non-buyback fee flushes are permissionless; only the Safe-appointed keeper or Safe may choose a buyback slippage floor. `apps/keeper` handles the routine jobs. |
 
 ## 4. Staking and KOL protection
 

@@ -24,6 +24,15 @@ const wanted = [
   "HoodLocker",
   "HoodBuybackModule",
   "HoodSeasonDrop",
+  "HoodReferrals",
+  // v3: the Bag and what hangs off it
+  "HoodBag",
+  "HoodPot",
+  "HoodPayday",
+  "HoodBurnClock",
+  "HoodBoosts",
+  "HoodGraduationHook",
+  "HoodOpeningAuction",
 ];
 
 const out = [

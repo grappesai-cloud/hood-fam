@@ -7,31 +7,54 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 import {Allocations} from "./DirectTypes.sol";
 import {PairTransfer} from "../libraries/PairTransfer.sol";
+import {DirectPay} from "./lib/DirectPay.sol";
+import {ReferralLeg} from "../libraries/ReferralLeg.sol";
+import {IHoodPot} from "../interfaces/IHoodPot.sol";
+import {IHoodBag} from "../interfaces/IHoodBag.sol";
+import {BagReasons} from "../bag/BagTypes.sol";
 
+/// @dev What this contract reads off the portal: where a legacy protocol claim goes and which
+///      address is the Bag. The referral registry pointer is read through ReferralLeg.
 interface IPortalTreasury {
     function treasury() external view returns (address);
+    function bag() external view returns (address);
 }
 
 /// @title HoodRevenueSplitter
-/// @notice Every unit of tax a launch collects lands here and leaves along four fixed roads.
-/// @dev The protocol takes a tenth, hard coded and immutable. The creator's nine tenths are split
-///      between four destinations they chose at launch and can never change: their own claimable
-///      balance, a buyback pot, a dividend accumulator for holders, and the locked liquidity.
+/// @notice Every unit of tax a launch collects lands here and leaves along four fixed roads. It is
+///         also the launch's pot: the per-share accumulator that pays holders in the quote.
+/// @dev The creator's tax is all the creator's (`PROTOCOL_BPS` is zero; the platform's fee goes to
+///      the Bag from the hook). It is split between four destinations they chose at launch and
+///      can never change: their own claimable balance, a buyback pot, a dividend accumulator for
+///      holders, and the locked liquidity.
 ///
-///      It does not matter how money arrives, and nothing has to call in to announce it. `sweep`
+///      It does not matter how tax arrives, and nothing has to call in to announce it. `sweep`
 ///      looks at what the contract holds, subtracts what is already spoken for, and splits the
-///      difference. A swap tax, a harvest from the locker and a stranger's donation all behave the
-///      same way, and there is no path where funds arrive and sit unaccounted.
+///      difference. Money for the pot is different: it is announced (`depositForHolders`), tagged
+///      with a reason and a payer, and goes to holders whole. So do the king pot's deposits.
 ///
-///      Dividends are pull based, on a per-share accumulator. The token tells this contract when a
-///      balance moves; the pool, the locker, the hook and this contract itself hold no share.
-contract HoodRevenueSplitter is ReentrancyGuard {
+///      Dividends sit on a per-share accumulator. The token tells this contract when a balance
+///      moves; the pool, the locker, the hook and this contract itself hold no share. A keeper
+///      pushes payouts (`pushMany`); `claim` is the fallback anyone can call for anyone.
+///
+///      Three more rules live here. The creator cannot rug their fees: a sell of their own token
+///      moves whatever they had not claimed to the holders (`slashCreator`, called by the token).
+///      King of the hill: a slice of every penalty fills a pot, each buy resets a sixty-second
+///      timer and crowns the buyer, and when it runs out the king takes the pot. The house coin:
+///      when the fee recipient is the Bag itself, the creator's leg goes into the Bag as the
+///      house-coin leg, and anyone may send it.
+contract HoodRevenueSplitter is ReentrancyGuard, IHoodPot {
     using SafeERC20 for IERC20;
 
     uint256 internal constant BPS = 10_000;
     uint256 internal constant ACC = 1e27;
-    /// @notice The protocol's cut, fixed in the code rather than in a setter.
-    uint16 public constant PROTOCOL_BPS = 1_000;
+    /// @notice The protocol's cut of the creator's tax: none. The platform fee is the Bag's and
+    ///         comes off the trade in the hook. Kept so `claimProtocol` still pays what was booked.
+    uint16 public constant PROTOCOL_BPS = 0;
+    /// @notice How long the crown holds after the last buy.
+    uint64 public constant KING_TIMER = 60;
+    /// @notice Gas a pushed native payout may burn. A holder that needs more claims by hand.
+    uint256 internal constant PUSH_GAS = 60_000;
 
     address public immutable portal;
     address public immutable treasury;
@@ -41,6 +64,7 @@ contract HoodRevenueSplitter is ReentrancyGuard {
     address public immutable quote;
     address public creator;
     address public locker;
+    address public hook;
     Allocations public allocations;
 
     /// @notice Owed to the creator, withdrawable whenever they want.
@@ -53,9 +77,12 @@ contract HoodRevenueSplitter is ReentrancyGuard {
     uint256 public dividendsHeld;
     /// @notice Dividends that arrived while nobody eligible held any. Credited to the first who does.
     uint256 public dividendsOrphaned;
-    /// @notice The protocol's tenth, waiting to be pulled. Never pushed from inside a sweep, so a
-    ///         treasury that cannot take a transfer can never freeze anybody else's money.
+    /// @notice A legacy protocol cut, waiting to be pulled. Nothing new is ever booked here.
     uint256 public protocolClaimable;
+    /// @notice The king of the hill's pot, the king, and when the crown falls.
+    uint256 public kingPot;
+    address public king;
+    uint64 public kingEndsAt;
 
     uint256 public accPerShare;
     uint256 public eligibleSupply;
@@ -64,7 +91,11 @@ contract HoodRevenueSplitter is ReentrancyGuard {
     mapping(address => uint256) public dividendClaimable;
     mapping(address => bool) public excluded;
 
-    /// @dev Everything the four buckets own. Anything above it is new money.
+    /// @notice Everything ever booked for holders, and everything ever paid out to them.
+    uint256 public totalDeposited;
+    uint256 public totalPaid;
+
+    /// @dev Everything the buckets own. Anything above it is new tax.
     uint256 public accounted;
 
     event Swept(uint256 total, uint256 protocol, uint256 creator, uint256 buyback, uint256 dividends, uint256 liquidity);
@@ -73,14 +104,21 @@ contract HoodRevenueSplitter is ReentrancyGuard {
     event BuybackReleased(uint256 amount);
     event LiquidityPushed(uint256 amount);
     event ProtocolClaimed(address indexed to, uint256 amount);
+    event ReferralPaid(address indexed to, uint256 amount);
+    event KingCrowned(address indexed king, uint256 pot, uint64 endsAt);
+    event KingWon(address indexed king, uint256 amount);
+    event KingPotFed(uint256 amount, uint256 pot);
+    event CreatorSlashed(address indexed creator, uint256 amount);
 
     error NotPortal();
     error NotCreator();
     error NotBuybackModule();
     error NotToken();
+    error NotHook();
     error AlreadyInitialized();
     error BadAllocations();
     error Nothing();
+    error KingStillReigns();
 
     constructor(address portal_, address treasury_, address buybackModule_, address token_, address quote_) {
         portal = portal_;
@@ -105,6 +143,16 @@ contract HoodRevenueSplitter is ReentrancyGuard {
         excluded[buybackModule] = true;
     }
 
+    /// @notice Names the launch's hook, once: the only caller of the king pot and of the inline
+    ///         buyback's release. It holds no dividend share either.
+    function setHook(address hook_) external {
+        if (msg.sender != portal) revert NotPortal();
+        if (hook != address(0)) revert AlreadyInitialized();
+        hook = hook_;
+        _settle(hook_, 0);
+        excluded[hook_] = true;
+    }
+
     /// @notice Marks an address as holding no dividend share: the pool, the hook, the locker.
     function exclude(address who) external {
         if (msg.sender != portal) revert NotPortal();
@@ -112,39 +160,101 @@ contract HoodRevenueSplitter is ReentrancyGuard {
         excluded[who] = true;
     }
 
+    /// @inheritdoc IHoodPot
+    function asset() external view returns (address) {
+        return quote;
+    }
+
     // ---------------------------------------------------------------- the split
 
-    /// @notice Permissionless. Splits whatever arrived since the last call.
+    /// @notice Permissionless. Splits whatever tax arrived since the last call.
     function sweep() public {
         uint256 unaccounted = _balance() - accounted;
         if (unaccounted == 0) return;
 
-        uint256 protocol = (unaccounted * PROTOCOL_BPS) / BPS;
-        uint256 rest = unaccounted - protocol;
-
         Allocations memory a = allocations;
-        uint256 toCreator = (rest * a.creatorBps) / BPS;
-        uint256 toBuyback = (rest * a.buybackBps) / BPS;
-        uint256 toDividends = (rest * a.dividendsBps) / BPS;
-        uint256 toLiquidity = rest - toCreator - toBuyback - toDividends;
+        uint256 toCreator = (unaccounted * a.creatorBps) / BPS;
+        uint256 toBuyback = (unaccounted * a.buybackBps) / BPS;
+        uint256 toDividends = (unaccounted * a.dividendsBps) / BPS;
+        uint256 toLiquidity = unaccounted - toCreator - toBuyback - toDividends;
 
         creatorClaimable += toCreator;
         buybackPot += toBuyback;
         liquidityPot += toLiquidity;
-        protocolClaimable += protocol;
         accounted += unaccounted;
-        _distribute(toDividends);
+        if (toDividends != 0) {
+            _distribute(toDividends);
+            emit HoldersPaid(BagReasons.DIVIDENDS, creator, toDividends, eligibleSupply);
+        }
 
-        emit Swept(unaccounted, protocol, toCreator, toBuyback, toDividends, toLiquidity);
+        emit Swept(unaccounted, 0, toCreator, toBuyback, toDividends, toLiquidity);
     }
 
     function _distribute(uint256 amount) internal {
         if (amount == 0) return;
         dividendsHeld += amount;
+        totalDeposited += amount;
         if (eligibleSupply == 0) {
             dividendsOrphaned += amount;
         } else {
             accPerShare += (amount * ACC) / eligibleSupply;
+        }
+    }
+
+    // ---------------------------------------------------------------- the pot
+
+    /// @inheritdoc IHoodPot
+    /// @dev Booked whole, on top of whatever tax is still unswept: the amount is either the value
+    ///      sent or pulled here, so `accounted` moves by exactly that and the unswept tax is
+    ///      untouched.
+    function depositForHolders(uint256 amount, bytes32 reason, address payer) external payable {
+        _receive(amount);
+        accounted += amount;
+        _distribute(amount);
+        emit HoldersPaid(reason, payer, amount, eligibleSupply);
+    }
+
+    /// @inheritdoc IHoodPot
+    function pending(address account) external view returns (uint256) {
+        return pendingDividends(account);
+    }
+
+    /// @inheritdoc IHoodPot
+    function claim(address account) external returns (uint256 amount) {
+        return claimDividends(account);
+    }
+
+    /// @inheritdoc IHoodPot
+    /// @dev A holder that cannot take the payout (a contract that rejects it) keeps it claimable
+    ///      and is skipped; one bad receiver never stops the round for the others.
+    function pushMany(address[] calldata accounts, uint256 floor) external nonReentrant returns (uint256 paid, uint256 count) {
+        sweep();
+        for (uint256 i; i < accounts.length; ++i) {
+            address account = accounts[i];
+            _settle(account, trackedBalance[account]);
+            uint256 amount = dividendClaimable[account];
+            if (amount == 0 || amount < floor) continue;
+            dividendClaimable[account] = 0;
+            dividendsHeld -= amount;
+            accounted -= amount;
+            if (!_tryPush(account, amount)) {
+                dividendClaimable[account] = amount;
+                dividendsHeld += amount;
+                accounted += amount;
+                continue;
+            }
+            totalPaid += amount;
+            paid += amount;
+            ++count;
+            emit Pushed(account, amount);
+        }
+    }
+
+    function _tryPush(address to, uint256 amount) internal returns (bool ok) {
+        if (quote == address(0)) {
+            (ok,) = to.call{value: amount, gas: PUSH_GAS}("");
+        } else {
+            ok = IERC20(quote).trySafeTransfer(to, amount);
         }
     }
 
@@ -176,7 +286,7 @@ contract HoodRevenueSplitter is ReentrancyGuard {
         dividendDebt[account] = (newBalance * accPerShare) / ACC;
     }
 
-    function pendingDividends(address account) external view returns (uint256) {
+    function pendingDividends(address account) public view returns (uint256) {
         if (excluded[account]) return 0;
         uint256 tracked = trackedBalance[account];
         uint256 total = (tracked * accPerShare) / ACC;
@@ -185,7 +295,7 @@ contract HoodRevenueSplitter is ReentrancyGuard {
     }
 
     /// @notice Permissionless, and it always pays the holder, never the caller.
-    function claimDividends(address account) external nonReentrant returns (uint256 amount) {
+    function claimDividends(address account) public nonReentrant returns (uint256 amount) {
         sweep();
         _settle(account, trackedBalance[account]);
         amount = dividendClaimable[account];
@@ -193,22 +303,81 @@ contract HoodRevenueSplitter is ReentrancyGuard {
         dividendClaimable[account] = 0;
         dividendsHeld -= amount;
         accounted -= amount;
+        totalPaid += amount;
         PairTransfer.push(quote, account, amount);
         emit DividendsClaimed(account, amount);
     }
 
-    // ---------------------------------------------------------------- the other three roads
+    // ---------------------------------------------------------------- the creator's road
 
-    function claim(address to) external nonReentrant returns (uint256 amount) {
-        if (msg.sender != creator) revert NotCreator();
+    /// @notice The creator's share. Creator only, except for the house coin: when the fee recipient
+    ///         is the Bag, anyone may send the leg and it goes in through `takeHouseCoinLeg`.
+    function claimCreator(address to) external nonReentrant returns (uint256 amount) {
+        address bag = _bag();
+        bool houseCoin = bag != address(0) && creator == bag;
+        if (!houseCoin && msg.sender != creator) revert NotCreator();
         sweep();
         amount = creatorClaimable;
         if (amount == 0) revert Nothing();
         creatorClaimable = 0;
         accounted -= amount;
-        PairTransfer.push(quote, to, amount);
-        emit CreatorClaimed(to, amount);
+        if (houseCoin) {
+            DirectPay.payWithCall(quote, bag, amount, abi.encodeCall(IHoodBag.takeHouseCoinLeg, (quote, amount)));
+            emit CreatorClaimed(bag, amount);
+        } else {
+            PairTransfer.push(quote, to, amount);
+            emit CreatorClaimed(to, amount);
+        }
     }
+
+    /// @notice The creator sold their own token: what they had not claimed goes to the holders.
+    ///         Token only, and a no-op when there is nothing to move.
+    function slashCreator() external {
+        if (msg.sender != token) revert NotToken();
+        sweep();
+        uint256 amount = creatorClaimable;
+        if (amount == 0) return;
+        creatorClaimable = 0;
+        _distribute(amount);
+        emit CreatorSlashed(creator, amount);
+        emit HoldersPaid(BagReasons.SLASH, creator, amount, eligibleSupply);
+    }
+
+    // ---------------------------------------------------------------- king of the hill
+
+    /// @notice Hook only. The buyer takes the crown and the sixty-second timer starts again.
+    function crownKing(address buyer) external {
+        if (msg.sender != hook) revert NotHook();
+        king = buyer;
+        uint64 endsAt = uint64(block.timestamp) + KING_TIMER;
+        kingEndsAt = endsAt;
+        emit KingCrowned(buyer, kingPot, endsAt);
+    }
+
+    /// @notice Hook only. The king pot's slice of a penalty, same payment convention as the pot.
+    function depositForKing(uint256 amount) external payable {
+        if (msg.sender != hook) revert NotHook();
+        _receive(amount);
+        accounted += amount;
+        kingPot += amount;
+        emit KingPotFed(amount, kingPot);
+    }
+
+    /// @notice Permissionless. Once the timer has run out, the king takes the pot.
+    function settleKing() external nonReentrant returns (uint256 amount) {
+        address k = king;
+        amount = kingPot;
+        if (k == address(0) || amount == 0) revert Nothing();
+        if (block.timestamp < kingEndsAt) revert KingStillReigns();
+        kingPot = 0;
+        king = address(0);
+        kingEndsAt = 0;
+        accounted -= amount;
+        PairTransfer.push(quote, k, amount);
+        emit KingWon(k, amount);
+    }
+
+    // ---------------------------------------------------------------- the other roads
 
     /// @notice Hands the buyback pot to the module that swaps and burns. Module only, and the
     ///         module's entry point is permissionless, so anybody can make the buyback happen.
@@ -223,6 +392,20 @@ contract HoodRevenueSplitter is ReentrancyGuard {
         emit BuybackReleased(amount);
     }
 
+    /// @notice Hands at most `max` of the buyback pot to the hook, for the buyback it runs inside
+    ///         a swap. Hook only; the rest of the pot stays here.
+    function releaseBuybackUpTo(uint256 max) external nonReentrant returns (uint256 amount) {
+        if (msg.sender != hook) revert NotHook();
+        sweep();
+        amount = buybackPot;
+        if (amount > max) amount = max;
+        if (amount == 0) revert Nothing();
+        buybackPot -= amount;
+        accounted -= amount;
+        PairTransfer.push(quote, hook, amount);
+        emit BuybackReleased(amount);
+    }
+
     /// @notice Permissionless. Pushes the liquidity share into the locked position.
     function pushLiquidity() external nonReentrant returns (uint256 amount) {
         sweep();
@@ -234,8 +417,14 @@ contract HoodRevenueSplitter is ReentrancyGuard {
         emit LiquidityPushed(amount);
     }
 
-    /// @notice Permissionless. Pays the protocol's tenth to the portal's current treasury, so the
-    ///         treasury can be rotated after the fact, and falls back to the one pinned at launch.
+    /// @notice Permissionless. Pays a legacy protocol cut to the portal's current treasury, and
+    ///         falls back to the one pinned at launch. Nothing new is ever booked here: the
+    ///         platform's fee goes to the Bag from the hook. The referral leg the portal's registry
+    ///         names for this token, if any, comes off first.
+    /// @dev Every failure reading the registry (no registry, no code there, a revert) means "no
+    ///      referral", so nothing the owner points the portal at can hold this claim hostage. A
+    ///      referrer that REJECTS the transfer does revert the claim, and only this launch's: the
+    ///      owner clears the referral in the registry to unblock it.
     function claimProtocol() external nonReentrant returns (uint256 amount) {
         sweep();
         amount = protocolClaimable;
@@ -246,8 +435,36 @@ contract HoodRevenueSplitter is ReentrancyGuard {
         try IPortalTreasury(portal).treasury() returns (address current) {
             if (current != address(0)) to = current;
         } catch {}
-        PairTransfer.push(quote, to, amount);
-        emit ProtocolClaimed(to, amount);
+        (address referrer, uint256 cut) = _referral(amount);
+        if (cut != 0) {
+            PairTransfer.push(quote, referrer, cut);
+            emit ReferralPaid(referrer, cut);
+        }
+        PairTransfer.push(quote, to, amount - cut);
+        emit ProtocolClaimed(to, amount - cut);
+    }
+
+    /// @dev The referral leg of `amount`, or (0, 0) whenever the registry cannot be read: the same
+    ///      read the hook makes for the Bag's share, in ReferralLeg.
+    function _referral(uint256 amount) internal view returns (address referrer, uint256 cut) {
+        return ReferralLeg.cut(portal, token, amount);
+    }
+
+    /// @dev The Bag, as the portal names it right now, or zero when the portal cannot say.
+    function _bag() internal view returns (address bag) {
+        try IPortalTreasury(portal).bag() returns (address b) {
+            bag = b;
+        } catch {}
+    }
+
+    /// @dev The pot's payment convention: native as value, an ERC-20 approved and pulled here.
+    function _receive(uint256 amount) internal {
+        if (quote == address(0)) {
+            if (msg.value != amount) revert PairTransfer.WrongValue();
+        } else {
+            if (msg.value != 0) revert PairTransfer.WrongValue();
+            IERC20(quote).safeTransferFrom(msg.sender, address(this), amount);
+        }
     }
 
     function _balance() internal view returns (uint256) {

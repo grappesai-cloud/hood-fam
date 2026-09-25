@@ -50,6 +50,17 @@ const STAKING = "0x57a4e0000000000000000000000000000000d3ec" as const;
 /// Where a creator's locked first buy sits. Not the vault: the vault is the house coin's.
 const LOCKER = "0x10c4e0000000000000000000000000000000d3ec" as const;
 
+/// What every launch paid to exist and what an hour on the board costs, as the spec defaults them.
+const LAUNCH_FEE = 2_000_000_000_000_000n; // 0.002 ETH
+const SLOT_PRICE = 10_000_000_000_000_000n; // 0.01 ETH
+/// A Payday share under this rolls into the next hour; a pot push under this waits. The keeper's
+/// own defaults.
+const PAYDAY_DUST = 10_000_000_000_000n;
+const PUSH_FLOOR = 100_000_000_000_000n;
+const HOUR = 60 * 60 * 1000;
+
+const eth = (n: number) => BigInt(Math.round(n * 1e6)) * 10n ** 12n;
+
 export interface SeedOptions {
   /// Clear every table this writes to first. Without it, a database that already holds launches is
   /// left alone: seeding on top of real rows is how a demo turns into a lie nobody can find later.
@@ -72,6 +83,22 @@ export interface SeedSummary {
   art: "uploaded" | "skipped";
   from: Date;
   to: Date;
+  /// What the Bag's tables got: the tape and every table it is summed from.
+  bag: BagSummary;
+}
+
+export interface BagSummary {
+  tape: number;
+  penalties: number;
+  potDeposits: number;
+  potPayouts: number;
+  paydayEpochs: number;
+  paydayPayouts: number;
+  boosts: number;
+  burns: number;
+  vaultRewards: number;
+  /// Bounty points rows, already counted into the summary's points.
+  bountyPoints: number;
 }
 
 // ---------------------------------------------------------------- the dice
@@ -93,6 +120,12 @@ const digest = (label: string, bytes: number) =>
 
 const addressOf = (label: string) => digest(`hood.fam demo address:${label}`, 20);
 const txOf = (label: string) => digest(`hood.fam demo tx:${label}`, 32);
+
+/// The Bag's own addresses in this world. Hashes like everything else here: nothing is deployed.
+const BAG = addressOf("bag");
+const PAYDAY = addressOf("payday");
+const BURN_CLOCK = addressOf("burn-clock");
+const HOUSE = addressOf("house");
 
 const pick = <T>(rand: () => number, xs: readonly T[]): T => xs[Math.floor(rand() * xs.length) % xs.length]!;
 
@@ -358,6 +391,9 @@ function buildLaunch(spec: Spec, wallets: string[], now: number, head: number, r
 const TABLES = [
   "points", "dividend_events", "fee_events", "stakes", "trades", "balances", "launches",
   "season_snapshots", "support_tickets",
+  // the Bag
+  "bag_events", "penalties", "pot_deposits", "pot_payouts", "payday_epochs", "payday_payouts",
+  "payday_slices", "boosts", "king_rounds", "auctions", "burns", "vault_rewards",
 ];
 
 export async function wipeDemo(): Promise<void> {
@@ -623,6 +659,10 @@ export async function seedDemo(options: SeedOptions = {}): Promise<SeedSummary> 
     );
   }
 
+  // The Bag: what every trade, graduation and penalty paid the platform, and where each piece went.
+  const bag = await seedBag(built, wallets, now, head);
+  pointsRows += bag.bountyPoints;
+
   // What every position has earned since it was opened, through the real accrual, so the board
   // shows locking priced the way the running product prices it.
   const accrued = await accrueStakePoints(new Date(now));
@@ -638,7 +678,423 @@ export async function seedDemo(options: SeedOptions = {}): Promise<SeedSummary> 
   return {
     wallets: WALLETS, launches: built.length, trades: trades.length, stakes, points: pointsRows,
     tickets: TICKETS.length, showcase, art: art ? "uploaded" : "skipped",
-    from, to: new Date(now),
+    from, to: new Date(now), bag,
+  };
+}
+
+// ---------------------------------------------------------------- the Bag
+
+/// The sell-side switches a creator turned on, per launch. Most are off, the way the wizard
+/// defaults them; three direct launches carry penalties so the wall of shame has something to say.
+interface Switches {
+  jeet: number; jeetWindow: number; whale: number; whaleTicks: number; king: number; toVault: boolean; auctionBlocks: number | null;
+}
+const OFF: Switches = { jeet: 0, jeetWindow: 0, whale: 0, whaleTicks: 0, king: 0, toVault: false, auctionBlocks: null };
+const SWITCHES: Record<string, Switches> = {
+  TAPE: { jeet: 300, jeetWindow: 900, whale: 200, whaleTicks: 1200, king: 1000, toVault: false, auctionBlocks: null },
+  QUIET: { jeet: 500, jeetWindow: 1800, whale: 0, whaleTicks: 0, king: 0, toVault: false, auctionBlocks: 20 },
+  BLOCK: { jeet: 250, jeetWindow: 600, whale: 300, whaleTicks: 800, king: 0, toVault: false, auctionBlocks: null },
+  ENVL: { jeet: 400, jeetWindow: 600, whale: 0, whaleTicks: 0, king: 0, toVault: true, auctionBlocks: null },
+};
+
+/// Who paid what, on which launch, how long ago. Bots are wallets nobody printed with; one of them
+/// (70) keeps coming back, which is what a wall of shame is for.
+const PENALTIES: { symbol: string; kind: "snipe" | "jeet" | "whale"; bot: number; eth: number; minutesAgo: number }[] = [
+  { symbol: "TAPE", kind: "snipe", bot: 70, eth: 0.42, minutesAgo: 14 * 24 * 60 - 3 },
+  { symbol: "TAPE", kind: "snipe", bot: 71, eth: 0.27, minutesAgo: 14 * 24 * 60 - 5 },
+  { symbol: "TAPE", kind: "jeet", bot: 70, eth: 0.09, minutesAgo: 13 * 24 * 60 },
+  { symbol: "TAPE", kind: "whale", bot: 72, eth: 0.31, minutesAgo: 6 * 24 * 60 },
+  { symbol: "QUIET", kind: "snipe", bot: 73, eth: 0.35, minutesAgo: 9 * 24 * 60 - 2 },
+  { symbol: "QUIET", kind: "jeet", bot: 70, eth: 0.06, minutesAgo: 2 * 24 * 60 },
+  { symbol: "QUIET", kind: "jeet", bot: 74, eth: 0.045, minutesAgo: 5 },
+  { symbol: "BLOCK", kind: "snipe", bot: 71, eth: 0.22, minutesAgo: 7 * 24 * 60 - 4 },
+  { symbol: "BLOCK", kind: "whale", bot: 75, eth: 0.18, minutesAgo: 40 },
+];
+
+/// Many rows in one statement. The tape is a few thousand rows and a round trip per row is the
+/// difference between a second and a minute.
+async function insertMany(table: string, columns: string[], rows: unknown[][], conflict: string): Promise<number> {
+  let n = 0;
+  for (let i = 0; i < rows.length; i += 200) {
+    const chunk = rows.slice(i, i + 200);
+    const values = chunk
+      .map((r, k) => `(${r.map((_, j) => `$${k * columns.length + j + 1}`).join(",")})`)
+      .join(",");
+    const { rowCount } = await pool.query(
+      `insert into ${table} (${columns.join(",")}) values ${values} ${conflict}`, chunk.flat(),
+    );
+    n += rowCount ?? 0;
+  }
+  return n;
+}
+
+/// Every table under the Bag, written the way the indexer would have written it from the chain: the
+/// tape row for every event, the normalized row next to it, and the splits exactly as BagSplits fixes
+/// them, so what the Bag page sums adds up to what it says came in.
+async function seedBag(built: Built[], wallets: string[], now: number, head: number): Promise<BagSummary> {
+  const blockOf = (ms: number) => Math.max(1, head - Math.round(((now - ms) / 1000) * BLOCKS_PER_SECOND));
+  const bySymbol = new Map(built.map((b) => [b.spec.symbol, b]));
+  const byToken = new Map(built.map((b) => [b.token, b]));
+  const potOf = (b: Built) => addressOf(b.spec.machine === "direct" ? `splitter:${b.spec.symbol}` : `pot:${b.spec.symbol}`);
+  // Pieces of the machine hold balances and are not holders: no bounty, no push, no count.
+  const machines = new Set<string>([
+    STAKING, LOCKER,
+    ...built.flatMap((b) => [
+      b.curve, addressOf(`pool:${b.spec.symbol}`), addressOf(`hook:${b.spec.symbol}`),
+      addressOf(`splitter:${b.spec.symbol}`), addressOf(`locker:${b.spec.symbol}`), potOf(b),
+    ]),
+  ]);
+
+  // Log indexes per transaction. The trade and its fee row sit low in the receipt; the Bag's rows
+  // start at twenty and count up, so no two rows in any table share (tx, log_index).
+  const logAt = new Map<string, number>();
+  const nextLog = (tx: string) => {
+    const n = logAt.get(tx) ?? 20;
+    logAt.set(tx, n + 1);
+    return n;
+  };
+
+  type Row = unknown[];
+  const tape: Row[] = [];
+  const penalties: Row[] = [];
+  const deposits: Row[] = [];
+  const payouts: Row[] = [];
+  const vault: Row[] = [];
+  const paydayPayouts: Row[] = [];
+  const slices: Row[] = [];
+  const boosts: Row[] = [];
+  const burns: Row[] = [];
+  const funded = new Map<number, bigint>(); // Payday hour -> what the Bag put in
+  const depositedOf = new Map<string, bigint>(); // token -> what its pot booked
+  let burnPool = 0n;
+  let bountyPoints = 0;
+
+  const line = (
+    kind: string, token: string | null, amount: bigint, at: number, tx: string,
+    extra: Record<string, unknown> = {}, recipient: string | null = null,
+  ) => {
+    tape.push([kind, token, zeroAddress, amount.toString(), JSON.stringify(extra), recipient, blockOf(at), tx, nextLog(tx), new Date(at)]);
+  };
+  /// The Bag took money and split it, house first.
+  const intake = (source: string, token: string | null, amount: bigint, legs: [string, string, bigint][], at: number, tx: string) => {
+    line("bag_in", token, amount, at, tx, { source });
+    for (const [outlet, to, leg] of legs) if (leg > 0n) line("bag_out", null, leg, at, tx, { outlet }, to);
+  };
+  const feedVault = (amount: bigint, at: number, tx: string) => {
+    if (amount <= 0n) return;
+    vault.push([zeroAddress, amount.toString(), blockOf(at), tx, nextLog(tx), new Date(at)]);
+    line("vault_reward", null, amount, at, tx, {}, STAKING);
+  };
+  const fundPayday = (amount: bigint, at: number, tx: string) => {
+    if (amount <= 0n) return;
+    const epoch = Math.floor(at / HOUR);
+    funded.set(epoch, (funded.get(epoch) ?? 0n) + amount);
+    line("payday_funded", null, amount, at, tx, { epoch });
+  };
+  const fundBurn = (amount: bigint, at: number, tx: string) => {
+    if (amount <= 0n) return;
+    burnPool += amount;
+    line("burn_funded", null, amount, at, tx);
+  };
+  const holdersOf = async (token: string) => {
+    const { rows } = await pool.query<{ address: string; balance: string }>(
+      `select address, balance from balances where token = $1 and balance > 0 order by balance desc`, [token],
+    );
+    const people = rows.filter((r) => !machines.has(r.address)).map((r) => ({ address: r.address, balance: BigInt(r.balance) }));
+    return { count: rows.length, people, eligible: people.reduce((s, p) => s + p.balance, 0n) };
+  };
+  /// A pot booked money for its holders.
+  const deposit = async (b: Built, reason: string, payer: string, amount: bigint, at: number, tx: string) => {
+    if (amount <= 0n) return;
+    const h = await holdersOf(b.token);
+    deposits.push([b.token, reason, payer, zeroAddress, amount.toString(), h.eligible.toString(), h.count, blockOf(at), tx, nextLog(tx), new Date(at)]);
+    line("holders_paid", b.token, amount, at, tx, { reason, payer, eligible_supply: h.eligible.toString(), holders: h.count });
+    depositedOf.set(b.token, (depositedOf.get(b.token) ?? 0n) + amount);
+  };
+  /// The wall of shame pays the room, the payer excepted, through the same award the indexer uses.
+  const bounty = async (b: Built, payer: string, tx: string, logIndex: number, at: number) => {
+    const h = await holdersOf(b.token);
+    for (const holder of h.people.slice(0, 500)) {
+      if (holder.address === payer) continue;
+      await award({ address: holder.address, kind: "bounty", token: b.token, usd: 0, ref: `bounty:${tx}:${logIndex}:${holder.address}`, ts: new Date(at) });
+      bountyPoints++;
+    }
+  };
+
+  // Every launch paid to exist, and carries its switches and its pot from that moment.
+  for (const b of built) {
+    const at = b.launchedAt.getTime();
+    intake("house", b.token, LAUNCH_FEE, [["house", HOUSE, LAUNCH_FEE]], at, b.tx);
+    const s = SWITCHES[b.spec.symbol] ?? OFF;
+    await pool.query(
+      `update launches set pot = $2, launch_fee = $3, jeet_tax_bps = $4, jeet_window_seconds = $5, whale_tax_bps = $6,
+              whale_tick_limit = $7, king_bps = $8, penalties_to_vault = $9, auction_blocks = $10
+       where token = $1`,
+      [b.token, potOf(b), LAUNCH_FEE.toString(), s.jeet, s.jeetWindow, s.whale, s.whaleTicks, s.king, s.toVault, s.auctionBlocks],
+    );
+  }
+
+  // The 70 bps of every trade: 30 Vault, 10 Payday, 10 burn, 20 house, in the order they happened.
+  // The house coin's own trades send their creator leg in as well, half Vault and half burn.
+  const trades = built.flatMap((b) => b.trades.map((t) => ({ b, t }))).sort((x, y) => x.t.ts.getTime() - y.t.ts.getTime());
+  for (const { b, t } of trades) {
+    const at = t.ts.getTime();
+    const bagIn = (t.pairAmount * 70n) / 10_000n;
+    if (bagIn <= 0n) continue;
+    const toVault = (bagIn * 4286n) / 10_000n;
+    const toPayday = (bagIn * 1429n) / 10_000n;
+    const toBurn = (bagIn * 1429n) / 10_000n;
+    const toHouse = bagIn - toVault - toPayday - toBurn;
+    intake("trade", b.token, bagIn, [
+      ["house", HOUSE, toHouse], ["vault", STAKING, toVault], ["payday", PAYDAY, toPayday], ["burn", BURN_CLOCK, toBurn],
+    ], at, t.tx);
+    feedVault(toVault, at, t.tx);
+    fundPayday(toPayday, at, t.tx);
+    fundBurn(toBurn, at, t.tx);
+    if (b.spec.house) {
+      const leg = (t.pairAmount * 30n) / 10_000n;
+      const half = leg / 2n;
+      intake("house_coin", b.token, leg, [["vault", STAKING, half], ["burn", BURN_CLOCK, leg - half]], at, t.tx);
+      feedVault(half, at, t.tx);
+      fundBurn(leg - half, at, t.tx);
+    }
+  }
+
+  // Every graduation: a tenth of the raise, 50 house, 25 Confetti into that token's pot, 25 Vault.
+  for (const b of built.filter((x) => x.spec.machine === "curve" && x.graduatedAt)) {
+    const at = b.graduatedAt!.getTime();
+    const tx = txOf(`graduation:${b.spec.symbol}`);
+    const fee = b.reserve / 10n;
+    if (fee <= 0n) continue;
+    const toHouse = fee / 2n;
+    const confetti = fee / 4n;
+    const toVault = fee - toHouse - confetti;
+    intake("graduation", b.token, fee, [["house", HOUSE, toHouse], ["confetti", potOf(b), confetti], ["vault", STAKING, toVault]], at, tx);
+    await deposit(b, "confetti", BAG, confetti, at, tx);
+    feedVault(toVault, at, tx);
+    await pool.query(`update launches set graduation_fee = $2 where token = $1`, [b.token, fee.toString()]);
+  }
+
+  // Penalties: 80 to the pot (less the king's slice where the creator turned that on), 20 into the
+  // Bag as 10 house, 5 Payday, 5 burn. Everyone holding the token when the bot paid gets a point.
+  let kingPot = 0n;
+  for (const [i, p] of PENALTIES.entries()) {
+    const b = bySymbol.get(p.symbol)!;
+    const bot = wallets[p.bot]!;
+    const at = now - p.minutesAgo * 60_000;
+    const tx = txOf(`penalty:${p.symbol}:${i}`);
+    const amount = eth(p.eth);
+    const toHolders = (amount * 8000n) / 10_000n;
+    const toBag = amount - toHolders;
+    const s = SWITCHES[p.symbol] ?? OFF;
+    const king = (toHolders * BigInt(s.king)) / 10_000n;
+    const h = await holdersOf(b.token);
+    const logIndex = nextLog(tx);
+    penalties.push([b.token, p.kind, bot, zeroAddress, amount.toString(), toHolders.toString(), toBag.toString(), h.count, blockOf(at), tx, logIndex, new Date(at)]);
+    line("penalty", b.token, amount, at, tx, {
+      reason: p.kind, payer: bot, to_holders: toHolders.toString(), to_bag: toBag.toString(), holders: h.count, is_buy: p.kind === "snipe",
+    });
+    await deposit(b, p.kind, bot, toHolders - king, at, tx);
+    kingPot += king;
+    const toHouse = toBag / 2n;
+    const toPayday = toBag / 4n;
+    const toBurn = toBag - toHouse - toPayday;
+    intake("penalty", b.token, toBag, [["house", HOUSE, toHouse], ["payday", PAYDAY, toPayday], ["burn", BURN_CLOCK, toBurn]], at, tx);
+    fundPayday(toPayday, at, tx);
+    fundBurn(toBurn, at, tx);
+    await bounty(b, bot, tx, logIndex, at);
+  }
+
+  // The creator of BLOCK sold his own token: what he had not claimed went to the holders.
+  {
+    const b = bySymbol.get("BLOCK")!;
+    const at = now - 3 * DAY + 7 * 60_000;
+    const tx = txOf("slash:BLOCK");
+    const amount = eth(0.12);
+    const h = await holdersOf(b.token);
+    const logIndex = nextLog(tx);
+    penalties.push([b.token, "slash", b.creator, zeroAddress, amount.toString(), amount.toString(), "0", h.count, blockOf(at), tx, logIndex, new Date(at)]);
+    line("slash", b.token, amount, at, tx, { reason: "slash", payer: b.creator, to_holders: amount.toString(), to_bag: "0", holders: h.count });
+    await deposit(b, "slash", b.creator, amount, at, tx);
+    await bounty(b, b.creator, tx, logIndex, at);
+  }
+
+  // King of the hill on TAPE: the slices above filled the pot, the last buyer won it when the
+  // timer ran out.
+  {
+    const b = bySymbol.get("TAPE")!;
+    const king = wallets[12]!;
+    const crownedAt = now - 6 * DAY + 4 * 60_000;
+    const endsAt = crownedAt + 60_000;
+    const wonAt = endsAt + 12_000;
+    const crown = txOf("king:TAPE:crown");
+    const won = txOf("king:TAPE:won");
+    line("king_crowned", b.token, kingPot, crownedAt, crown, { king, ends_at: new Date(endsAt).toISOString() });
+    line("king_won", b.token, kingPot, wonAt, won, { king }, king);
+    await pool.query(
+      `insert into king_rounds (token, king, pot, ends_at, won_amount, won_at, tx, log_index) values ($1,$2,$3,$4,$3,$5,$6,$7)
+       on conflict (tx, log_index) do nothing`,
+      [b.token, king, kingPot.toString(), new Date(endsAt), new Date(wonAt), won, nextLog(won)],
+    );
+  }
+
+  // The sniper auction on QUIET: four bids for the first slot, half to holders, half into liquidity.
+  {
+    const b = bySymbol.get("QUIET")!;
+    const launched = b.launchedAt.getTime();
+    const endBlock = b.block + 21;
+    const bids: [number, number, number][] = [[40, 0.05, 2], [41, 0.08, 6], [42, 0.12, 11], [43, 0.2, 17]];
+    for (const [i, [w, amount, blocks]] of bids.entries()) {
+      const at = launched + blocks * 100;
+      line("auction_bid", b.token, eth(amount), at, txOf(`auction:QUIET:${i}`), { bidder: wallets[w]!, end_block: endBlock });
+    }
+    const winner = wallets[43]!;
+    const amount = eth(0.2);
+    const toHolders = amount / 2n;
+    const at = launched + 22 * 100;
+    const tx = txOf("auction:QUIET:settled");
+    line("auction_settled", b.token, amount, at, tx, { winner, to_holders: toHolders.toString(), to_liquidity: (amount - toHolders).toString() }, winner);
+    await pool.query(
+      `insert into auctions (token, end_block, top_bidder, top_bid, bids, settled, winner, to_holders, to_liquidity, updated_at)
+       values ($1,$2,$3,$4,$5,true,$3,$6,$7,$8) on conflict (token) do nothing`,
+      [b.token, endBlock, winner, amount.toString(), bids.length, toHolders.toString(), (amount - toHolders).toString(), new Date(at)],
+    );
+    await deposit(b, "auction", winner, toHolders, at, tx);
+  }
+
+  // Bots buy the dip: a sell tax, as collected, bought the token back at once.
+  for (const symbol of ["TAPE", "QUIET", "BLOCK"]) {
+    const b = bySymbol.get(symbol)!;
+    const sells = b.trades.filter((t) => t.side === "sell");
+    const t = sells[Math.floor(sells.length / 2)];
+    if (!t) continue;
+    const spent = (t.pairAmount * 500n) / 10_000n;
+    const burned = t.price > 0n ? (spent * ONE) / t.price : 0n;
+    line("buyback", b.token, spent, t.ts.getTime(), t.tx, { spent: spent.toString(), burned: burned.toString() });
+  }
+
+  // Payday. Every closed hour was paid: the older ones are kept as their totals, the last two in
+  // full, with the hour's points holders and the slice to the ten launches before the hour's end,
+  // worked out the way the keeper works them out. The current hour is open.
+  const currentEpoch = Math.floor(now / HOUR);
+  const epochs = [...funded.keys()].filter((e) => e < currentEpoch).sort((a, b) => a - b);
+  const detailed = new Set(epochs.slice(-2));
+  let carried = 0n;
+  let paydayEpochs = 0;
+  for (const epoch of epochs) {
+    const pot = (funded.get(epoch) ?? 0n) + carried;
+    const at = Math.min((epoch + 1) * HOUR + 90_000, now - 30_000);
+    const tx = txOf(`payday:${epoch}`);
+    const { rows: ten } = await pool.query<{ token: string; pot: string }>(
+      `select token, pot from launches where pot is not null and launched_at < $1 order by launched_at desc limit 10`,
+      [new Date((epoch + 1) * HOUR)],
+    );
+    const perPot = ten.length ? (pot * 1000n) / 10_000n / BigInt(ten.length) : 0n;
+    const toLaunches = perPot * BigInt(ten.length);
+    if (!detailed.has(epoch)) {
+      await pool.query(
+        `insert into payday_epochs (epoch, asset, funded, to_wallets, to_launches, carried, paid_at, tx)
+         values ($1,$2,$3,$4,$5,0,$6,$7) on conflict (epoch, asset) do nothing`,
+        [epoch, zeroAddress, (funded.get(epoch) ?? 0n).toString(), (pot - toLaunches).toString(), toLaunches.toString(), new Date(at), tx],
+      );
+      carried = 0n;
+      paydayEpochs++;
+      continue;
+    }
+    for (const l of ten) {
+      slices.push([epoch, zeroAddress, l.pot, l.token, perPot.toString(), blockOf(at), tx, nextLog(tx), new Date(at)]);
+      line("payday_slice", l.token, perPot, at, tx, { epoch, pot: l.pot }, l.pot);
+      await deposit(byToken.get(l.token)!, "payday", PAYDAY, perPot, at, tx);
+    }
+    const { rows: pts } = await pool.query<{ address: string; points: string }>(
+      `select address, sum(amount) as points from points where ts >= $1 and ts < $2 group by address order by points desc`,
+      [new Date(epoch * HOUR), new Date((epoch + 1) * HOUR)],
+    );
+    const total = pts.reduce((s, r) => s + Number(r.points), 0);
+    const forWallets = pot - toLaunches;
+    let paid = 0n;
+    if (total > 0) {
+      for (const r of pts) {
+        const share = (forWallets * BigInt(Math.round(Number(r.points) * 100))) / BigInt(Math.round(total * 100));
+        if (share < PAYDAY_DUST) continue;
+        paydayPayouts.push([epoch, zeroAddress, r.address, share.toString(), blockOf(at), tx, nextLog(tx), new Date(at)]);
+        line("payday_paid", null, share, at, tx, { epoch, wallet: r.address }, r.address);
+        paid += share;
+      }
+    }
+    carried = forWallets - paid;
+    await pool.query(
+      `insert into payday_epochs (epoch, asset, funded, to_wallets, to_launches, carried, paid_at, tx)
+       values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (epoch, asset) do nothing`,
+      [epoch, zeroAddress, (funded.get(epoch) ?? 0n).toString(), paid.toString(), toLaunches.toString(), carried.toString(), new Date(at), tx],
+    );
+    line("payday_epoch", null, paid + toLaunches, at, tx, { epoch, to_wallets: paid.toString(), to_launches: toLaunches.toString(), carried: carried.toString() });
+    paydayEpochs++;
+  }
+  if (funded.has(currentEpoch)) {
+    await pool.query(
+      `insert into payday_epochs (epoch, asset, funded) values ($1,$2,$3) on conflict (epoch, asset) do nothing`,
+      [currentEpoch, zeroAddress, funded.get(currentEpoch)!.toString()],
+    );
+    paydayEpochs++;
+  }
+
+  // Boosts: three slots this hour and one bought ahead for the next, each paid by its creator.
+  const hourStart = currentEpoch * HOUR;
+  const slots: [string, number, number][] = [["BOOTS", currentEpoch, 0], ["ENVL", currentEpoch, 1], ["SLICE", currentEpoch, 2], ["PAPER", currentEpoch + 1, 0]];
+  for (const [i, [symbol, hour, slot]] of slots.entries()) {
+    const b = bySymbol.get(symbol)!;
+    const at = Math.min(now - 60_000, hourStart + (i + 1) * 90_000);
+    const tx = txOf(`boost:${symbol}:${hour}`);
+    boosts.push([hour, slot, b.token, b.creator, SLOT_PRICE.toString(), tx, new Date(at)]);
+    line("boost", b.token, SLOT_PRICE, at, tx, { epoch: hour, slot, buyer: b.creator });
+    intake("house", b.token, SLOT_PRICE, [["house", HOUSE, SLOT_PRICE]], at, tx);
+  }
+
+  // The burn clock bought the house coin at the top of the last hour with most of what it held and
+  // burned what it got; the rest waits for the next hour.
+  {
+    const house = built.find((b) => b.spec.house)!;
+    const at = (currentEpoch - 1) * HOUR + 20_000;
+    const tx = txOf(`burn:${currentEpoch - 1}`);
+    const spent = (burnPool * 6n) / 10n;
+    const coinBurned = house.price > 0n ? (spent * ONE) / house.price : 0n;
+    burns.push([zeroAddress, spent.toString(), coinBurned.toString(), currentEpoch - 1, blockOf(at), tx, nextLog(tx), new Date(at)]);
+    line("burn", house.token, spent, at, tx, { spent: spent.toString(), burned: coinBurned.toString(), epoch: currentEpoch - 1 });
+    await pool.query(`update launches set total_supply = total_supply - $2, burned = burned + $2 where token = $1`, [house.token, coinBurned.toString()]);
+  }
+
+  // The keeper pushed most of every pot to its holders, pro rata, above the floor. QUIET was pushed
+  // a moment ago so the token page has a fresh one to show; the rest went out with the last round.
+  for (const [token, deposited] of depositedOf) {
+    const b = byToken.get(token)!;
+    const h = await holdersOf(token);
+    if (h.eligible <= 0n) continue;
+    const recent = b.spec.symbol === "QUIET";
+    const at = recent ? now - 15_000 : now - 8 * 60_000;
+    const tx = txOf(`push:${b.spec.symbol}:${Math.floor(at / 60_000)}`);
+    const budget = (deposited * 7n) / 10n;
+    for (const p of h.people.slice(0, 8)) {
+      const cut = (budget * p.balance) / h.eligible;
+      if (cut < PUSH_FLOOR) continue;
+      payouts.push([token, p.address, zeroAddress, cut.toString(), blockOf(at), tx, nextLog(tx), new Date(at)]);
+      line("pushed", token, cut, at, tx, { wallet: p.address }, p.address);
+    }
+  }
+
+  const skip = "on conflict (tx, log_index) do nothing";
+  return {
+    tape: await insertMany("bag_events", ["kind", "token", "asset", "amount", "extra", "recipient", "block", "tx", "log_index", "ts"], tape, skip),
+    penalties: await insertMany("penalties", ["token", "kind", "payer", "asset", "amount", "to_holders", "to_bag", "holders", "block", "tx", "log_index", "ts"], penalties, skip),
+    potDeposits: await insertMany("pot_deposits", ["token", "reason", "payer", "asset", "amount", "eligible_supply", "holders", "block", "tx", "log_index", "ts"], deposits, skip),
+    potPayouts: await insertMany("pot_payouts", ["token", "holder", "asset", "amount", "block", "tx", "log_index", "ts"], payouts, skip),
+    paydayEpochs,
+    paydayPayouts: await insertMany("payday_payouts", ["epoch", "asset", "wallet", "amount", "block", "tx", "log_index", "ts"], paydayPayouts, skip)
+      + await insertMany("payday_slices", ["epoch", "asset", "pot", "token", "amount", "block", "tx", "log_index", "ts"], slices, skip),
+    boosts: await insertMany("boosts", ["hour_epoch", "slot", "token", "buyer", "paid", "tx", "ts"], boosts, "on conflict (hour_epoch, slot) do nothing"),
+    burns: await insertMany("burns", ["asset", "spent", "coin_burned", "epoch", "block", "tx", "log_index", "ts"], burns, skip),
+    vaultRewards: await insertMany("vault_rewards", ["asset", "amount", "block", "tx", "log_index", "ts"], vault, skip),
+    bountyPoints,
   };
 }
 

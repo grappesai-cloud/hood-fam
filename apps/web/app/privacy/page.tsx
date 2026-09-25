@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { brand } from "@/brands";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -6,14 +7,14 @@ import type { ReactNode } from "react";
 /// repository actually does: the indexer reads the public chain, the support assistant opens a
 /// ticket, the API rate limits by IP, and the browser keeps two things in sessionStorage.
 
-const LAST_CHANGED = "18 September 2026";
+const LAST_CHANGED = "22 September 2026";
 
 export const metadata: Metadata = {
-  title: "privacy · hood.fam",
-  description: "What hood.fam collects, who it goes to, and how to have a support ticket deleted.",
+  title: `privacy · ${brand.name}`,
+  description: `What ${brand.name} collects, who it goes to, and how to have a support ticket deleted.`,
   openGraph: {
-    title: "privacy · hood.fam",
-    description: "What hood.fam collects, who it goes to, and how to have a support ticket deleted.",
+    title: `privacy · ${brand.name}`,
+    description: `What ${brand.name} collects, who it goes to, and how to have a support ticket deleted.`,
     type: "website",
   },
 };
@@ -34,7 +35,7 @@ export default function Privacy() {
 
       <Section title="who we are">
         <p>
-          hood.fam is operated by [OPERATOR LEGAL NAME], registered at [REGISTERED ADDRESS], and the
+          {brand.name} is operated by [OPERATOR LEGAL NAME], registered at [REGISTERED ADDRESS], and the
           address for anything on this page, including a deletion request, is [PRIVACY CONTACT
           EMAIL], under the law of [JURISDICTION].
         </p>

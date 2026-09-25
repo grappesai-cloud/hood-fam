@@ -28,52 +28,14 @@ import {HoodLaunchToken} from "../src/direct/HoodLaunchToken.sol";
 import {HoodRevenueSplitter} from "../src/direct/HoodRevenueSplitter.sol";
 import {HoodBuybackModule} from "../src/direct/HoodBuybackModule.sol";
 import {Allocations, Socials} from "../src/direct/DirectTypes.sol";
-import {PairTransfer} from "../src/libraries/PairTransfer.sol";
-import {RejectNative} from "./mocks/Mocks.sol";
+import {PenaltyConfig, BagReasons} from "../src/bag/BagTypes.sol";
+import {IHoodPot} from "../src/interfaces/IHoodPot.sol";
+import {MockBag, MockVault, PortalStub, LockerStub} from "./mocks/DirectMocks.sol";
 
-/// @dev Exactly what the buyback module reads from the portal: whether a token is a launch of
-///      ours, and where its splitter and locker are.
-contract PortalStub {
-    address public token;
-    address public hook;
-    address public splitter;
-    address public locker;
-
-    function set(address token_, address hook_, address splitter_, address locker_) external {
-        token = token_;
-        hook = hook_;
-        splitter = splitter_;
-        locker = locker_;
-    }
-
-    function getLaunch(address t)
-        external
-        view
-        returns (address, address, address, address, address, address, uint256, uint64, uint64, bool)
-    {
-        return (t, address(0), hook, splitter, locker, address(0), 0, 0, 0, t == token);
-    }
-}
-
-/// @dev The locker only has to answer `poolKey()` for the module and take the liquidity share.
-contract LockerStub {
-    PoolKey internal _key;
-
-    receive() external payable {}
-
-    function setKey(PoolKey calldata key) external {
-        _key = key;
-    }
-
-    function poolKey() external view returns (PoolKey memory) {
-        return _key;
-    }
-}
-
-/// @notice The four shapes a swap can take through the launch hook, against a real PoolManager,
-///         with no chain underneath. The test contract plays the portal: it wires the machine and
-///         it is the address the hook exempts from the opening surcharge.
-contract DirectSwapTest is Test {
+/// @notice A direct launch against a real PoolManager, with no chain underneath. The test contract
+///         plays the portal: it wires the machine and it is the address the hook exempts from the
+///         opening surcharge. Suites that need penalties on override `_penalties`.
+abstract contract DirectPoolBase is Test {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
 
@@ -89,6 +51,12 @@ contract DirectSwapTest is Test {
     uint256 internal constant SELL_TAX = 500;
     uint256 internal constant SNIPE_TAX = 5_000;
     uint32 internal constant SNIPE_WINDOW = 3;
+    uint256 internal constant BPS = 10_000;
+    /// @dev The schedule a trader pays on top of the creator's rate: 30 bps ride with the creator's
+    ///      leg, 70 bps go to the Bag.
+    uint256 internal constant CREATOR_BUY = BUY_TAX + 30;
+    uint256 internal constant CREATOR_SELL = SELL_TAX + 30;
+    uint256 internal constant BAG_BPS = 70;
     // A real PoolManager reads a hook's permissions off its address: the low fourteen bits have
     // to be 0xCC (beforeSwap, afterSwap and both return deltas), so the hook is etched there.
     address internal constant HOOK_ADDRESS = address(uint160(0x444400CC));
@@ -105,6 +73,8 @@ contract DirectSwapTest is Test {
     HoodLaunchHook internal hook;
     HoodRevenueSplitter internal splitter;
     HoodBuybackModule internal module;
+    MockBag internal bag;
+    MockVault internal vault;
     PortalStub internal portalStub;
     LockerStub internal locker;
     PoolKey internal key;
@@ -118,7 +88,11 @@ contract DirectSwapTest is Test {
 
     receive() external payable {}
 
-    function setUp() public {
+    function _penalties() internal view virtual returns (PenaltyConfig memory) {
+        return PenaltyConfig(0, 0, 0, 0, 0, false);
+    }
+
+    function setUp() public virtual {
         pm = IPoolManager(deployCode(POOL_MANAGER_ARTIFACT, abi.encode(address(this))));
         swapRouter = new PoolSwapTest(pm);
         lpRouter = new PoolModifyLiquidityTest(pm);
@@ -128,6 +102,9 @@ contract DirectSwapTest is Test {
 
         portalStub = new PortalStub();
         locker = new LockerStub();
+        bag = new MockBag();
+        vault = new MockVault();
+        bag.setVault(address(vault));
         module = new HoodBuybackModule(address(pm), address(portalStub));
         splitter = new HoodRevenueSplitter(address(this), treasury, address(module), address(token), address(0));
 
@@ -141,7 +118,7 @@ contract DirectSwapTest is Test {
         poolId = key.toId();
 
         deployCodeTo("HoodLaunchHook.sol:HoodLaunchHook", abi.encode(pm, address(this)), HOOK_ADDRESS);
-        hook = HoodLaunchHook(HOOK_ADDRESS);
+        hook = HoodLaunchHook(payable(HOOK_ADDRESS));
         hook.initialize(
             HoodLaunchHook.InitParams({
                 token: address(token),
@@ -149,19 +126,21 @@ contract DirectSwapTest is Test {
                 splitter: address(splitter),
                 factory: address(0),
                 buybackModule: address(module),
+                bag: address(bag),
                 tokenIsZero: false,
                 buyTaxBps: uint16(BUY_TAX),
                 sellTaxBps: uint16(SELL_TAX),
                 snipeTaxBps: uint16(SNIPE_TAX),
                 snipeDecaySeconds: SNIPE_WINDOW,
                 tickBond: TICK_BOND,
+                penalties: _penalties(),
                 key: key
             })
         );
 
         splitter.initialize(creator, address(locker), Allocations(2_500, 2_500, 4_000, 1_000));
+        splitter.setHook(address(hook));
         splitter.exclude(address(pm));
-        splitter.exclude(address(hook));
         token.setLaunchAddresses(address(pm), address(splitter), address(locker), address(hook), address(module));
         portalStub.set(address(token), address(hook), address(splitter), address(locker));
         locker.setKey(key);
@@ -223,27 +202,28 @@ contract DirectSwapTest is Test {
         });
     }
 
+    /// @dev `vm.prank(who, who)` sets tx.origin as well: the hook tracks wallets by origin.
     function _buyExactIn(address who, uint256 amountIn) internal returns (BalanceDelta) {
-        vm.prank(who);
+        vm.prank(who, who);
         return swapRouter.swap{value: amountIn}(key, _buyExactInParams(amountIn), _settings(), "");
     }
 
     /// @dev The router settles what the swap cost and refunds the rest, so `maxValue` only has to
     ///      cover it.
     function _buyExactOut(address who, uint256 tokensOut, uint256 maxValue) internal returns (BalanceDelta) {
-        vm.prank(who);
+        vm.prank(who, who);
         return swapRouter.swap{value: maxValue}(key, _buyExactOutParams(tokensOut), _settings(), "");
     }
 
     function _sellExactIn(address who, uint256 tokensIn) internal returns (BalanceDelta delta) {
-        vm.startPrank(who);
+        vm.startPrank(who, who);
         token.approve(address(swapRouter), tokensIn);
         delta = swapRouter.swap(key, _sellExactInParams(tokensIn), _settings(), "");
         vm.stopPrank();
     }
 
     function _sellExactOut(address who, uint256 quoteOut) internal returns (BalanceDelta delta) {
-        vm.startPrank(who);
+        vm.startPrank(who, who);
         token.approve(address(swapRouter), type(uint256).max);
         delta = swapRouter.swap(key, _sellExactOutParams(quoteOut), _settings(), "");
         vm.stopPrank();
@@ -289,12 +269,62 @@ contract DirectSwapTest is Test {
         revert("no Taxed event");
     }
 
+    struct PenaltyLog {
+        bytes32 reason;
+        address payer;
+        uint256 amount;
+        uint256 toHolders;
+        uint256 toBag;
+        bool isBuy;
+        bool found;
+    }
+
+    /// @dev The last `Penalty` event with `reason`, if any.
+    function _penaltyLog(Vm.Log[] memory logs, bytes32 reason) internal view returns (PenaltyLog memory p) {
+        bytes32 sig = keccak256("Penalty(bytes32,address,uint256,uint256,uint256,bool)");
+        for (uint256 i = logs.length; i > 0; --i) {
+            Vm.Log memory l = logs[i - 1];
+            if (l.emitter == address(hook) && l.topics[0] == sig && l.topics[1] == reason) {
+                p.reason = reason;
+                p.payer = address(uint160(uint256(l.topics[2])));
+                (p.amount, p.toHolders, p.toBag, p.isBuy) = abi.decode(l.data, (uint256, uint256, uint256, bool));
+                p.found = true;
+                return p;
+            }
+        }
+    }
+
+    function _countTopic(Vm.Log[] memory logs, address emitter, bytes32 sig) internal pure returns (uint256 n) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == emitter && logs[i].topics[0] == sig) ++n;
+        }
+    }
+
+    function _creatorFee(uint256 amount, bool isBuy) internal pure returns (uint256) {
+        return (amount * (isBuy ? CREATOR_BUY : CREATOR_SELL)) / BPS;
+    }
+
+    function _bagFee(uint256 amount) internal pure returns (uint256) {
+        return (amount * BAG_BPS) / BPS;
+    }
+
+    function _schedule(uint256 amount, bool isBuy) internal pure returns (uint256) {
+        return _creatorFee(amount, isBuy) + _bagFee(amount);
+    }
+}
+
+/// @notice The four shapes a swap can take through the launch hook: the creator's tax, the platform
+///         fee on top, and where each one physically goes.
+contract DirectSwapTest is DirectPoolBase {
+    using StateLibrary for IPoolManager;
+    using PoolIdLibrary for PoolKey;
+
     // ---------------------------------------------------------------- 1. exact-input buy
 
     function test_exact_input_buy_holds_the_tax_as_a_claim_until_the_next_swap_or_a_flush() public {
         _pastTheWindow();
-        assertEq(hook.currentTaxBps(true), BUY_TAX);
-        uint256 fee = 1 ether * BUY_TAX / 10_000; // 0.05 ETH
+        assertEq(hook.currentTaxBps(true), BUY_TAX + 100, "the creator's rate plus the platform's percent");
+        uint256 fee = _schedule(1 ether, true); // 0.06 ETH: 5.3% to the creator's leg, 0.7% to the Bag
         uint256 aliceBefore = alice.balance;
 
         BalanceDelta d = _buyExactIn(alice, 1 ether);
@@ -304,15 +334,19 @@ contract DirectSwapTest is Test {
         assertGt(d.amount1(), 0);
         assertEq(token.balanceOf(alice), uint256(uint128(d.amount1())));
         assertEq(hook.claimsHeld(), fee);
+        assertEq(hook.bagClaims(), _bagFee(1 ether), "the Bag's part is tracked apart");
         assertEq(pm.balanceOf(address(hook), NATIVE_ID), fee, "held as an ERC-6909 claim on the quote");
         assertEq(address(splitter).balance, 0, "nothing has reached the splitter yet");
+        assertEq(address(bag).balance, 0, "nor the Bag");
 
         // the next swap, whoever makes it, flushes the claim on its way through afterSwap
         vm.expectEmit(true, true, true, true, address(hook));
         emit HoodLaunchHook.ClaimsFlushed(fee);
         _buyExactIn(bob, 0.5 ether);
-        uint256 fee2 = 0.5 ether * BUY_TAX / 10_000;
-        assertEq(address(splitter).balance, fee);
+        uint256 fee2 = _schedule(0.5 ether, true);
+        assertEq(address(splitter).balance, _creatorFee(1 ether, true), "the creator's leg, platform's 30 bps included");
+        assertEq(bag.total(bag.TRADE(), address(0)), _bagFee(1 ether), "the Bag took its 70 bps as a trade fee");
+        assertEq(address(bag).balance, _bagFee(1 ether));
         assertEq(hook.claimsHeld(), fee2, "only this swap's slice is still a claim");
         assertEq(pm.balanceOf(address(hook), NATIVE_ID), fee2);
 
@@ -321,8 +355,10 @@ contract DirectSwapTest is Test {
         emit HoodLaunchHook.ClaimsFlushed(fee2);
         vm.prank(bob);
         hook.flushClaims();
-        assertEq(address(splitter).balance, fee + fee2);
+        assertEq(address(splitter).balance, _creatorFee(1 ether, true) + _creatorFee(0.5 ether, true));
+        assertEq(bag.total(bag.TRADE(), address(0)), _bagFee(1 ether) + _bagFee(0.5 ether));
         assertEq(hook.claimsHeld(), 0);
+        assertEq(hook.bagClaims(), 0);
         assertEq(pm.balanceOf(address(hook), NATIVE_ID), 0);
     }
 
@@ -330,8 +366,6 @@ contract DirectSwapTest is Test {
 
     function test_exact_output_buy_pays_the_quote_plus_the_tax_and_reports_the_volume() public {
         _pastTheWindow();
-        uint256 rate = hook.currentTaxBps(true);
-        assertEq(rate, BUY_TAX);
         uint256 tokensOut = 1_000_000e18;
         uint256 aliceBefore = alice.balance;
         uint256 pmBefore = address(pm).balance;
@@ -346,7 +380,7 @@ contract DirectSwapTest is Test {
         assertEq(uint256(uint128(-d.amount0())), paid, "the delta is what she paid, tax included");
         assertTrue(isBuy, "reported as a buy");
         assertGt(fee, 0, "this shape used to pay nothing");
-        assertEq(fee, volume * rate / 10_000, "the tax is the rate on the quote the pool charged");
+        assertEq(fee, _schedule(volume, true), "the schedule on the quote the pool charged");
         assertEq(paid, volume + fee, "the quote for the tokens, plus the tax on top");
         assertEq(hook.claimsHeld(), fee, "held as a claim, like an exact-input buy");
         assertEq(pm.balanceOf(address(hook), NATIVE_ID), fee);
@@ -354,7 +388,8 @@ contract DirectSwapTest is Test {
         assertEq(address(splitter).balance, 0);
 
         hook.flushClaims();
-        assertEq(address(splitter).balance, fee);
+        assertEq(address(splitter).balance, _creatorFee(volume, true));
+        assertEq(bag.total(bag.TRADE(), address(0)), _bagFee(volume));
         assertEq(address(pm).balance - pmBefore, volume, "what the pool itself kept is the volume");
     }
 
@@ -365,6 +400,7 @@ contract DirectSwapTest is Test {
         _buyExactIn(alice, 1 ether);
         hook.flushClaims();
         uint256 splitterBefore = address(splitter).balance;
+        uint256 bagBefore = address(bag).balance;
         uint256 aliceEthBefore = alice.balance;
         uint256 aliceTokensBefore = token.balanceOf(alice);
         uint256 tokensIn = aliceTokensBefore / 2;
@@ -374,30 +410,34 @@ contract DirectSwapTest is Test {
         (bool isBuy, uint256 fee, uint256 volume) = _lastTaxed(vm.getRecordedLogs());
 
         uint256 received = alice.balance - aliceEthBefore;
-        uint256 taxed = address(splitter).balance - splitterBefore;
+        uint256 toSplitter = address(splitter).balance - splitterBefore;
+        uint256 toBag = address(bag).balance - bagBefore;
         assertFalse(isBuy);
         assertGt(received, 0);
-        assertEq(taxed, fee, "the tax landed in the splitter inside the swap");
+        assertEq(toSplitter, _creatorFee(volume, false), "the creator's leg landed in the splitter inside the swap");
+        assertEq(toBag, _bagFee(volume), "and the Bag's 70 bps landed in the Bag inside the swap");
+        assertEq(fee, toSplitter + toBag);
         assertEq(volume, received + fee, "volume is the gross the pool paid out");
-        assertEq(fee, (received + fee) * SELL_TAX / 10_000);
         assertEq(uint256(uint128(d.amount0())), received, "the delta is the net of the tax");
         assertEq(uint256(uint128(-d.amount1())), tokensIn);
         assertEq(token.balanceOf(alice), aliceTokensBefore - tokensIn);
         assertEq(hook.claimsHeld(), 0, "an output-side tax is taken directly, never held");
         assertEq(pm.balanceOf(address(hook), NATIVE_ID), 0);
+        assertEq(address(hook).balance, 0, "nothing sticks to the hook");
     }
 
     // ---------------------------------------------------------------- 4. exact-output sell
 
-    function test_exact_output_sell_holds_the_tax_as_a_claim_and_the_seller_pays_it_in_tokens() public {
+    function test_exact_output_sell_takes_the_tax_out_of_the_pool_and_the_seller_pays_it_in_tokens() public {
         _pastTheWindow();
         _buyExactIn(alice, 1 ether);
         hook.flushClaims();
         uint256 splitterBefore = address(splitter).balance;
+        uint256 bagBefore = address(bag).balance;
         uint256 aliceEthBefore = alice.balance;
         uint256 aliceTokensBefore = token.balanceOf(alice);
         uint256 quoteOut = 0.1 ether;
-        uint256 fee = quoteOut * SELL_TAX / 10_000; // 0.005 ETH
+        uint256 fee = _schedule(quoteOut, false);
 
         uint256 snapshot = vm.snapshotState();
         vm.recordLogs();
@@ -409,9 +449,10 @@ contract DirectSwapTest is Test {
         assertFalse(isBuy);
         assertEq(taxed, fee);
         assertEq(volume, quoteOut + fee, "volume is what the pool paid out, the tax included");
-        assertEq(hook.claimsHeld(), fee, "taken in beforeSwap, held as a claim");
-        assertEq(pm.balanceOf(address(hook), NATIVE_ID), fee);
-        assertEq(address(splitter).balance, splitterBefore, "nothing reaches the splitter until the next swap");
+        assertEq(hook.claimsHeld(), 0, "the output exists, so it is taken inside the swap, never held");
+        assertEq(pm.balanceOf(address(hook), NATIVE_ID), 0);
+        assertEq(address(splitter).balance - splitterBefore, _creatorFee(quoteOut, false));
+        assertEq(address(bag).balance - bagBefore, _bagFee(quoteOut));
         uint256 tokensPaid = aliceTokensBefore - token.balanceOf(alice);
         assertGt(tokensPaid, 0);
         assertEq(tokensPaid, uint256(uint128(-d.amount1())));
@@ -421,7 +462,7 @@ contract DirectSwapTest is Test {
         vm.revertToState(snapshot);
         vm.recordLogs();
         _sellExactIn(alice, tokensPaid);
-        (, , uint256 grossForTheSameTokens) = _lastTaxed(vm.getRecordedLogs());
+        (,, uint256 grossForTheSameTokens) = _lastTaxed(vm.getRecordedLogs());
         assertApproxEqRel(grossForTheSameTokens, quoteOut + fee, 1e12, "the tokens bought quoteOut + tax");
         assertGt(grossForTheSameTokens, quoteOut + fee / 2, "and clearly more than quoteOut");
     }
@@ -431,45 +472,61 @@ contract DirectSwapTest is Test {
     function test_the_opening_surcharge_hits_traders_but_not_the_portal_or_the_buyback() public {
         uint256 start = hook.launchTime();
         assertEq(block.timestamp, start, "the first instant of the launch");
-        assertEq(hook.currentTaxBps(true), BUY_TAX + SNIPE_TAX);
+        assertEq(hook.currentTaxBps(true), BUY_TAX + 100 + SNIPE_TAX);
 
-        // a trader at the open: the launch tax plus the whole surcharge
+        // a trader at the open: the schedule plus the whole surcharge, and the surcharge is a
+        // penalty: 80% for the holders, 20% for the Bag, named on its own event
+        vm.recordLogs();
         _buyExactIn(alice, 1 ether);
-        assertEq(hook.claimsHeld(), 1 ether * (BUY_TAX + SNIPE_TAX) / 10_000, "55% of the trade");
+        PenaltyLog memory snipe = _penaltyLog(vm.getRecordedLogs(), BagReasons.SNIPE);
+        assertTrue(snipe.found);
+        assertEq(snipe.payer, alice);
+        assertEq(snipe.amount, 0.5 ether, "the surcharge, 50% of the trade");
+        assertEq(snipe.toHolders, 0.4 ether);
+        assertEq(snipe.toBag, 0.1 ether);
+        assertTrue(snipe.isBuy);
+        assertEq(hook.claimsHeld(), _schedule(1 ether, true) + 0.5 ether, "56% of the trade");
+        assertEq(hook.snipeClaims(), 0.5 ether);
         hook.flushClaims();
+        assertEq(splitter.totalDeposited(), 0.4 ether, "the holders' 80% is in the pot");
+        assertEq(bag.total(bag.PENALTY(), address(0)), 0.1 ether, "the Bag's 20% is a penalty cut");
+        assertEq(address(splitter).balance, _creatorFee(1 ether, true) + 0.4 ether);
 
-        // the portal at the open, straight against the manager: the base rate only
+        // the portal at the open, straight against the manager: the schedule, no surcharge
         uint256 before = token.balanceOf(address(this));
         _swapAsPortal(_buyExactInParams(1 ether));
         assertGt(token.balanceOf(address(this)), before);
-        assertEq(hook.claimsHeld(), 1 ether * BUY_TAX / 10_000, "5%, the portal is not a snipe");
+        assertEq(hook.claimsHeld(), _schedule(1 ether, true), "6%, the portal is not a snipe but pays the platform");
+        assertEq(hook.snipeClaims(), 0);
         hook.flushClaims();
 
-        // the buyback module at the open, from the pot the two buys just filled: the base rate only
+        // the buyback module at the open, from the pot the two buys just filled: the base rate
+        // only, no surcharge and no platform fee
         splitter.sweep();
         uint256 pot = splitter.buybackPot();
-        assertEq(pot, 0.6 ether * 9_000 / 10_000 * 2_500 / 10_000, "a quarter of the creator's nine tenths");
+        assertEq(pot, (2 * _creatorFee(1 ether, true) * 2_500) / BPS, "a quarter of the creator's leg");
         uint256 supplyBefore = token.totalSupply();
         uint256 burned = module.run(address(token), 0);
         assertGt(burned, 0);
         assertEq(token.totalSupply(), supplyBefore - burned);
         assertEq(module.carried(address(token)), 0, "the whole pot fit under the impact cap");
         assertEq(address(module).balance, 0);
-        assertEq(hook.claimsHeld(), pot * BUY_TAX / 10_000, "5%, the buyback is not a snipe");
+        assertEq(hook.claimsHeld(), pot * BUY_TAX / BPS, "5%, the buyback is the launch buying itself");
+        assertEq(hook.bagClaims(), 0);
         hook.flushClaims();
 
         // one second in, two thirds of the window remain and the surcharge is (2/3)^2 of itself
         vm.warp(start + 1);
-        assertEq(hook.currentTaxBps(true), BUY_TAX + SNIPE_TAX * 4 / 9);
+        assertEq(hook.currentTaxBps(true), BUY_TAX + 100 + SNIPE_TAX * 4 / 9);
         _buyExactIn(bob, 1 ether);
-        assertEq(hook.claimsHeld(), 1 ether * (BUY_TAX + SNIPE_TAX * 4 / 9) / 10_000, "27.22%");
+        assertEq(hook.claimsHeld(), _schedule(1 ether, true) + 1 ether * (SNIPE_TAX * 4 / 9) / BPS, "28.22%");
         hook.flushClaims();
 
-        // three seconds in, the same buy pays the launch tax and nothing else
+        // three seconds in, the same buy pays the schedule and nothing else
         vm.warp(start + SNIPE_WINDOW);
         assertEq(hook.currentSnipeBps(), 0);
         _buyExactIn(bob, 1 ether);
-        assertEq(hook.claimsHeld(), 1 ether * BUY_TAX / 10_000, "5%");
+        assertEq(hook.claimsHeld(), _schedule(1 ether, true), "6%");
     }
 
     // ---------------------------------------------------------------- 6. one hook, one pool
@@ -512,7 +569,7 @@ contract DirectSwapTest is Test {
         // empty range below it, rather than running to the end of the tick space.
         vm.expectEmit(false, false, false, false, address(hook));
         emit HoodLaunchHook.Bonded(0, 0);
-        vm.prank(bob);
+        vm.prank(bob, bob);
         swapRouter.swap{value: 40 ether}(
             key,
             SwapParams({
@@ -535,43 +592,40 @@ contract DirectSwapTest is Test {
         assertTrue(hook.bonded(), "bonded is a latch, not a level");
     }
 
-    // ---------------------------------------------------------------- 7. a treasury that cannot take ETH
+    // ---------------------------------------------------------------- 7. the creator's tax is all the creator's
 
-    function test_a_treasury_that_rejects_native_only_blocks_its_own_claim() public {
-        vm.etch(treasury, address(new RejectNative()).code);
+    function test_the_protocol_takes_nothing_from_the_creators_tax() public {
         _pastTheWindow();
         _buyExactIn(alice, 2 ether);
         hook.flushClaims();
         splitter.sweep();
-        assertEq(address(splitter).balance, 0.1 ether);
-        assertEq(splitter.protocolClaimable(), 0.01 ether);
+        uint256 leg = _creatorFee(2 ether, true); // 0.106 ETH
+        assertEq(address(splitter).balance, leg);
+        assertEq(splitter.PROTOCOL_BPS(), 0);
+        assertEq(splitter.protocolClaimable(), 0, "nothing is booked for the protocol any more");
+        assertEq(splitter.creatorClaimable(), leg * 2_500 / BPS);
+        assertEq(splitter.buybackPot(), leg * 2_500 / BPS);
+        assertEq(splitter.liquidityPot(), leg - 2 * (leg * 2_500 / BPS) - (leg * 4_000 / BPS));
+        assertApproxEqAbs(splitter.pending(alice), leg * 4_000 / BPS, 2, "forty percent, to the one holder");
+        assertEq(bag.total(bag.TRADE(), address(0)), _bagFee(2 ether), "the platform's leg went to the Bag instead");
+        assertEq(treasury.balance, 0);
 
-        vm.expectRevert(PairTransfer.NativeTransferFailed.selector);
+        vm.expectRevert(HoodRevenueSplitter.Nothing.selector);
         splitter.claimProtocol();
-        assertEq(splitter.protocolClaimable(), 0.01 ether, "still owed, never lost");
 
-        // everyone else's road stays open
-        uint256 dividends = splitter.claimDividends(alice);
-        assertApproxEqAbs(dividends, 0.036 ether, 2, "forty percent of the creator's nine tenths");
-        assertApproxEqAbs(alice.balance, 1_000 ether - 2 ether + 0.036 ether, 2);
-
+        // every road still moves
+        uint256 dividends = splitter.claim(alice);
+        assertApproxEqAbs(dividends, leg * 4_000 / BPS, 2);
         vm.prank(creator);
-        assertEq(splitter.claim(creator), 0.0225 ether);
-        assertEq(creator.balance, 0.0225 ether);
-
-        assertEq(splitter.pushLiquidity(), 0.009 ether);
-        assertEq(address(locker).balance, 0.009 ether);
-
+        assertEq(splitter.claimCreator(creator), leg * 2_500 / BPS);
+        assertGt(splitter.pushLiquidity(), 0);
         uint256 supplyBefore = token.totalSupply();
         uint256 burned = module.run(address(token), 0);
         assertGt(burned, 0);
         assertEq(token.totalSupply(), supplyBefore - burned);
         assertEq(splitter.buybackPot(), 0);
-
-        assertEq(splitter.protocolClaimable(), 0.01 ether);
-        // What is left is the protocol's tenth plus the wei the per-share accumulator rounds away.
         assertLe(splitter.dividendsHeld(), 2);
-        assertEq(address(splitter).balance, splitter.protocolClaimable() + splitter.dividendsHeld());
+        assertEq(address(splitter).balance, splitter.dividendsHeld());
     }
 
     // ---------------------------------------------------------------- 8. the buyback impact cap
@@ -581,7 +635,7 @@ contract DirectSwapTest is Test {
         vm.deal(address(splitter), 50 ether);
         splitter.sweep();
         uint256 pot = splitter.buybackPot();
-        assertEq(pot, 11.25 ether);
+        assertEq(pot, 12.5 ether);
 
         int24 tickBefore = _tick();
         uint160 sqrtBefore = _sqrtPrice();
@@ -632,7 +686,7 @@ contract DirectSwapTest is Test {
 
     function _measuredSwap(address who, SwapParams memory params, uint256 value) internal returns (uint256 used) {
         PoolSwapTest.TestSettings memory settings = _settings();
-        vm.prank(who);
+        vm.prank(who, who);
         uint256 before = gasleft();
         swapRouter.swap{value: value}(key, params, settings, "");
         used = before - gasleft();

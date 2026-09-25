@@ -97,6 +97,10 @@ alter table launches add column if not exists split_liquidity_bps smallint not n
 alter table launches add column if not exists split_creator_bps smallint not null default 0;
 alter table launches add column if not exists first_buy_locked numeric(78,0) not null default 0;
 alter table launches add column if not exists first_buy_unlock_at timestamptz;
+-- A referral the owner set by hand on this launch: who is paid a slice of the protocol's own share
+-- when it is claimed, and how big the slice is in basis points of that share. Null when nobody is.
+alter table launches add column if not exists referral_to text;
+alter table launches add column if not exists referral_bps smallint;
 -- The single fee model is gone from the contracts, so it goes from here too rather than lingering
 -- in every select * as a number no launch has any more.
 alter table launches drop column if exists fee_model;
@@ -197,6 +201,9 @@ alter table fee_events add column if not exists to_buyback numeric(78,0);
 alter table fee_events add column if not exists to_liquidity numeric(78,0);
 alter table fee_events add column if not exists to_creator numeric(78,0);
 alter table fee_events drop column if exists fee_model;
+-- Who a payout went to, for the kinds that name one (a referral). Null for the legs, whose
+-- recipients are the launch's own split.
+alter table fee_events add column if not exists recipient text;
 
 create table if not exists seasons (
   id     int primary key,
@@ -354,6 +361,218 @@ create table if not exists races (
   metric text not null default 'points'
 );
 create index if not exists races_window on races (ends desc);
+
+-- ---------------------------------------------------------------- the Bag
+-- The token's pot: a HoodPot on a curve launch, the revenue splitter on a direct one. Null on a
+-- launch indexed before the Bag existed; readers fall back to the splitter for those.
+alter table launches add column if not exists pot text;
+-- The sell-side penalties the creator turned on, read from the factory's penaltiesOf(token) at
+-- launch. Null says the factory did not answer (an older factory), zero says off.
+alter table launches add column if not exists jeet_tax_bps smallint;
+alter table launches add column if not exists jeet_window_seconds int;
+alter table launches add column if not exists whale_tax_bps smallint;
+alter table launches add column if not exists whale_tick_limit int;
+alter table launches add column if not exists king_bps smallint;
+alter table launches add column if not exists penalties_to_vault boolean;
+alter table launches add column if not exists auction_blocks int;
+-- What the launch itself paid the platform: the graduation fee straight off the Graduated log, and
+-- the launch fee as the factory or the portal priced it in the launch block. Null until known.
+alter table launches add column if not exists graduation_fee numeric(78,0);
+alter table launches add column if not exists launch_fee numeric(78,0);
+create index if not exists launches_pot on launches (pot) where pot is not null;
+
+-- The money tape: one row per event that moved money through the Bag, a pot, Payday, the burn clock
+-- or the boosts. The tables below it are what the routes sum; this is what they page. asset
+-- address(0) is native. extra carries what the event said beyond the amount (source, outlet, reason,
+-- payer, wallet, pot, epoch, slot, buyer, king, ends_at, winner, to_holders, to_bag,
+-- eligible_supply, holders, is_buy, spent, burned), kept small so a row also fits a NOTIFY.
+create table if not exists bag_events (
+  id        bigserial primary key,
+  kind      text not null,
+  token     text,
+  asset     text,
+  amount    numeric(78,0) not null default 0,
+  extra     jsonb not null default '{}'::jsonb,
+  recipient text,
+  block     bigint not null,
+  tx        text not null,
+  log_index int not null,
+  ts        timestamptz not null,
+  unique (tx, log_index)
+);
+create index if not exists bag_events_kind_id on bag_events (kind, id desc);
+create index if not exists bag_events_token_id on bag_events (token, id desc);
+create index if not exists bag_events_asset_kind on bag_events (asset, kind);
+
+-- Who paid a penalty and how it split. holders is how many wallets held the token when the row was
+-- written, the same count the token page shows, which is who the bounty went to.
+create table if not exists penalties (
+  id         bigserial primary key,
+  token      text not null,
+  kind       text not null,
+  payer      text not null,
+  asset      text not null,
+  amount     numeric(78,0) not null,
+  to_holders numeric(78,0) not null default 0,
+  to_bag     numeric(78,0) not null default 0,
+  holders    int not null default 0,
+  block      bigint not null,
+  tx         text not null,
+  log_index  int not null,
+  ts         timestamptz not null,
+  unique (tx, log_index)
+);
+create index if not exists penalties_payer on penalties (payer);
+create index if not exists penalties_token_id on penalties (token, id desc);
+
+-- What a pot booked for its holders (HoldersPaid) and what it pushed to them (Pushed).
+create table if not exists pot_deposits (
+  id              bigserial primary key,
+  token           text not null,
+  reason          text not null,
+  payer           text not null,
+  asset           text not null,
+  amount          numeric(78,0) not null,
+  eligible_supply numeric(78,0) not null default 0,
+  holders         int not null default 0,
+  block           bigint not null,
+  tx              text not null,
+  log_index       int not null,
+  ts              timestamptz not null,
+  unique (tx, log_index)
+);
+create index if not exists pot_deposits_token_id on pot_deposits (token, id desc);
+
+create table if not exists pot_payouts (
+  id        bigserial primary key,
+  token     text not null,
+  holder    text not null,
+  asset     text not null,
+  amount    numeric(78,0) not null,
+  block     bigint not null,
+  tx        text not null,
+  log_index int not null,
+  ts        timestamptz not null,
+  unique (tx, log_index)
+);
+create index if not exists pot_payouts_holder on pot_payouts (holder);
+create index if not exists pot_payouts_token on pot_payouts (token, id desc);
+
+-- Payday: one row per hour per asset, funded as the Bag pays in, closed when the keeper pays out.
+create table if not exists payday_epochs (
+  epoch       bigint not null,
+  asset       text not null,
+  funded      numeric(78,0) not null default 0,
+  to_wallets  numeric(78,0),
+  to_launches numeric(78,0),
+  carried     numeric(78,0),
+  paid_at     timestamptz,
+  tx          text,
+  primary key (epoch, asset)
+);
+create table if not exists payday_payouts (
+  id        bigserial primary key,
+  epoch     bigint not null,
+  asset     text not null,
+  wallet    text not null,
+  amount    numeric(78,0) not null,
+  block     bigint not null,
+  tx        text not null,
+  log_index int not null,
+  ts        timestamptz not null,
+  unique (tx, log_index)
+);
+create index if not exists payday_payouts_wallet on payday_payouts (wallet);
+create index if not exists payday_payouts_epoch on payday_payouts (epoch, asset);
+create table if not exists payday_slices (
+  id        bigserial primary key,
+  epoch     bigint not null,
+  asset     text not null,
+  pot       text not null,
+  token     text,
+  amount    numeric(78,0) not null,
+  block     bigint not null,
+  tx        text not null,
+  log_index int not null,
+  ts        timestamptz not null,
+  unique (tx, log_index)
+);
+create index if not exists payday_slices_epoch on payday_slices (epoch, asset);
+
+-- Boost slots. An (hour, slot) pair is sold once, so the pair is the key.
+create table if not exists boosts (
+  hour_epoch bigint not null,
+  slot       smallint not null,
+  token      text not null,
+  buyer      text not null,
+  paid       numeric(78,0) not null,
+  tx         text not null,
+  ts         timestamptz not null,
+  primary key (hour_epoch, slot)
+);
+create index if not exists boosts_token on boosts (token, hour_epoch desc);
+
+-- King of the hill. A row is one round: crowned at the first buy, re-crowned on every buy after it
+-- (the row moves with the king and the timer), closed by the win. won_at null is the open round.
+create table if not exists king_rounds (
+  id         bigserial primary key,
+  token      text not null,
+  king       text not null,
+  pot        numeric(78,0) not null default 0,
+  ends_at    timestamptz not null,
+  won_amount numeric(78,0),
+  won_at     timestamptz,
+  tx         text not null,
+  log_index  int not null,
+  unique (tx, log_index)
+);
+create index if not exists king_rounds_token_id on king_rounds (token, id desc);
+
+-- The sniper auction, one per token, kept current from its bids and closed by the settlement.
+create table if not exists auctions (
+  token        text primary key,
+  end_block    bigint,
+  top_bidder   text,
+  top_bid      numeric(78,0) not null default 0,
+  bids         int not null default 0,
+  settled      boolean not null default false,
+  winner       text,
+  to_holders   numeric(78,0),
+  to_liquidity numeric(78,0),
+  updated_at   timestamptz not null default now()
+);
+create index if not exists auctions_open on auctions (end_block) where not settled;
+
+-- The burn clock's hourly buy and burn of the house coin, per asset it spent.
+create table if not exists burns (
+  id          bigserial primary key,
+  asset       text not null,
+  spent       numeric(78,0) not null,
+  coin_burned numeric(78,0) not null,
+  epoch       bigint not null,
+  block       bigint not null,
+  tx          text not null,
+  log_index   int not null,
+  ts          timestamptz not null,
+  unique (tx, log_index)
+);
+create index if not exists burns_id on burns (id desc);
+
+-- What the Vault was fed, per asset (HoodStaking.RewardNotified).
+create table if not exists vault_rewards (
+  id        bigserial primary key,
+  asset     text not null,
+  amount    numeric(78,0) not null,
+  block     bigint not null,
+  tx        text not null,
+  log_index int not null,
+  ts        timestamptz not null,
+  unique (tx, log_index)
+);
+create index if not exists vault_rewards_asset_id on vault_rewards (asset, id desc);
+
+-- Payday reads the hour's points between two timestamps, which is a range scan on ts.
+create index if not exists points_ts on points (ts);
 `;
 
 export async function migrate() {

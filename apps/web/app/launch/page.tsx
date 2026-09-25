@@ -4,14 +4,15 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { encodeFunctionData, erc20Abi, isAddress, parseUnits, zeroAddress, type Address } from "viem";
-import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { hoodFactoryAbi, hoodStakingAbi, BPS, FEE_LEG_LABEL, LOCK_TIERS } from "@hood/sdk";
+import { useAccount, usePublicClient, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { hoodFactoryAbi, hoodStakingAbi, BPS, FEE_LEG_LABEL, LOCK_TIERS, curveBuy } from "@hood/sdk";
 import { addresses } from "@/lib/config";
-import { api, type PairRow, type ResolvedQuote } from "@/lib/api";
+import { api, type PairRow, type ResolvedQuote, type RouteAvailability } from "@/lib/api";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
+import { detectFactoryGeneration, encodePenalties, factoryAbis, penaltiesInUse, penaltyProblem, penaltyReviewRows, PENALTY_FORM_DEFAULTS, type PenaltyForm } from "@/lib/launchAbi";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
-import { Choice, Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, Rail, Slider, Step, WhatHappens, type StepState } from "@/components/LaunchUI";
+import { Choice, Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, PenaltyOptions, Slider, Step, WhatHappens, WizardNav, WizardProgress } from "@/components/LaunchUI";
 import { CurveSim } from "@/components/Sim";
 import { useBatch } from "@/lib/safe";
 import { brand } from "@/brands";
@@ -27,6 +28,14 @@ interface CurvePreset {
 }
 
 const CUSTOM_SUPPLY = 1_000_000_000n * 10n ** 18n;
+const STEPS = ["Token", "Market", "Economics", "Penalties", "Review"] as const;
+const REVIEW = STEPS.length - 1;
+
+/// The platform fee on a curve trade: 1% of it, 0.70% into the Bag and 0.30% to the creator's
+/// split. A preset carries its own two numbers and they are what the form shows for it; these are
+/// what a custom config is written with, and the fallback while the presets are still loading.
+const BAG_LEG_BPS = 70;
+const CREATOR_LEG_BPS = 30;
 
 function units(value: string, decimals: number): bigint {
   try { return parseUnits(value || "0", decimals); } catch { return 0n; }
@@ -75,17 +84,16 @@ const CURVE_STRATEGIES_NO_LOCKERS = [
 export default function LaunchPage() {
   const [machine, setMachine] = useState<keyof typeof MACHINES>("curve");
 
-  // Step one belongs to the page, not to either machine, but it has to appear inside the machine's
-  // own column so the rail counts it. So it is built here and handed down.
   const chooser = (
-    <Step n={1} title="How it launches" purpose="This decides everything else on this page, and it cannot be changed after the launch." done>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {(Object.keys(MACHINES) as (keyof typeof MACHINES)[]).map((k) => (
-          <Choice key={k} selected={machine === k} onClick={() => setMachine(k)}
-            title={MACHINES[k].title} body={MACHINES[k].body} meta={MACHINES[k].meta} />
-        ))}
-      </div>
-    </Step>
+    <div className="launch-mode-switch" role="group" aria-label="Launch model">
+      {(Object.keys(MACHINES) as (keyof typeof MACHINES)[]).map((k) => (
+        <button key={k} type="button" aria-pressed={machine === k} onClick={() => setMachine(k)}
+          className={machine === k ? "selected" : ""}>{MACHINES[k].title}<small>{MACHINES[k].meta}</small></button>
+      ))}
+      {/* Inside the grid on purpose: the stylesheet keys the compact switch off the wizard
+          progress being its next sibling, and a paragraph between them would undo that. */}
+      <p className="launch-mode-note">The curve leg is 30 bps. The direct machine&apos;s own tax is where a creator earns.</p>
+    </div>
   );
 
   return (
@@ -94,8 +102,7 @@ export default function LaunchPage() {
         <div className="section-kicker">Robinhood Chain</div>
         <h1>Create a token</h1>
         <p>
-          Choose how your token launches, decide who benefits, then review the permanent terms
-          before signing. Nothing is sent until you confirm in your wallet.
+          Name it, choose its market and fee rules, then review before signing.
         </p>
       </header>
 
@@ -105,19 +112,38 @@ export default function LaunchPage() {
 }
 
 function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
+  const [activeStep, setActiveStep] = useState(0);
   const { address } = useAccount();
+  const publicClient = usePublicClient();
   const router = useRouter();
   const { writeContractAsync, isPending } = useWriteContract();
   const { canBatch, batch } = useBatch();
   const [hash, setHash] = useState<`0x${string}` | undefined>();
   const [reviewedFingerprint, setReviewedFingerprint] = useState("");
   const receipt = useWaitForTransactionReceipt({ hash });
+  const [penalties, setPenalties] = useState<PenaltyForm>(PENALTY_FORM_DEFAULTS);
+
+  // Which LaunchParams the deployed factory reads, off its bytecode: the Bag release appends
+  // `penalties` at the end, the one before it does not know the field. See lib/launchAbi.ts.
+  const factoryGeneration = useQuery({
+    queryKey: ["factory-generation", addresses.factory],
+    queryFn: async () => {
+      const code = await publicClient!.getCode({ address: addresses.factory });
+      return detectFactoryGeneration(code) ?? null;
+    },
+    enabled: Boolean(publicClient) && addresses.factory !== zeroAddress,
+    staleTime: Infinity,
+  });
+  const generation = factoryGeneration.data ?? undefined;
+  const supportsPenalties = generation === "v3";
+  const penaltyError = penaltyProblem(penalties);
+  const penaltiesUnsupported = penaltiesInUse(penalties) && generation !== undefined && !supportsPenalties;
 
   const [form, setForm] = useState({
     name: "", symbol: "", description: "", image: "", website: "", twitter: "", telegram: "",
     configId: 0, pairToken: zeroAddress as Address,
     customPair: false, customAddress: "", customStart: "1000000", customGraduation: "10000000",
-    acceptThinLiquidity: false,
+    acceptThinLiquidity: false, acceptCustomRisk: false,
     firstBuy: "",
     // Percentages here, basis points on chain: a slider a person drags should be in the unit they
     // think in, and the conversion belongs at the edge, once.
@@ -159,7 +185,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
 
   // What this pad will take as a pair today. The factory's allow list decides it, so an asset the
   // owner adds shows up here without a deploy, and one they withdraw disappears the same way.
-  const { data: pairData } = useQuery({
+  const { data: pairData, isFetching: pairsLoading, isError: pairsError } = useQuery({
     queryKey: ["pairs"],
     queryFn: () => api<{ pairs: PairRow[] }>("/pairs"),
     staleTime: 60_000,
@@ -170,6 +196,13 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     queryKey: ["custom-quote", form.customAddress.toLowerCase()],
     queryFn: () => api<ResolvedQuote>(`/pairs/resolve/${form.customAddress}`),
     enabled: form.customPair && customAddressValid,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const { data: customRoute } = useQuery({
+    queryKey: ["custom-route", customQuote?.address],
+    queryFn: () => api<RouteAvailability>(`/pairs/route/${customQuote!.address}`),
+    enabled: form.customPair && Boolean(customQuote?.address),
     staleTime: 60_000,
     retry: false,
   });
@@ -214,8 +247,8 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     startCap: customStartCap,
     graduationCap: customGraduationCap,
     liquidityBps: 9000,
-    protocolFeeBps: 30,
-    creatorFeeBps: 70,
+    protocolFeeBps: BAG_LEG_BPS,
+    creatorFeeBps: CREATOR_LEG_BPS,
     poolFee: 3000,
     tickSpacing: 60,
     enabled: true,
@@ -223,6 +256,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   // Only the chain's own currency travels with the transaction. Everything else is pulled from the
   // wallet, which is why an ERC-20 first buy needs an approval before the launch, below.
   const value = (launchFee as bigint | undefined ?? 0n) + (isNative ? firstBuyWei : 0n);
+  const feeDisplay = launchFee === undefined ? "Reading fee…" : `${fmt(launchFee as bigint, 18, 6)} ETH`;
 
   // A first buy in anything but the chain's own currency is pulled from the wallet, so the factory
   // needs an allowance before the launch. Read here so the bar can say which transaction it is on.
@@ -242,15 +276,28 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const chosen = ((configs ?? []) as { result?: CurvePreset }[])[form.configId]?.result;
   const openingCap = form.customPair ? customStartCap : chosen?.startCap;
   const graduationCap = form.customPair ? customGraduationCap : chosen?.graduationCap;
-  // The trading fee. The protocol's 30 bps is not the creator's to move; everything above it is,
-  // up to the 500 bps the factory refuses to go past. A preset carries its own, so leaving this
-  // alone launches the preset exactly as it was published and pins its econ hash; moving it turns
-  // the launch into a config of the creator's own, which is what launchCustom is for.
-  const PROTOCOL_FEE_BPS = 30;
+  // The trading fee. The Bag's leg is not the creator's to move; everything above it is, up to
+  // the 500 bps the factory refuses to go past. A preset carries its own two legs, so leaving
+  // this alone launches the preset exactly as it was published and pins its econ hash; moving it
+  // turns the launch into a config of the creator's own, which is what launchCustom is for.
+  const PROTOCOL_FEE_BPS = form.customPair ? customConfig.protocolFeeBps : (chosen ? Number(chosen.protocolFeeBps) : BAG_LEG_BPS);
   const MAX_TOTAL_FEE_BPS = 500;
-  const presetCreatorFeeBps = form.customPair ? customConfig.creatorFeeBps : (chosen ? Number(chosen.creatorFeeBps) : 70);
+  const presetCreatorFeeBps = form.customPair ? customConfig.creatorFeeBps : (chosen ? Number(chosen.creatorFeeBps) : CREATOR_LEG_BPS);
   const creatorFeeBps = form.feeBps ?? presetCreatorFeeBps;
   const totalFeeBps = PROTOCOL_FEE_BPS + creatorFeeBps;
+  const firstBuyConfig = form.customPair ? customConfig : chosen;
+  const firstBuyEstimate = firstBuyWei > 0n && firstBuyConfig
+    && firstBuyConfig.startCap > 0n && firstBuyConfig.graduationCap > firstBuyConfig.startCap
+    ? curveBuy({
+      p0: (firstBuyConfig.startCap * 10n ** 18n) / firstBuyConfig.totalSupply,
+      p1: (firstBuyConfig.graduationCap * 10n ** 18n) / firstBuyConfig.totalSupply,
+      supply: (firstBuyConfig.totalSupply * BigInt(firstBuyConfig.curveSupplyBps)) / 10_000n,
+      sold: 0n, pairIn: firstBuyWei, feeBps: totalFeeBps,
+    }) : null;
+  // Older deployed factories do not forward an ERC-20 curve refund to the creator. Until every
+  // deployment is replaced, never allow a first buy that visibly exceeds the curve's capacity.
+  const erc20FirstBuyExcess = !isNative && firstBuyEstimate && firstBuyEstimate.spent < firstBuyWei
+    ? firstBuyWei - firstBuyEstimate.spent : 0n;
   const feeMoved = form.feeBps !== null && form.feeBps !== presetCreatorFeeBps;
   // A preset whose fee the creator moved is still that preset in every other number, so the config
   // that goes on chain is the preset itself with one field replaced.
@@ -274,7 +321,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const recipient = form.feeRecipient.trim() || address || "";
   const recipientOk = !form.feeRecipient.trim() || isAddress(form.feeRecipient.trim());
   const reviewedTerms = JSON.stringify({
-    form, pair, recipient, totalFeeBps,
+    form, penalties, generation, pair, recipient, totalFeeBps,
     opening: String(form.customPair ? customStartCap : chosen?.startCap ?? ""),
     graduation: String(form.customPair ? customGraduationCap : chosen?.graduationCap ?? ""),
     econ: String(econ ?? ""),
@@ -284,49 +331,73 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const distributableExample = creatorFeeBps / 10_000;
   const feeExampleRows = [
     { label: "Total trading fee", value: `${exampleAmount(totalFeeBps)} (${(totalFeeBps / 100).toFixed(2)}%)` },
-    { label: "Protocol", value: exampleAmount(PROTOCOL_FEE_BPS) },
-    { label: "Creator address", value: `${(distributableExample * form.creator / 100).toFixed(5)} ${pair}` },
-    { label: "Buyback & burn", value: `${(distributableExample * form.buyback / 100).toFixed(5)} ${pair}` },
-    { label: "Locked liquidity", value: `${(distributableExample * form.liquidity / 100).toFixed(5)} ${pair}` },
-    ...(form.stakers > 0 ? [{ label: "Pad-coin lockers", value: `${(distributableExample * form.stakers / 100).toFixed(5)} ${pair}` }] : []),
+    { label: `Into the Bag, ${(PROTOCOL_FEE_BPS / 100).toFixed(2)}%`, value: exampleAmount(PROTOCOL_FEE_BPS) },
+    { label: `Your split, ${(creatorFeeBps / 100).toFixed(2)}%`, value: exampleAmount(creatorFeeBps) },
+    { label: "  creator address", value: `${(distributableExample * form.creator / 100).toFixed(5)} ${pair}` },
+    { label: "  buyback and burn", value: `${(distributableExample * form.buyback / 100).toFixed(5)} ${pair}` },
+    { label: "  locked liquidity", value: `${(distributableExample * form.liquidity / 100).toFixed(5)} ${pair}` },
+    ...(form.stakers > 0 ? [{ label: "  Vault lockers", value: `${(distributableExample * form.stakers / 100).toFixed(5)} ${pair}` }] : []),
   ];
 
   // One reason at a time, in the order somebody would hit them. A button that is off without saying
   // why is the single thing this page used to do worst.
   const blocked = !address ? "Connect a wallet first. It pays the fee and becomes the creator."
-    : !form.name ? "Step 2 needs a name."
-    : !form.symbol ? "Step 2 needs a ticker."
+    : !form.name ? "Enter a token name."
+    : !form.symbol ? "Enter a ticker."
     : symbolFree === false ? "That ticker is locked by a launch that is trading right now."
-    : form.customPair && !customAddressValid ? "Step 4 needs a valid Robinhood Chain ERC-20 address."
+    : form.customPair && !customAddressValid ? "Enter a valid Robinhood Chain ERC-20 address."
     : form.customPair && !customQuote ? (customQuoteLoading ? "Reading the custom token from Robinhood Chain." : "That custom token could not be verified.")
     : form.customPair && customQuote && !customQuote.compatible ? "This token has more than 18 decimals and the curve refuses it."
     : form.customPair && customGraduationCap <= customStartCap ? "The custom graduation valuation must be above its opening valuation."
     : form.customPair && customStartCap === 0n ? "The custom opening valuation must be above zero."
     : form.customPair && customQuote && !customQuote.liquiditySafe && !form.acceptThinLiquidity ? "Confirm that you understand this quote token has thin or unverified liquidity."
-    : form.stakers > 0 && !canPayStakers ? "Step 3 cannot pay stakers yet: the pad's own coin has not been named on chain."
-    : splitTotal !== 100 ? `Step 3 has to add up to 100%. It is at ${splitTotal}%.`
-    : !recipientOk ? "Step 3 needs a valid address for the fee, or none at all."
-    : form.creator > 0 && !recipient ? "Step 3 pays the creator leg to an address, and there is none."
-    : totalFeeBps > MAX_TOTAL_FEE_BPS ? `Step 3 asks for a ${(totalFeeBps / 100).toFixed(2)}% fee; the factory refuses anything above 5%.`
-    : useCustomConfig && !launchConfig ? "Step 4 has no preset to build the custom fee on."
-    : form.firstBuyLock > 0 && firstBuyWei === 0n ? "Step 4 locks a first buy that is not being made."
-    : !reviewed ? "Step 5: review the permanent terms before creating the token."
+    : form.customPair && !form.acceptCustomRisk ? "Confirm that the parent coin can lose value or change its transfer rules independently of your token."
+    : form.stakers > 0 && !canPayStakers ? "Locker rewards are not available until the pad coin is named on chain."
+    : splitTotal !== 100 ? `The fee shares total ${splitTotal}%; they must total 100%.`
+    : !recipientOk ? "Enter a valid fee-recipient address, or leave it blank."
+    : form.creator > 0 && !recipient ? "Connect a wallet or enter a creator-fee recipient."
+    : totalFeeBps > MAX_TOTAL_FEE_BPS ? `The ${(totalFeeBps / 100).toFixed(2)}% fee exceeds the factory's 5% maximum.`
+    : useCustomConfig && !launchConfig ? "No preset is available for this custom fee."
+    : form.firstBuyLock > 0 && firstBuyWei === 0n ? "Enter a first buy before locking it."
+    : erc20FirstBuyExcess > 0n ? `This first buy exceeds curve capacity. Reduce it by at least ${fmt(erc20FirstBuyExcess, pairDec, 6)} ${pair}.`
+    : penaltyError ? penaltyError
+    : launchFee === undefined ? "Reading the launch fee from chain."
+    : factoryGeneration.isLoading ? "Checking the factory contract version."
+    : factoryGeneration.isSuccess && !generation ? "The factory at this address answers to no launch this app knows."
+    : penaltiesUnsupported ? "The live factory does not take creator penalties yet. Turn them off to launch on it, or wait for the upgrade."
+    : !reviewed ? "Review the permanent terms before creating the token."
     : undefined;
 
-  const steps: StepState[] = [
-    { n: 1, label: "How it launches", done: true },
-    { n: 2, label: "The token", done: tokenDone },
-    { n: 3, label: "Who benefits", done: splitTotal === 100 && recipientOk },
-    { n: 4, label: "The curve", done: true },
-    { n: 5, label: "Review terms", done: reviewed },
-  ];
+  const marketBlocked = form.customPair && !customAddressValid ? "Enter a valid ERC-20 address."
+    : form.customPair && !customQuote ? (customQuoteLoading ? "Reading the token…" : "This token could not be verified.")
+    : form.customPair && customQuote && !customQuote.compatible ? "This token is not compatible with the curve."
+    : form.customPair && (customStartCap === 0n || customGraduationCap <= customStartCap) ? "Set a graduation valuation above the opening valuation."
+    : form.customPair && customQuote && !customQuote.liquiditySafe && !form.acceptThinLiquidity ? "Confirm the liquidity warning."
+    : form.customPair && !form.acceptCustomRisk ? "Confirm the parent-coin risk."
+    : !form.customPair && !chosen ? "Choose an available curve preset."
+    : erc20FirstBuyExcess > 0n ? "Reduce the first buy to fit the curve."
+    : undefined;
+  const economicsBlocked = form.stakers > 0 && !canPayStakers ? "Locker rewards are not available yet."
+    : splitTotal !== 100 ? `Fee shares total ${splitTotal}%; they must total 100%.`
+    : !recipientOk ? "Enter a valid creator-fee address."
+    : totalFeeBps > MAX_TOTAL_FEE_BPS ? "The total trading fee cannot exceed 5%."
+    : undefined;
+  const nextBlocked = activeStep === 0 ? (!form.name ? "Enter a token name." : !form.symbol ? "Enter a ticker." : symbolFree === false ? "This ticker is taken." : undefined)
+    : activeStep === 1 ? marketBlocked
+    : activeStep === 2 ? economicsBlocked
+    : penaltyError;
+  const moveTo = (step: number) => {
+    setActiveStep(step);
+    requestAnimationFrame(() => document.getElementById("launch-flow")?.scrollIntoView({ block: "start", behavior: "auto" }));
+  };
 
   async function launch() {
-    if (!address || !reviewed) return;
+    if (!address || !reviewed || !generation) return;
+    const abi = factoryAbis[generation];
     const salt = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32))).map((b) => b.toString(16).padStart(2, "0")).join("")}` as `0x${string}`;
     const launchData = useCustomConfig && launchConfig
-      ? encodeFunctionData({ abi: hoodFactoryAbi, functionName: "launchCustom", args: [launchArgs(salt), launchConfig] })
-      : encodeFunctionData({ abi: hoodFactoryAbi, functionName: "launch", args: [launchArgs(salt)] });
+      ? encodeFunctionData({ abi, functionName: "launchCustom", args: [launchArgs(salt), launchConfig] as never })
+      : encodeFunctionData({ abi, functionName: "launch", args: [launchArgs(salt)] as never });
     if (needsApproval) {
       // The wallet has to let the factory take the first buy. A Safe does both in one signature
       // round; anything else approves now and launches on the next press.
@@ -341,19 +412,22 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     }
     if (useCustomConfig && launchConfig) {
       setHash(await writeContractAsync({
-        address: addresses.factory, abi: hoodFactoryAbi, functionName: "launchCustom",
-        args: [launchArgs(salt), launchConfig], value,
+        address: addresses.factory, abi: abi as never, functionName: "launchCustom",
+        args: [launchArgs(salt), launchConfig] as never, value,
       }));
     } else {
       setHash(await writeContractAsync({
-        address: addresses.factory, abi: hoodFactoryAbi, functionName: "launch",
-        args: [launchArgs(salt)], value,
+        address: addresses.factory, abi: abi as never, functionName: "launch",
+        args: [launchArgs(salt)] as never, value,
       }));
     }
   }
 
+  /// LaunchParams in the contract's order. The v3 factory reads `penalties` as the last field;
+  /// the one before it gets the struct it knows and the penalties stay off, which `blocked` above
+  /// only allows when none of them was turned on.
   function launchArgs(salt: `0x${string}`) {
-    return {
+    const base = {
       name: form.name, symbol: form.symbol, image: form.image, description: form.description,
       website: form.website, twitter: form.twitter, telegram: form.telegram,
       pairToken: form.pairToken, configId: BigInt(form.customPair ? 0 : form.configId),
@@ -367,6 +441,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         ? (`0x${"0".repeat(64)}` as `0x${string}`)
         : ((econ as `0x${string}`) ?? (`0x${"0".repeat(64)}` as `0x${string}`)),
     } as const;
+    return supportsPenalties ? { ...base, penalties: encodePenalties(penalties) } : base;
   }
 
   // No factory address means this build is not wired to the chain: a preview, or a box whose
@@ -377,13 +452,14 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   }
 
   return (
-    <div className="launch-content">
+    <div className="launch-content" id="launch-flow">
       <div className="launch-guide">
-        <Rail steps={steps} />
         <div className="launch-form-stack">
           {chooser}
+          <WizardProgress labels={STEPS} current={activeStep} />
 
-          <Step n={2} title="The token" purpose="The name, the ticker and the picture people will see on the board. All of it is written on chain and none of it can be edited later." done={tokenDone}>
+          {activeStep === 0 && (
+          <Step n={1} title="The token" purpose="Name it and choose how it appears on the board. You cannot edit these details after launch." done={tokenDone}>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Name" help="The full name, as it should read on the board.">
                 <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={brand.id === "ox" ? "Your token" : "Hood Fam"} />
@@ -404,14 +480,18 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               <ArtworkPicker value={form.image} onChange={(v) => set("image", v)} symbol={form.symbol}
                 ai promptHint={`${form.name} ${form.symbol} token logo`.trim()} />
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <details className="launch-advanced"><summary>Add social links <span>Optional</span></summary><div className="launch-advanced-body grid gap-4 sm:grid-cols-3">
               <Field label="Website" help="Optional."><input className="input" value={form.website} onChange={(e) => set("website", e.target.value)} placeholder="https://" /></Field>
               <Field label="X" help="Optional."><input className="input" value={form.twitter} onChange={(e) => set("twitter", e.target.value)} placeholder="https://x.com/" /></Field>
               <Field label="Telegram" help="Optional."><input className="input" value={form.telegram} onChange={(e) => set("telegram", e.target.value)} placeholder="https://t.me/" /></Field>
-            </div>
+            </div></details>
           </Step>
+          )}
 
-          <Step n={3} title="Who benefits from trading fees?" purpose="Pick an outcome first. You can inspect or customize the exact percentages below; the final terms cannot be changed after launch." done={splitTotal === 100 && recipientOk}>
+          {activeStep === 2 && (
+          <Step n={3} title={`Who gets your ${(presetCreatorFeeBps / 100).toFixed(2)}%?`}
+            purpose={`The platform takes ${((PROTOCOL_FEE_BPS + presetCreatorFeeBps) / 100).toFixed(2)}% of every trade: ${(PROTOCOL_FEE_BPS / 100).toFixed(2)}% into the Bag, ${(presetCreatorFeeBps / 100).toFixed(2)}% to your split. Choose where your split goes. It is permanent after launch.`}
+            done={splitTotal === 100 && recipientOk}>
             <div className="launch-outcome-grid" role="group" aria-label="Fee strategy">
               {strategies.map((strategy) => (
                 <button key={strategy.id} type="button" aria-pressed={selectedStrategy === strategy.id}
@@ -422,12 +502,12 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               ))}
             </div>
             {!canPayStakers && <p className="launch-outcome-note">Locker rewards are unavailable until the pad coin is named on chain. No option here promises those rewards.</p>}
-            <LaunchFeeExample
+            <details className="launch-advanced"><summary>See an example trade <span>Optional</span></summary><div className="launch-advanced-body"><LaunchFeeExample
               title={`If someone trades 1 ${pair}`}
               description={`At the current ${(totalFeeBps / 100).toFixed(2)}% trading fee, this is approximately where the fee goes:`}
               rows={feeExampleRows}
               note="This shows fee routing only. The curve price, slippage and token amount are separate."
-            />
+            /></div></details>
             {form.creator > 0 && (
               <Field label="Where should the creator's fee go?"
                 help="Leave blank to use your connected wallet. A team can enter its Safe address. Only that address controls its share."
@@ -439,7 +519,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             <details className="launch-advanced">
               <summary>Advanced: exact split and trading fee <span>Optional</span></summary>
               <div className="launch-advanced-body">
-                <p>The protocol fee is fixed at 0.30% of each trade. The remaining fee is divided by these four percentages, which must total 100%.</p>
+                <p>The platform fee is 1% of each trade: {(PROTOCOL_FEE_BPS / 100).toFixed(2)}% into the Bag, {(presetCreatorFeeBps / 100).toFixed(2)}% to your split. Your split is divided by these four percentages, which must total 100%.</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {LEG_COPY.map((leg) => (
                     <Slider key={leg.key}
@@ -455,7 +535,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                   {splitTotal === 100 ? "The four shares total 100%." : `The shares total ${splitTotal}%. Adjust them to 100%.`}
                 </p>
                 <Slider label={`Trading fee ${(totalFeeBps / 100).toFixed(2)}%`}
-                  hint="Includes the fixed 0.30% protocol fee. Maximum total: 5%. Changing the preset fee creates a custom launch configuration."
+                  hint={`The Bag's ${(PROTOCOL_FEE_BPS / 100).toFixed(2)}% is fixed; anything you add here goes to your split, up to a 5% total. Moving it makes this a custom launch configuration. The curve leg is where a creator earns least; the direct machine's own tax is where a creator earns.`}
                   min={PROTOCOL_FEE_BPS} max={MAX_TOTAL_FEE_BPS} step={10}
                   value={totalFeeBps}
                   onChange={(v) => set("feeBps", Math.max(0, v - PROTOCOL_FEE_BPS))} />
@@ -463,8 +543,10 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               </div>
             </details>
           </Step>
+          )}
 
-          <Step n={4} title="What it trades against, and the curve" purpose="Every trade is priced in this, the raise is held in it, and the fee reaches you in it. Then how much supply trades on the curve, and whether you want the first buy in the same transaction." done>
+          {activeStep === 1 && (
+          <Step n={2} title="Market and curve" purpose="Choose what buyers pay with, then how the token moves toward a locked pool." done>
             <div className="grid gap-2 sm:grid-cols-2">
               <Choice selected={!form.customPair} onClick={() => {
                 set("customPair", false); set("pairToken", (pairs[0]?.address as Address | undefined) ?? zeroAddress); set("firstBuy", "");
@@ -474,7 +556,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             </div>
 
             {!form.customPair ? <>
-              <PairChooser pairs={pairs} value={form.pairToken}
+              <PairChooser pairs={pairs} value={form.pairToken} loading={pairsLoading} error={pairsError} compact
                 onPick={(address: Address) => { set("pairToken", address); set("firstBuy", ""); set("configId", 0); }} />
               <div className="grid gap-2">
                 {((configs ?? []) as { result?: CurvePreset }[]).map((c, i) => {
@@ -496,19 +578,24 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 help="Paste the parent coin's ERC-20 address. Metadata and available USDG liquidity are read directly from chain."
                 error={form.customAddress && (!customAddressValid || customQuoteError) ? "This address could not be resolved as a compatible ERC-20." : undefined}>
                 <input className="input mono" value={form.customAddress}
-                  onChange={(e) => { set("customAddress", e.target.value.trim()); set("acceptThinLiquidity", false); }} placeholder="0x..." />
+                  onChange={(e) => { setForm((current) => ({ ...current, customAddress: e.target.value.trim(), acceptThinLiquidity: false, acceptCustomRisk: false })); }} placeholder="0x..." />
               </Field>
               {customQuoteLoading && <p className="text-xs dim">Reading token metadata and checking its USDG pools…</p>}
               {customQuote && <div className="panel p-4 text-xs">
                 <div className="flex items-center justify-between gap-3">
                   <strong>{customQuote.name} · ${customQuote.symbol}</strong>
                   <span className={customQuote.liquiditySafe ? "text-[var(--color-lime)]" : "text-[var(--color-red)]"}>
-                    {customQuote.liquiditySafe ? `$${Math.round(customQuote.depthUsd).toLocaleString()} verified depth` : "thin / unverified liquidity"}
+                    {customQuote.hasLiquidity ? `$${Math.round(customQuote.depthUsd).toLocaleString()} USDG pool balance` : "no USDG pool found"}
                   </span>
                 </div>
-                <p className="mt-2 dim">{customQuote.decimals} decimals · ERC-20 verified{customQuote.pool ? ` · Uniswap v3 ${customQuote.pool.fee / 10_000}% pool found` : ""}</p>
+                <p className="mt-2 dim">{customQuote.decimals} decimals · metadata read on-chain{customQuote.pool ? ` · Uniswap v3 ${customQuote.pool.fee / 10_000}% pool found` : ""}</p>
+                <p className="mt-1 dim">{customRoute?.available ? "A one-click ETH route is currently available." : "An ETH one-click route has not been verified; buyers may need to acquire this coin first."} Pool balance does not measure executable depth.</p>
                 {customQuote.warnings.map((warning) => <p key={warning} className="mt-1 dim">⚠ {warning}</p>)}
               </div>}
+              {customQuote && <label className="flex items-start gap-2 text-xs dim">
+                <input type="checkbox" checked={form.acceptCustomRisk} onChange={(e) => set("acceptCustomRisk", e.target.checked)} />
+                <span>I understand the parent coin has its own price and contract risk. Its USDG pool balance is not a safety guarantee.</span>
+              </label>}
               {customQuote && !customQuote.liquiditySafe && <label className="flex items-start gap-2 text-xs dim">
                 <input type="checkbox" checked={form.acceptThinLiquidity} onChange={(e) => set("acceptThinLiquidity", e.target.checked)} />
                 <span>I understand buyers may have difficulty acquiring this quote token. Launching remains permissionless.</span>
@@ -547,6 +634,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               </details>
             </>}
 
+            <details className="launch-advanced"><summary>First buy and optional lock <span>{form.firstBuy ? `${form.firstBuy} ${pair}` : "Optional"}</span></summary><div className="launch-advanced-body launch-optionals">
             <Field label={`Your first buy in ${pair}`}
               help={isNative
                 ? "Optional, and it lands inside the launch transaction, so nobody can get in ahead of you. Leave it empty to launch without buying."
@@ -554,6 +642,11 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               <input className="input mono" inputMode="decimal" value={form.firstBuy}
                 onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
             </Field>
+            {firstBuyEstimate && <div className="launch-curve-summary" role="status">
+              <strong>First-buy preview</strong>
+              <p>Enter {fmt(firstBuyWei, pairDec, 6)} {pair} → the curve uses approximately {fmt(firstBuyEstimate.spent, pairDec, 6)} {pair} for {fmt(firstBuyEstimate.tokensOut, 18, 4)} ${form.symbol || "tokens"}. That includes a {fmt(firstBuyEstimate.fee, pairDec, 6)} {pair} curve fee. Gas and token-specific transfer behavior are not included; on-chain execution decides the final amount.</p>
+              {erc20FirstBuyExcess > 0n && <p className="text-amber-300">Reduce the first buy: {fmt(erc20FirstBuyExcess, pairDec, 6)} {pair} would not be used by the curve. This launch is paused to protect your funds on older factory deployments.</p>}
+            </div>}
 
             {firstBuyWei > 0n && (
               <Field label="Lock your own first buy"
@@ -569,28 +662,42 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 </div>
               </Field>
             )}
+            </div></details>
           </Step>
+          )}
 
-          <Step n={5} title="Review before signing" purpose="Read the outcome, cost and recipients together. These launch terms are permanent once the transaction succeeds." done={reviewed}>
+          {activeStep === 3 && (
+          <Step n={4} title="Penalties after graduation" purpose="These run on the graduated pool, through the hook every pool shares. Who pays extra, how much, and who gets it. Fixed at launch." done={!penaltyError}>
+            <PenaltyOptions value={penalties} onChange={setPenalties} postGraduation />
+            {penaltyError && <p className="field-note bad">{penaltyError}</p>}
+            {penaltiesUnsupported && <p className="field-note bad">The factory on this deployment is the version before creator penalties. What you turned on here cannot reach it yet.</p>}
+          </Step>
+          )}
+
+          {activeStep === REVIEW && (
+          <Step n={5} title="Review before signing" purpose="Check the permanent launch rules and cost before opening your wallet." done={reviewed}>
             <LaunchReview
               rows={[
                 { label: "Token", value: form.name && form.symbol ? `${form.name} ($${form.symbol})` : "Add a name and ticker" },
                 { label: "Launch", value: `Bonding curve paired with ${pair}` },
-                { label: "Price path", value: openingCap && graduationCap ? `${fmt(openingCap, pairDec, 3)} → ${fmt(graduationCap, pairDec, 3)} ${pair} valuation` : "Choose a curve preset" },
-                { label: "Trade fee", value: `${(totalFeeBps / 100).toFixed(2)}% total; 0.30% protocol` },
-                { label: "Fee beneficiaries", value: `Creator ${form.creator}% · burn ${form.buyback}% · liquidity ${form.liquidity}%${form.stakers > 0 ? ` · lockers ${form.stakers}%` : ""} of the distributable share` },
+                { label: "Price path", value: openingCap && graduationCap ? `${fmt(openingCap, pairDec, 3)} to ${fmt(graduationCap, pairDec, 3)} ${pair} valuation` : "Choose a curve preset" },
+                { label: "Trade fee", value: `${(totalFeeBps / 100).toFixed(2)}% total: ${(PROTOCOL_FEE_BPS / 100).toFixed(2)}% into the Bag, ${(creatorFeeBps / 100).toFixed(2)}% to your split` },
+                { label: "Your split goes to", value: `Creator ${form.creator}% · burn ${form.buyback}% · liquidity ${form.liquidity}%${form.stakers > 0 ? ` · Vault lockers ${form.stakers}%` : ""}` },
                 { label: "Creator fee wallet", value: form.creator > 0 ? (recipient || "Connect a wallet") : "No creator share" },
                 { label: "First buy", value: firstBuyWei > 0n ? `${form.firstBuy} ${pair}${form.firstBuyLock > 0 ? ` · locked ${LOCKS.find((lock) => lock.seconds === form.firstBuyLock)?.label ?? ""}` : ""}` : "None" },
-                { label: "Launch cost", value: `${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} ETH plus gas${firstBuyWei > 0n ? ` and your ${form.firstBuy} ${pair} first buy` : ""}` },
+                ...penaltyReviewRows(penalties, { postGraduation: true }),
+                { label: "Launch cost", value: `${feeDisplay} plus gas${firstBuyWei > 0n ? ` and your ${form.firstBuy} ${pair} first buy` : ""}` },
               ]}
               note="The curve may never fill. The preview above explains fee routing, not returns or a guaranteed token sale. Your wallet will show the transaction before it is sent."
               reviewed={reviewed}
               onReviewed={(checked) => setReviewedFingerprint(checked ? reviewedTerms : "")}
             />
           </Step>
+          )}
 
-          <LaunchBar
-            cost={`${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} ETH`}
+          {activeStep < REVIEW ? <WizardNav current={activeStep} count={STEPS.length} onBack={() => moveTo(activeStep - 1)} onNext={() => moveTo(activeStep + 1)}
+            nextBlocked={nextBlocked} cost={feeDisplay} /> : <LaunchBar
+            cost={feeDisplay}
             costLabel={form.firstBuy
               ? `launch fee, plus your ${form.firstBuy} ${pair} first buy${isNative ? "" : `, taken from your wallet in ${pair}`}`
               : "launch fee, plus gas"}
@@ -599,7 +706,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             busyLabel={receipt.isLoading ? "waiting for the chain" : "confirm in your wallet"}
             label={needsApproval ? `Approve ${pair}` : "Create the token"}
             onClick={launch}
-          />
+          ><button type="button" className="btn btn-ghost" onClick={() => moveTo(REVIEW - 1)}>Back</button></LaunchBar>}
         </div>
       </div>
 
@@ -615,18 +722,17 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         <p className="launch-preview-symbol">$<span>{form.symbol || "TICKER"}</span></p>
         <div className="launch-preview-details">
           <Row label="Launch model" value="Bonding curve" />
-          <Row label="Fee split" value={LEG_COPY.filter((l) => form[l.key] > 0).map((l) => `${form[l.key]}% ${l.title.toLowerCase()}`).join(", ") || "not set"} />
+          <Row label="Paired with" value={pair} />
+          <Row label="Trading fee" value={`${(totalFeeBps / 100).toFixed(2)}%`} />
           {form.creator > 0 && <Row label="Creator share pays" value={recipient ? `${recipient.slice(0, 6)}…${recipient.slice(-4)}` : "nobody yet"} />}
-          {form.firstBuyLock > 0 && <Row label="Your first buy" value={`locked ${LOCKS.find((l) => l.seconds === form.firstBuyLock)?.label ?? ""}`} />}
-          <Row label="Launch fee" value={`${fmt((launchFee as bigint | undefined) ?? 0n, 18, 6)} ETH`} />
-          <Row label="Terms pinned" value={econ ? `${(econ as string).slice(0, 10)}…` : "reading"} />
+          <Row label="Penalties on" value={String(penaltyReviewRows(penalties).filter((r) => r.label !== "Creator penalties").length)} />
         </div>
-        <WhatHappens items={[
+        {activeStep === REVIEW && <WhatHappens items={[
           "Your wallet sends one transaction and pays the launch fee.",
           "The token, its curve and its fee split are created together.",
           "The terms above are sent with it, so if the preset moves first the transaction reverts instead of launching on terms you did not agree to.",
           "You land on the token page and it is tradable immediately.",
-        ]} />
+        ]} />}
       </aside>
     </div>
   );

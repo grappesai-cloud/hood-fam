@@ -22,6 +22,8 @@ export const brand: Brand = {
       { href: "/quests", label: "Quests" },
     { href: "/refer", label: "Refer" },
     { href: "/following", label: "Following" },
+    { href: "/ledger", label: "Ledger" },
+    { href: "/bag", label: "The Bag" },
 ],
   copy: {
     create: "Create token",

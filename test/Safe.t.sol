@@ -14,6 +14,7 @@ import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodSeasonDrop} from "../src/HoodSeasonDrop.sol";
 import {LaunchParams} from "../src/HoodTypes.sol";
+import {BagSource} from "../src/bag/BagTypes.sol";
 
 /// @notice hood.fam with a real Safe v1.4.1 in both of the places one belongs: as the protocol's
 ///         owner and treasury, and as an ordinary user of it (a team launching, trading, staking,
@@ -105,40 +106,52 @@ contract SafeTest is BaseTest, SafeRig {
         ops.execTransaction(address(factory), 0, data, 0, 0, 0, 0, address(0), payable(address(0)), sigs);
     }
 
-    // ------------------------------------------------------------------ the Safe as the treasury
+    // ------------------------------------------------------------------ the Safe and the Bag
 
-    function test_theTreasurySafeTakesTheLaunchFeeAndTheProtocolLeg() public {
+    /// @notice The Safe takes no fee by hand any more: the launch fee and the protocol's leg go
+    ///         into the Bag inside the same transactions, and the Bag pays the house from rules
+    ///         fixed at its deploy. The Safe's part is to own the switches: it names the Bag once
+    ///         and sets the fee; its own treasury pointer reaches none of that money.
+    function test_theBagTakesTheLaunchFeeAndTheProtocolLeg() public {
         _handOver();
         _call(ops, address(factory), 0, abi.encodeCall(HoodFactory.setTreasury, (address(ops))), _first(opsKeys, 2));
+        assertEq(factory.bag(), address(bag), "the Bag named before the hand-over stays");
 
-        uint256 before = address(ops).balance;
-        (, HoodCurve curve) = _launch(_toCreator());
-        // The launch fee is pushed in the launch transaction, into the Safe's receive.
-        assertEq(address(ops).balance - before, LAUNCH_FEE);
+        uint256 houseBefore = bag.totalIn(address(0), BagSource.House);
+        uint256 safeBefore = address(ops).balance;
+        (address token, HoodCurve curve) = _launch(_toCreator());
+        // The launch fee goes into the Bag as house money, inside the launch transaction.
+        assertEq(bag.totalIn(address(0), BagSource.House) - houseBefore, LAUNCH_FEE);
+        assertEq(bag.lastTake().token, token, "booked against the launch that paid it");
+        assertEq(address(ops).balance, safeBefore, "nothing reaches the Safe by hand");
 
         _buy(curve, alice, 1 ether);
         uint256 booked = curve.protocolClaimable();
         assertGt(booked, 0);
-        before = address(ops).balance;
+        uint256 tradeBefore = bag.totalIn(address(0), BagSource.Trade);
         vm.prank(makeAddr("keeper"));
         curve.claimProtocol();
-        assertEq(address(ops).balance - before, booked);
+        assertEq(bag.totalIn(address(0), BagSource.Trade) - tradeBefore, booked, "the leg is a trade fee in the Bag");
+        assertEq(address(ops).balance, safeBefore);
     }
 
-    /// @notice Why the Safe has to be the treasury from the first deploy: a curve pins the treasury it
-    ///         was launched with, and a later move only reaches launches made after it.
-    function test_aCurveKeepsTheTreasuryItLaunchedWith() public {
+    /// @notice A curve pins the Bag it was launched with. The factory's treasury pointer used to
+    ///         be pinned the same way, and moving it only reached later launches; now it reaches
+    ///         no curve at all: the Bag has no owner and no setter, so there is nothing to move.
+    function test_aCurveKeepsTheBagItLaunchedWith() public {
         (, HoodCurve early) = _launch(_toCreator());
+        assertEq(early.bag(), address(bag));
         _handOver();
         _call(ops, address(factory), 0, abi.encodeCall(HoodFactory.setTreasury, (address(ops))), _first(opsKeys, 2));
+        assertEq(factory.treasury(), address(ops));
 
         _buy(early, alice, 1 ether);
         uint256 booked = early.protocolClaimable();
-        uint256 oldBefore = treasury.balance;
+        uint256 tradeBefore = bag.totalIn(address(0), BagSource.Trade);
         uint256 safeBefore = address(ops).balance;
         early.claimProtocol();
-        assertEq(treasury.balance - oldBefore, booked);
-        assertEq(address(ops).balance, safeBefore);
+        assertEq(bag.totalIn(address(0), BagSource.Trade) - tradeBefore, booked);
+        assertEq(address(ops).balance, safeBefore, "the Safe is paid by the Bag, never by a curve");
     }
 
     // ------------------------------------------------------------------ a Safe as a user

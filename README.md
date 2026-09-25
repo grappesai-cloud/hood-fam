@@ -44,9 +44,11 @@ exactly what was booked. There is no leg for charging nothing: a launch that wan
 the protocol's 30 bps and nothing else picks a preset whose creator fee is zero, which is where the
 size of the fee belongs.
 
-Flushing is permissionless. Anyone can push a token's fees through its split at any time; if our
-keeper stops, the machine keeps running. A split with a buyback leg is flushed with a slippage
-floor (`flushBuyback`), because a permissionless buy with no floor is a gift to whoever is watching.
+Flushing a split without a buyback is permissionless. A split with a buyback must be flushed with
+a quoted slippage floor by the Safe-appointed keeper (or the Safe itself): if anyone could choose
+a dust floor, they could sandwich the visible fee pot. If the keeper stops, the Safe can rotate it
+or execute the buyback itself. A rejected creator payout is reserved for that recipient to claim
+elsewhere rather than blocking the other legs.
 
 ## The creator's first buy can be locked
 
@@ -65,7 +67,7 @@ packages/sdk/        one TypeScript client over all of it, ABIs generated from t
 packages/mcp/        36 MCP tools: launch, quote, trade, stake, claim, bridge, keystore, signer, art, support
 apps/api/            the indexer, the REST API, points and ranks, the support desk (Fastify + Postgres)
 apps/web/            the app: board, token page, launch wizard, portfolio, points, bridge
-apps/keeper/         pushes the permissionless jobs so they happen in seconds, not eventually
+apps/keeper/         pushes routine jobs and executes Safe-appointed curve buybacks
 docs/                how it works, and how it deploys
 ```
 
@@ -228,7 +230,7 @@ Slither's findings are triaged in `docs/SECURITY.md`.
 ## Not built
 
 - **Solana.** Out on purpose: this launches on Robinhood Chain.
-- **An external audit.** The self-audit found and fixed real bugs, which is the argument for one.
+- **An external audit.** None is planned. The internal review, tests and fork rehearsal are not an independent security certification; the public app must say so plainly.
 - **The far side of a bridge route.** `HoodOFTRemote` compiles and is deployed per destination
   chain by hand; there is no script that fans it out across seven chains yet.
 - **In-app cross-chain quotes** need a Relay API key. Without one the app links out to Relay's own

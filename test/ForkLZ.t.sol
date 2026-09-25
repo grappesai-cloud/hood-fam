@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {Test} from "forge-std/Test.sol";
+import {BagRig} from "./helpers/BagRig.sol";
+import {HoodBag} from "../src/bag/HoodBag.sol";
+import {HoodGraduationHook} from "../src/graduation/HoodGraduationHook.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
 import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
@@ -15,12 +17,13 @@ import {HoodBridgeFactory} from "../src/omnichain/HoodBridgeFactory.sol";
 import {HoodOFTAdapter} from "../src/omnichain/HoodOFTAdapter.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
 import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
+import {PenaltyConfig} from "../src/bag/BagTypes.sol";
 
 /// @notice The omnichain leg against the real LayerZero V2 endpoint on 4663.
 /// @dev The endpoint on this chain is NOT at the canonical 0x1a44... address. It is at
 ///      0x6f47...DD5B, eid 30416, which is read off the LayerZero metadata and verified on chain.
 ///      Run with: forge test --match-path test/ForkLZ.t.sol --fork-url robinhood
-contract ForkLZTest is Test {
+contract ForkLZTest is BagRig {
     using OptionsBuilder for bytes;
 
     address internal constant LZ_ENDPOINT = 0x6F475642a6e85809B1c36Fa62763669b1b48DD5B;
@@ -59,10 +62,15 @@ contract ForkLZTest is Test {
             address(factory), POOL_MANAGER, POSITION_MANAGER, UNIVERSAL_ROUTER, PERMIT2, STATE_VIEW
         );
         bridge = new HoodBridgeFactory(owner, address(factory), LZ_ENDPOINT);
+        (HoodBag bag,,) = _bagStack(address(factory), treasury, address(staking), POOL_MANAGER);
+        HoodGraduationHook hook =
+            _graduationHook(POOL_MANAGER, address(factory), address(bag), address(feeRouter), address(staking));
 
         vm.startPrank(owner);
         factory.setModules(address(feeRouter), address(staking), address(graduator));
-        factory.setLaunchFee(0.0005 ether);
+        factory.setBag(address(bag));
+        graduator.setHook(address(hook));
+        factory.setLaunchFee(0.002 ether);
         factory.addConfig(
             CurveConfig({
                 pairToken: address(0),
@@ -71,8 +79,8 @@ contract ForkLZTest is Test {
                 startCap: 1 ether,
                 graduationCap: 10 ether,
                 liquidityBps: 9000,
-                protocolFeeBps: 30,
-                creatorFeeBps: 70,
+                protocolFeeBps: 70,
+                creatorFeeBps: 30,
                 poolFee: 3000,
                 tickSpacing: 60,
                 enabled: true
@@ -82,7 +90,7 @@ contract ForkLZTest is Test {
 
         vm.deal(creator, 10 ether);
         vm.prank(creator);
-        (address t,,) = factory.launch{value: 0.0005 ether + 1 ether}(
+        (address t,,) = factory.launch{value: 0.002 ether + 1 ether}(
             LaunchParams({
                 name: "Hood Fam",
                 symbol: "FAM",
@@ -93,12 +101,13 @@ contract ForkLZTest is Test {
                 telegram: "t.me/hoodfam",
                 pairToken: address(0),
                 configId: 0,
-                feeSplit: FeeSplit({stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0}),
+                feeSplit: FeeSplit({stakersBps: 0, buybackBps: 0, liquidityBps: 0, creatorBps: 10_000}),
                 creatorFeeRecipient: creator,
                 firstBuy: 0,
                 firstBuyLock: 0,
                 salt: bytes32(uint256(1)),
-                econ: bytes32(0)
+                econ: bytes32(0),
+                penalties: PenaltyConfig(0, 0, 0, 0, 0, false)
             })
         );
         token = t;

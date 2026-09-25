@@ -28,6 +28,8 @@ export const brand: Brand = {
       { href: "/quests", label: "Errands" },
     { href: "/refer", label: "Tell a friend" },
     { href: "/following", label: "Regulars" },
+    { href: "/ledger", label: "Receipts" },
+    { href: "/bag", label: "The Bag" },
 ],
   copy: {
     create: "Open a coin",

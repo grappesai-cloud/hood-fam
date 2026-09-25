@@ -20,6 +20,7 @@ const STATIC: { path: string; priority: number; changeFrequency: MetadataRoute.S
   { path: "/airdrop", priority: 0.8, changeFrequency: "hourly" },
   { path: "/bridge", priority: 0.6, changeFrequency: "weekly" },
   { path: "/analytics", priority: 0.7, changeFrequency: "hourly" },
+  { path: "/bag", priority: 0.7, changeFrequency: "hourly" },
   { path: "/terms", priority: 0.3, changeFrequency: "yearly" },
   { path: "/privacy", priority: 0.3, changeFrequency: "yearly" },
 ];

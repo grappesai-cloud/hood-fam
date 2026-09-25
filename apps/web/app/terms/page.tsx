@@ -1,18 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { brand } from "@/brands";
 
 /// Static, server rendered, no client code. The placeholders in "who we are" are the only things
 /// an operator has to fill in; everything else describes what the software already does.
 
-const LAST_CHANGED = "18 September 2026";
+const LAST_CHANGED = "22 September 2026";
 
 export const metadata: Metadata = {
-  title: "terms · hood.fam",
-  description: "The terms for using hood.fam, a launchpad on Robinhood Chain.",
+  title: `terms · ${brand.name}`,
+  description: `The terms for using ${brand.name}, a launchpad on Robinhood Chain.`,
   openGraph: {
-    title: "terms · hood.fam",
-    description: "The terms for using hood.fam, a launchpad on Robinhood Chain.",
+    title: `terms · ${brand.name}`,
+    description: `The terms for using ${brand.name}, a launchpad on Robinhood Chain.`,
     type: "website",
   },
 };
@@ -33,15 +34,15 @@ export default function Terms() {
 
       <Section title="who we are">
         <p>
-          hood.fam is operated by [OPERATOR LEGAL NAME], registered at [REGISTERED ADDRESS],
+          {brand.name} is operated by [OPERATOR LEGAL NAME], registered at [REGISTERED ADDRESS],
           reachable at [CONTACT EMAIL], under the law of [JURISDICTION]. Disputes about these terms
           go there.
         </p>
       </Section>
 
-      <Section title="what hood.fam is">
+      <Section title={`what ${brand.name} is`}>
         <p>
-          hood.fam is software for launching and trading tokens on Robinhood Chain, chain id 4663.
+          {brand.name} is software for launching and trading tokens on Robinhood Chain, chain id 4663.
           It shows you what is on that chain and it builds transactions your wallet can sign. It is
           not a broker, not an exchange, not a bank and not a custodian. Using this site means you
           accept these terms; if you do not, do not use it.
@@ -50,7 +51,7 @@ export default function Terms() {
 
       <Section title="your wallet, your transactions">
         <p>
-          hood.fam is non custodial. It never holds your tokens, never holds your keys and cannot
+          {brand.name} is non custodial. It never holds your tokens, never holds your keys and cannot
           move anything for you. Every transaction is signed by your own wallet, sent to the chain
           by you, and irreversible once it lands. Nobody here can reverse it, cancel it, refund it
           or recover funds sent to a wrong address. Keeping your keys and your device safe is your

@@ -16,6 +16,7 @@ const erc20 = [
   { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] },
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
 ] as const;
+const GAS_RESERVE = 500_000_000_000_000n;
 
 export function TradeBox({ token, curve, pairToken, pairDecimals, pairSymbol, symbol, phase }: {
   token: Address; curve: Address; pairToken: Address; pairDecimals?: number; pairSymbol?: string; symbol: string; phase: number;
@@ -68,6 +69,26 @@ export function TradeBox({ token, curve, pairToken, pairDecimals, pairSymbol, sy
   const amountWei = useMemo(() => {
     try { return parseUnits(amount || "0", side === "buy" ? (oneClick ? 18 : pairDec) : 18); } catch { return 0n; }
   }, [amount, side, pairDec, oneClick]);
+  const [previewAmount, setPreviewAmount] = useState(0n);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setPreviewAmount(amountWei), 350);
+    return () => window.clearTimeout(timer);
+  }, [amountWei]);
+  const routePreview = useQuery({
+    queryKey: ["trade-route-preview", pairToken, previewAmount.toString(), slippage],
+    queryFn: () => api<NativeQuoteRoute>("/pairs/route", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tokenOut: pairToken, amount: previewAmount.toString(), slippageTolerance: slippage }),
+    }),
+    enabled: oneClick && previewAmount > 0n && previewAmount === amountWei,
+    staleTime: 10_000,
+    retry: false,
+  });
+  const previewQuoteIn = routePreview.data && previewAmount === amountWei ? BigInt(routePreview.data.minQuoteOut) : 0n;
+  const { data: routedCurveQuote } = useReadContract({
+    address: curve, abi: hoodCurveAbi, functionName: "quoteBuy", args: [previewQuoteIn],
+    query: { enabled: oneClick && previewQuoteIn > 0n && phase === 0, staleTime: 10_000 },
+  });
 
   const { data: nativeBalance } = useBalance({ address, query: { enabled: Boolean(address) && (isNative || oneClick) } });
   const { data: reads } = useReadContracts({
@@ -105,7 +126,9 @@ export function TradeBox({ token, curve, pairToken, pairDecimals, pairSymbol, sy
 
   const needsApproval = oneClick ? false : side === "buy" ? pairAllowance < amountWei : tokenAllowance < amountWei;
   const balance = side === "buy" ? pairBalance : tokenBalance;
-  const tooMuch = amountWei > balance;
+  const spendable = side === "buy" && (isNative || oneClick)
+    ? (balance > GAS_RESERVE ? balance - GAS_RESERVE : 0n) : balance;
+  const tooMuch = amountWei > spendable;
 
   async function submit() {
     setError(undefined);
@@ -237,14 +260,23 @@ export function TradeBox({ token, curve, pairToken, pairDecimals, pairSymbol, sy
       <div className="mt-1 flex justify-between text-xs dim">
         <span>balance {fmt(balance, side === "buy" ? (oneClick ? 18 : pairDec) : 18, 4)}</span>
         <button className="hover:text-[var(--color-text)]"
-          onClick={() => setAmount(formatUnits(balance, side === "buy" ? (oneClick ? 18 : pairDec) : 18))}>
+          onClick={() => setAmount(formatUnits(spendable, side === "buy" ? (oneClick ? 18 : pairDec) : 18))}>
           max
         </button>
       </div>
 
       {oneClick ? (
-        <div className="mt-3 rounded-lg border border-[var(--color-line)] p-3 text-xs dim">
-          ETH is routed into {pairSym}, then into ${symbol}, atomically. The final route is quoted when you confirm.
+        <div className="mt-3 space-y-1 rounded-lg border border-[var(--color-line)] p-3 text-xs">
+          <strong>One transaction · ETH → {pairSym} → ${symbol}</strong>
+          {routePreview.isFetching || previewAmount !== amountWei ? <p className="dim">Checking the live route…</p> : null}
+          {routePreview.isError ? <p className="text-[var(--color-red)]">No executable ETH route for this amount right now. Try paying in {pairSym}.</p> : null}
+          {routePreview.data && previewAmount === amountWei ? <>
+            <Row label={`DEX quote into ${pairSym}`} value={`${fmt(BigInt(routePreview.data.quoteOut), pairDec, 6)} ${pairSym}`} />
+            <Row label="minimum quote after swap" value={`${fmt(previewQuoteIn, pairDec, 6)} ${pairSym}`} />
+            <Row label="curve fee at minimum quote" value={`${fmt((routedCurveQuote as readonly bigint[] | undefined)?.[2] ?? 0n, pairDec, 6)} ${pairSym}`} />
+            <Row label="estimated minimum tokens" value={`${fmt((((routedCurveQuote as readonly bigint[] | undefined)?.[0] ?? 0n) * BigInt(10_000 - slippage * 100)) / 10_000n, 18, 4)} ${symbol}`} />
+            <p className="dim">DEX pool fees are included in the route quote. The curve fee and slippage are additional; the route is refreshed before your wallet signs.</p>
+          </> : null}
         </div>
       ) : (
         <div className="mt-3 space-y-1 text-xs">
@@ -264,7 +296,7 @@ export function TradeBox({ token, curve, pairToken, pairDecimals, pairSymbol, sy
         ))}
       </div>
 
-      <button className="btn mt-4 w-full" disabled={!address || amountWei === 0n || tooMuch || isPending || isRouting || receipt.isLoading}
+      <button className="btn mt-4 w-full" disabled={!address || amountWei === 0n || tooMuch || isPending || isRouting || receipt.isLoading || (oneClick && (!routePreview.data || previewAmount !== amountWei || !routedCurveQuote))}
         onClick={submit}>
         {!address ? "connect a wallet"
           : tooMuch ? "not enough balance"

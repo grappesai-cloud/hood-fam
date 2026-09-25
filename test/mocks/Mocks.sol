@@ -6,11 +6,180 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IGraduationHandler} from "../../src/interfaces/IGraduationHandler.sol";
+import {IHoodBag} from "../../src/interfaces/IHoodBag.sol";
 import {IHoodFactory} from "../../src/interfaces/IHoodFactory.sol";
 import {IHoodFeeRouter} from "../../src/interfaces/IHoodFeeRouter.sol";
+import {IHoodPot} from "../../src/interfaces/IHoodPot.sol";
 import {IHoodToken} from "../../src/interfaces/IHoodToken.sol";
 import {PairTransfer} from "../../src/libraries/PairTransfer.sol";
+import {BagOutlet, BagSource} from "../../src/bag/BagTypes.sol";
 import {Launch} from "../../src/HoodTypes.sol";
+
+/// @notice A Bag that takes everything and splits nothing: it records every intake, per source
+///         and per asset, and just holds the money. What the curve machine's tests need to see is
+///         that the right door was used with the right amount; the rules behind the door are the
+///         real Bag's own suite.
+contract MockBag is IHoodBag {
+    struct Take {
+        BagSource source;
+        address asset;
+        uint256 amount;
+        address token;
+        address pot;
+        address from;
+    }
+
+    address public immutable house;
+    Take[] internal _takes;
+    mapping(address asset => mapping(BagSource source => uint256)) internal _in;
+
+    constructor(address house_) {
+        house = house_;
+    }
+
+    /// @dev Plain pushes are refused: everything must come in through a `take*` door, so a test
+    ///      that sends at the receive by mistake fails loudly instead of counting as an intake.
+    receive() external payable {
+        revert("use a take* door");
+    }
+
+    function takeTradeFee(address asset, uint256 amount, address token) external payable {
+        _take(BagSource.Trade, asset, amount, token, address(0));
+    }
+
+    function takeGraduationFee(address asset, uint256 amount, address token, address pot) external payable {
+        _take(BagSource.Graduation, asset, amount, token, pot);
+    }
+
+    function takePenaltyCut(address asset, uint256 amount, address token) external payable {
+        _take(BagSource.Penalty, asset, amount, token, address(0));
+    }
+
+    function takeHouseFee(address asset, uint256 amount, address token) external payable {
+        _take(BagSource.House, asset, amount, token, address(0));
+    }
+
+    function takeHouseCoinLeg(address asset, uint256 amount) external payable {
+        _take(BagSource.HouseCoin, asset, amount, address(0), address(0));
+    }
+
+    function releaseHeld(address) external {}
+
+    function vault() external pure returns (address) {
+        return address(0);
+    }
+
+    function payday() external pure returns (address) {
+        return address(0);
+    }
+
+    function burnClock() external pure returns (address) {
+        return address(0);
+    }
+
+    function totalIn(address asset, BagSource source) external view returns (uint256) {
+        return _in[asset][source];
+    }
+
+    function totalOut(address, BagOutlet) external pure returns (uint256) {
+        return 0;
+    }
+
+    function heldForVault(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function heldForBurn(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function takeCount() external view returns (uint256) {
+        return _takes.length;
+    }
+
+    function takeAt(uint256 i) external view returns (Take memory) {
+        return _takes[i];
+    }
+
+    function lastTake() external view returns (Take memory) {
+        return _takes[_takes.length - 1];
+    }
+
+    function _take(BagSource source, address asset, uint256 amount, address token, address pot) internal {
+        PairTransfer.pull(asset, msg.sender, amount, msg.value);
+        _in[asset][source] += amount;
+        _takes.push(Take({source: source, asset: asset, amount: amount, token: token, pot: pot, from: msg.sender}));
+        emit BagIn(source, asset, amount, token);
+    }
+}
+
+/// @notice A pot that only remembers: every balance sync the token sent it and every deposit. For
+///         testing the token's side of the wire in isolation; the accumulator itself is HoodPot.
+contract MockPot is IHoodPot {
+    struct Sync {
+        address from;
+        address to;
+        uint256 fromBalance;
+        uint256 toBalance;
+    }
+
+    address public immutable token;
+    address public immutable asset;
+    Sync[] internal _syncs;
+    uint256 public totalDeposited;
+    uint256 public totalPaid;
+    bytes32 public lastReason;
+    address public lastPayer;
+    mapping(address => bool) public excluded;
+
+    error NotToken();
+
+    constructor(address token_, address asset_) {
+        token = token_;
+        asset = asset_;
+    }
+
+    function syncBalances(address from, address to, uint256 fromBalance, uint256 toBalance) external {
+        if (msg.sender != token) revert NotToken();
+        _syncs.push(Sync({from: from, to: to, fromBalance: fromBalance, toBalance: toBalance}));
+    }
+
+    function exclude(address who) external {
+        excluded[who] = true;
+    }
+
+    function depositForHolders(uint256 amount, bytes32 reason, address payer) external payable {
+        PairTransfer.pull(asset, msg.sender, amount, msg.value);
+        totalDeposited += amount;
+        lastReason = reason;
+        lastPayer = payer;
+        emit HoldersPaid(reason, payer, amount, 0);
+    }
+
+    function pending(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function claim(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function pushMany(address[] calldata, uint256) external pure returns (uint256, uint256) {
+        return (0, 0);
+    }
+
+    function syncCount() external view returns (uint256) {
+        return _syncs.length;
+    }
+
+    function syncAt(uint256 i) external view returns (Sync memory) {
+        return _syncs[i];
+    }
+
+    function lastSync() external view returns (Sync memory) {
+        return _syncs[_syncs.length - 1];
+    }
+}
 
 /// @notice Stand-in pair asset with six decimals, the shape of a real stablecoin pair.
 contract MockUSD is ERC20 {

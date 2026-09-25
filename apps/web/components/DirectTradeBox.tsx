@@ -72,29 +72,35 @@ export function DirectTradeBox({ token, hook, quote, symbol, poolFee, tickSpacin
   const taxBps = Number((taxRows[0]?.result as bigint | undefined) ?? 0n);
   const snipeBps = Number((taxRows[1]?.result as bigint | undefined) ?? 0n);
 
-  const { data: nativeBalance } = useBalance({ address, query: { enabled: Boolean(address) && isNative } });
+  const { data: quoteBalance } = useBalance({
+    address, token: isNative ? undefined : quote,
+    query: { enabled: Boolean(address), refetchInterval: 6_000 },
+  });
   const { data: reads } = useReadContracts({
     contracts: [
       { address: token, abi: erc20, functionName: "balanceOf", args: [address ?? zeroAddress] },
       { address: token, abi: erc20, functionName: "allowance", args: [address ?? zeroAddress, uniswapV4.permit2 as Address] },
       { address: uniswapV4.permit2 as Address, abi: permit2Abi, functionName: "allowance", args: [address ?? zeroAddress, token, uniswapV4.universalRouter as Address] },
+      { address: quote, abi: erc20, functionName: "allowance", args: [address ?? zeroAddress, uniswapV4.permit2 as Address] },
+      { address: uniswapV4.permit2 as Address, abi: permit2Abi, functionName: "allowance", args: [address ?? zeroAddress, quote, uniswapV4.universalRouter as Address] },
     ] as never,
     query: { enabled: Boolean(address), refetchInterval: 6_000 },
   });
   const readRows = (reads ?? []) as { result?: unknown }[];
   const tokenBalance = (readRows[0]?.result as bigint | undefined) ?? 0n;
-  const tokenToPermit2 = (readRows[1]?.result as bigint | undefined) ?? 0n;
-  const permit = (readRows[2]?.result as readonly [bigint, number, number] | undefined) ?? [0n, 0, 0];
-  const balance = side === "buy" ? (nativeBalance?.value ?? 0n) : tokenBalance;
+  const inputAsset = side === "buy" ? quote : token;
+  const needsErc20Input = side === "sell" || !isNative;
+  const inputToPermit2 = (readRows[side === "buy" ? 3 : 1]?.result as bigint | undefined) ?? 0n;
+  const permit = (readRows[side === "buy" ? 4 : 2]?.result as readonly [bigint, number, number] | undefined) ?? [0n, 0, 0];
+  const balance = side === "buy" ? (quoteBalance?.value ?? 0n) : tokenBalance;
 
   const amountWei = useMemo(() => {
     try { return parseUnits(amount || "0", side === "buy" ? qDec : 18); } catch { return 0n; }
   }, [amount, side, qDec]);
 
   const permitOk = permit[0] >= amountWei && Number(permit[1]) > Math.floor(Date.now() / 1000);
-  const needsTokenApproval = side === "sell" && tokenToPermit2 < amountWei;
-  const needsPermit = side === "sell" && !needsTokenApproval && !permitOk;
-  const needsApproval = needsTokenApproval || needsPermit;
+  const needsAssetApproval = needsErc20Input && inputToPermit2 < amountWei;
+  const needsPermit = needsErc20Input && !permitOk;
 
   const buying = side === "buy";
   const key = useMemo(() => ({
@@ -144,26 +150,26 @@ export function DirectTradeBox({ token, hook, quote, symbol, poolFee, tickSpacin
 
   async function submitInner() {
     if (!address) return;
-    // Selling through the router needs the token approved to Permit2 and Permit2 told the router may
-    // spend it. A wallet that batches signs all of it, and the swap, once.
+    // Both a token sale and an ERC-20-quoted buy need Permit2's two approvals. A native-ETH
+    // buy is the only path that needs neither.
     const approvals: Call[] = [];
-    if (needsTokenApproval) {
-      approvals.push({ to: token, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [uniswapV4.permit2 as Address, maxUint256] }) });
+    if (needsAssetApproval) {
+      approvals.push({ to: inputAsset, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [uniswapV4.permit2 as Address, maxUint256] }) });
     }
     if (needsPermit) {
-      approvals.push({ to: uniswapV4.permit2 as Address, data: encodeFunctionData({ abi: permit2Abi, functionName: "approve", args: [token, uniswapV4.universalRouter as Address, MAX_UINT160, Number(MAX_UINT48)] }) });
+      approvals.push({ to: uniswapV4.permit2 as Address, data: encodeFunctionData({ abi: permit2Abi, functionName: "approve", args: [inputAsset, uniswapV4.universalRouter as Address, MAX_UINT160, Number(MAX_UINT48)] }) });
     }
     if (approvals.length > 0 && !canBatch) {
-      if (needsTokenApproval) {
+      if (needsAssetApproval) {
         setHash(await writeContractAsync({
-          address: token, abi: erc20, functionName: "approve",
+          address: inputAsset, abi: erc20, functionName: "approve",
           args: [uniswapV4.permit2 as Address, maxUint256],
         }));
         return;
       }
       setHash(await writeContractAsync({
         address: uniswapV4.permit2 as Address, abi: permit2Abi, functionName: "approve",
-        args: [token, uniswapV4.universalRouter as Address, MAX_UINT160, Number(MAX_UINT48)],
+        args: [inputAsset, uniswapV4.universalRouter as Address, MAX_UINT160, Number(MAX_UINT48)],
       }));
       return;
     }
@@ -278,11 +284,11 @@ export function DirectTradeBox({ token, hook, quote, symbol, poolFee, tickSpacin
       </div>
 
       <button className="btn mt-4 w-full"
-        disabled={!address || amountWei === 0n || amountWei > balance || isPending || receipt.isLoading || (!needsApproval && !quoteReady)}
+        disabled={!address || amountWei === 0n || amountWei > balance || isPending || receipt.isLoading || (!needsAssetApproval && !needsPermit && !quoteReady)}
         onClick={submit}>
         {!address ? "connect a wallet"
           : amountWei > balance ? "not enough balance"
-          : needsTokenApproval ? `approve ${symbol}`
+          : needsAssetApproval ? `approve ${side === "buy" ? qSym : symbol}`
           : needsPermit ? `allow the router (once)`
           : isPending || receipt.isLoading ? "waiting"
           : amountWei > 0n && quoteError ? "no quote"

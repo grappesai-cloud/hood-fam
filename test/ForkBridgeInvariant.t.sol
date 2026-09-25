@@ -2,6 +2,9 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {BagRig} from "./helpers/BagRig.sol";
+import {HoodBag} from "../src/bag/HoodBag.sol";
+import {HoodGraduationHook} from "../src/graduation/HoodGraduationHook.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
@@ -77,7 +80,7 @@ contract BridgeHandler is Test {
 /// @dev Fork invariant over the LayerZero send path. Runs are low: every send is a real endpoint
 ///      dispatch. The RECEIVE (unlock) path needs the far chain and lives in the two-chain harness;
 ///      what this proves is the half a mint backdoor would attack: locking never inflates 4663.
-contract ForkBridgeInvariant is StdInvariant, Test {
+contract ForkBridgeInvariant is StdInvariant, BagRig {
     address internal constant LZ_ENDPOINT = 0x6F475642a6e85809B1c36Fa62763669b1b48DD5B;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant POSITION_MANAGER = 0x58daec3116aae6D93017bAAea7749052E8a04fA7;
@@ -109,21 +112,26 @@ contract ForkBridgeInvariant is StdInvariant, Test {
         HoodFeeRouter feeRouter = new HoodFeeRouter(address(factory), address(staking));
         UniswapV4Graduator graduator = new UniswapV4Graduator(address(factory), POOL_MANAGER, POSITION_MANAGER, UNIVERSAL_ROUTER, PERMIT2, STATE_VIEW);
         bridge = new HoodBridgeFactory(owner, address(factory), LZ_ENDPOINT);
+        (HoodBag bag,,) = _bagStack(address(factory), treasury, address(staking), POOL_MANAGER);
+        HoodGraduationHook hook =
+            _graduationHook(POOL_MANAGER, address(factory), address(bag), address(feeRouter), address(staking));
 
         vm.startPrank(owner);
         factory.setModules(address(feeRouter), address(staking), address(graduator));
+        factory.setBag(address(bag));
+        graduator.setHook(address(hook));
         factory.setLaunchFee(0);
         factory.addConfig(CurveConfig({
             pairToken: address(0),
             totalSupply: 1_000_000_000e18, curveSupplyBps: 8000, startCap: 1 ether,
-            graduationCap: 10 ether, liquidityBps: 9000, protocolFeeBps: 30, creatorFeeBps: 70,
+            graduationCap: 10 ether, liquidityBps: 9000, protocolFeeBps: 70, creatorFeeBps: 30,
             poolFee: 3000, tickSpacing: 60, enabled: true
         }));
         vm.stopPrank();
 
         LaunchParams memory p;
         p.name = "Bridge"; p.symbol = "BRDG"; p.pairToken = address(0); p.configId = 0;
-        p.feeSplit = FeeSplit({stakersBps: 10_000, buybackBps: 0, liquidityBps: 0, creatorBps: 0}); p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
+        p.feeSplit = FeeSplit({stakersBps: 0, buybackBps: 0, liquidityBps: 0, creatorBps: 10_000}); p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
         vm.prank(creator);
         (token,,) = factory.launch(p);
         launchedSupply = IERC20(token).totalSupply();

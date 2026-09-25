@@ -22,6 +22,8 @@ const PRIMARY_NAV = [
 
 const MORE_NAV = [
   { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/ledger", label: "Ledger" },
+  { href: "/bag", label: "The Bag" },
   { href: "/quests", label: "Quests" },
   { href: "/lock", label: "Lock" },
   { href: "/airdrop", label: "Season drop" },
@@ -94,6 +96,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <Link className="create" href="/launch"><span>＋</span>Launch</Link>
         <Link className={path.startsWith("/leaderboard") ? "active" : ""} href="/leaderboard"><span>↗</span>Board</Link>
         <Link className={path.startsWith("/lock") ? "active" : ""} href="/lock"><span>◇</span>Lock</Link>
+        <Link className={path.startsWith("/bag") ? "active" : ""} href="/bag"><span>◎</span>The Bag</Link>
       </nav>
 
       <SupportChatMount />

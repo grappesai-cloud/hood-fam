@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {Test} from "forge-std/Test.sol";
+import {BagRig} from "./helpers/BagRig.sol";
+import {HoodBag} from "../src/bag/HoodBag.sol";
+import {HoodGraduationHook} from "../src/graduation/HoodGraduationHook.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -12,6 +14,7 @@ import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
 import {CurveConfig, FeeSplit, LaunchParams, Phase} from "../src/HoodTypes.sol";
+import {PenaltyConfig} from "../src/bag/BagTypes.sol";
 import {IPoolManager, PoolKey, SwapParams} from "../src/interfaces/IExternal.sol";
 import {MockUSD} from "./mocks/Mocks.sol";
 
@@ -25,7 +28,7 @@ interface IStateView {
 
 /// @notice The graduation path against the real Uniswap v4 deployment on Robinhood Chain 4663.
 /// @dev Run with: forge test --match-path test/ForkV4.t.sol --fork-url robinhood
-contract ForkV4Test is Test {
+contract ForkV4Test is BagRig {
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant POSITION_MANAGER = 0x58daec3116aae6D93017bAAea7749052E8a04fA7;
     address internal constant UNIVERSAL_ROUTER = 0x8876789976dEcBfCbBbe364623C63652db8C0904;
@@ -37,6 +40,8 @@ contract ForkV4Test is Test {
     HoodStaking internal staking;
     HoodFeeRouter internal router;
     UniswapV4Graduator internal graduator;
+    HoodBag internal bag;
+    HoodGraduationHook internal hook;
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
@@ -57,10 +62,16 @@ contract ForkV4Test is Test {
         new UniswapV4Graduator(
             address(factory), POOL_MANAGER, POSITION_MANAGER, UNIVERSAL_ROUTER, PERMIT2, STATE_VIEW
         );
+        (bag,,) = _bagStack(address(factory), treasury, address(staking), POOL_MANAGER);
+        hook = _graduationHook(POOL_MANAGER, address(factory), address(bag), address(router), address(staking));
 
         vm.startPrank(owner);
+        router.setKeeper(address(this));
         factory.setModules(address(router), address(staking), address(graduator));
-        factory.setLaunchFee(0.0005 ether);
+        factory.setBag(address(bag));
+        graduator.setHook(address(hook));
+        staking.setHouseToken(address(new MockUSD()));
+        factory.setLaunchFee(0.002 ether);
         configId = factory.addConfig(
             CurveConfig({
                 pairToken: address(0),
@@ -69,8 +80,8 @@ contract ForkV4Test is Test {
                 startCap: 1 ether,
                 graduationCap: 10 ether,
                 liquidityBps: 9000,
-                protocolFeeBps: 30,
-                creatorFeeBps: 70,
+                protocolFeeBps: 70,
+                creatorFeeBps: 30,
                 poolFee: 3000,
                 tickSpacing: 60,
                 enabled: true
@@ -117,10 +128,11 @@ contract ForkV4Test is Test {
             firstBuy: 0,
             firstBuyLock: 0,
             salt: keccak256(bytes(symbol)),
-            econ: bytes32(0)
+            econ: bytes32(0),
+            penalties: PenaltyConfig(0, 0, 0, 0, 0, false)
         });
         vm.prank(creator);
-        (address t, address c,) = factory.launch{value: 0.0005 ether}(p);
+        (address t, address c,) = factory.launch{value: 0.002 ether}(p);
         return (t, HoodCurve(payable(c)));
     }
 
@@ -171,14 +183,14 @@ contract ForkV4Test is Test {
         factory.setPair(address(usd), true, 0);
         uint256 usdConfig = factory.addConfig(
             CurveConfig({
-                pairToken: address(0),
+                pairToken: address(usd),
                 totalSupply: 1_000_000_000e18,
                 curveSupplyBps: 8000,
                 startCap: 5_000e6,
                 graduationCap: 50_000e6,
                 liquidityBps: 9000,
-                protocolFeeBps: 30,
-                creatorFeeBps: 70,
+                protocolFeeBps: 70,
+                creatorFeeBps: 30,
                 poolFee: 3000,
                 tickSpacing: 60,
                 enabled: true
@@ -190,10 +202,10 @@ contract ForkV4Test is Test {
             name: "Dollar Curve", symbol: "USDC1", image: "ipfs://usd", description: "", website: "",
             twitter: "", telegram: "", pairToken: address(usd), configId: usdConfig,
             feeSplit: _toBuyback(), creatorFeeRecipient: creator, firstBuy: 0, firstBuyLock: 0,
-            salt: bytes32(uint256(77)), econ: bytes32(0)
+            salt: bytes32(uint256(77)), econ: bytes32(0), penalties: PenaltyConfig(0, 0, 0, 0, 0, false)
         });
         vm.prank(creator);
-        (address token, address curveAddr,) = factory.launch{value: 0.0005 ether}(p);
+        (address token, address curveAddr,) = factory.launch{value: 0.002 ether}(p);
         HoodCurve curve = HoodCurve(payable(curveAddr));
 
         // buy the whole curve in dollars and open the pool

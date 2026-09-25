@@ -26,6 +26,8 @@ export const brand: Brand = {
       { href: "/quests", label: "Tickets" },
     { href: "/refer", label: "Bring one" },
     { href: "/following", label: "Your crowd" },
+    { href: "/ledger", label: "Receipts" },
+    { href: "/bag", label: "The Bag" },
 ],
   copy: {
     create: "Print a ticker",

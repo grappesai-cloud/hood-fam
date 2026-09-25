@@ -18,7 +18,8 @@ import {
 import { useLive } from "@/lib/live";
 import { usePreferredConnector } from "@/lib/safe";
 import { useTrades } from "@/components/Tape";
-import { ago, shortAddress } from "@/lib/format";
+import { ago, fmt, pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
+import { EXPLORER } from "@/lib/config";
 
 /// The room under a launch.
 ///
@@ -37,7 +38,7 @@ const erc20 = [
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
 ] as const;
 
-export function TokenChat({ token, symbol, creator, launchedAt }: { token: string; symbol: string; creator: string; launchedAt?: string }) {
+export function TokenChat({ token, symbol, creator, pairToken, launchedAt }: { token: string; symbol: string; creator: string; pairToken: string; launchedAt?: string }) {
   const { address } = useAccount();
   const { connect, isPending: connecting } = useConnect();
   const connector = usePreferredConnector();
@@ -87,14 +88,6 @@ export function TokenChat({ token, symbol, creator, launchedAt }: { token: strin
     return [...byId.values()];
   }, [history.data, streamed]);
 
-  useEffect(() => {
-    const box = log.current;
-    if (!box) return;
-    // Follow the tail only for a reader who is already at it. A message landing while somebody
-    // reads back through the room should not drag them out of it.
-    if (box.scrollHeight - box.scrollTop - box.clientHeight < 90) box.scrollTop = box.scrollHeight;
-  }, [messages.length]);
-
   /// Whether this wallet may post, as far as the app can see from here. The API is the one that
   /// decides, and it decides on the same two facts: a balance now, or a trade at any point. The
   /// balance is read from the chain and the trades from the tape the page already has, so a wallet
@@ -107,6 +100,18 @@ export function TokenChat({ token, symbol, creator, launchedAt }: { token: strin
     query: { enabled: Boolean(address), refetchInterval: 15_000 },
   });
   const trades = useTrades(token);
+  const activity = useMemo(() => [
+    ...messages.map((message) => ({ kind: "message" as const, key: `m:${message.id}`, at: message.at, message })),
+    ...(trades.data?.trades ?? []).slice(0, 20).map((trade) => ({
+      kind: "trade" as const, key: `t:${trade.tx}:${trade.token_amount}`, at: trade.ts, trade,
+    })),
+  ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(-60), [messages, trades.data]);
+  useEffect(() => {
+    const box = log.current;
+    if (!box) return;
+    // New buys join the conversation, but never pull somebody away from older messages.
+    if (box.scrollHeight - box.scrollTop - box.clientHeight < 90) box.scrollTop = box.scrollHeight;
+  }, [activity.at(-1)?.key]);
   const traded = Boolean(address) && (trades.data?.trades ?? []).some((t) => t.trader?.toLowerCase() === address?.toLowerCase());
   const canPost = Boolean(address) && (((balance as bigint | undefined) ?? 0n) > 0n || traded);
   const isCreator = Boolean(address) && address?.toLowerCase() === creator.toLowerCase();
@@ -186,27 +191,27 @@ export function TokenChat({ token, symbol, creator, launchedAt }: { token: strin
   return (
     <section className="panel chat-panel p-4">
       <div className="chat-head">
-        <h3>Chat</h3>
-        <span className="dim">holders and traders of ${symbol}</span>
+        <h3>Live room</h3>
+        <span className="dim">trades and conversation · holders and traders of ${symbol} can post</span>
       </div>
 
       {/* A log rather than a plain box: a reader on a screen reader is told what arrives while
           they are here, in the order it arrived, without being dragged to it. */}
       <div className="chat-log" role="log" ref={log}>
-        {messages.map((m) => (
-          <Message
-            key={String(m.id)}
-            message={m}
-            hidden={m.hidden || hiddenHere.has(String(m.id))}
-            mine={Boolean(address) && m.author?.toLowerCase() === address?.toLowerCase()}
-            canHide={isCreator}
-            onHide={hide}
-            token={token}
-            symbol={symbol}
-            young={young}
-          />
+        {activity.map((item) => item.kind === "trade" ? (
+          <a className="chat-trade" key={item.key} href={`${EXPLORER}/tx/${item.trade.tx}`} target="_blank" rel="noreferrer">
+            <span className={item.trade.side === "buy" ? "chat-trade-side buy" : "chat-trade-side sell"}>{item.trade.side}</span>
+            <span className="mono">{shortAddress(item.trade.trader)}</span>
+            <span>{fmt(BigInt(item.trade.pair_amount || "0"), pairDecimals(pairToken), 4)} {pairSymbol(pairToken)}</span>
+            <time>{ago(item.at)}</time>
+          </a>
+        ) : (
+          <Message key={item.key} message={item.message}
+            hidden={item.message.hidden || hiddenHere.has(String(item.message.id))}
+            mine={Boolean(address) && item.message.author?.toLowerCase() === address?.toLowerCase()}
+            canHide={isCreator} onHide={hide} token={token} symbol={symbol} young={young} />
         ))}
-        {!messages.length && (
+        {!activity.length && (
           <p className="chat-quiet dim">
             {history.isError
               ? "The chat is not answering. Everything else on this page is unaffected."

@@ -34,6 +34,7 @@ export function WalletDoor() {
   const connector = usePreferredConnector();
   const [url, setUrl] = useState<URL | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -49,6 +50,14 @@ export function WalletDoor() {
   }, []);
 
   if (!url || isConnected || connector || dismissed) return null;
+
+  if (!expanded) return (
+    <aside className="wallet-door wallet-door-compact" role="note">
+      <span>Open this page in a wallet to sign.</span>
+      <button type="button" className="btn btn-ghost" onClick={() => setExpanded(true)}>Wallet apps</button>
+      <button type="button" className="wallet-door-close" onClick={() => setDismissed(true)} aria-label="Close wallet tip">×</button>
+    </aside>
+  );
 
   return (
     <aside className="wallet-door" role="note">

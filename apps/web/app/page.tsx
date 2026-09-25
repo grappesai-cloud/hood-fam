@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ProvenanceKey } from "@/components/Provenance";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type TokenRow } from "@/lib/api";
@@ -12,6 +13,9 @@ import { compact, imageUrl, launchProgress, pairDecimals, pairSymbol } from "@/l
 import { brand } from "@/brands";
 import { GraduationRace } from "@/components/GraduationRace";
 import { ReferralPrompt } from "@/components/Social";
+import { BoostedRow, pinBoosted } from "@/components/board/BoostedRow";
+import { PaydayStrip } from "@/components/board/PaydayStrip";
+import { LastTen } from "@/components/board/LastTen";
 
 /// The same doors the ox front has, on the shared board: the filters are real queries the API
 /// answers (the pair decides what is a share and what is culture, the lock decides "dev locked"),
@@ -45,7 +49,7 @@ function Board() {
 
   const stats = useQuery({
     queryKey: ["stats"],
-    queryFn: () => api<{ launches: string; graduated: string; volume_24h: string; trades: string; traders: string }>("/stats"),
+    queryFn: () => api<{ launches: string; graduated: string; volume_24h: string; volume_24h_native?: string; trades: string; traders: string }>("/stats"),
   });
   const tokens = useQuery({
     queryKey: ["tokens", sort, q],
@@ -74,7 +78,8 @@ function Board() {
     return () => window.removeEventListener("keydown", key);
   }, []);
 
-  const rows = tokens.data?.tokens ?? [];
+  // Whoever paid for the hour sits first, whatever the tab; the tab still orders the rest.
+  const rows = pinBoosted(tokens.data?.tokens ?? []);
   // The card on the front of the hero stack is the launch the tape leads with, so the first thing
   // on the page is a real launch rather than a drawing of one.
   const lead = tape.data?.tokens[0];
@@ -131,9 +136,12 @@ function Board() {
         <div className="market-summary" aria-label="Platform activity">
           <Stat label="Launches" value={stats.data?.launches ?? "·"} />
           <Stat label="Graduated" value={stats.data?.graduated ?? "·"} />
-          <Stat label="24h volume" value={stats.data ? compact(BigInt(stats.data.volume_24h || "0")) : "·"} />
+          <Stat label="24h volume · ETH pairs" value={stats.data ? `${compact(BigInt(stats.data.volume_24h_native ?? stats.data.volume_24h ?? "0"))} ETH` : "·"} />
           <Stat label="Traders" value={stats.data?.traders ?? "·"} />
+          <PaydayStrip />
+          <ProvenanceKey />
         </div>
+        <BoostedRow />
         <div className="explore-searchbar">
           <label className="search-field">
             <span aria-hidden="true">⌕</span>
@@ -165,6 +173,7 @@ function Board() {
               action={q ? undefined : <Link className="btn" href="/launch">Create the first one</Link>}
           />
         )}
+        <LastTen />
       </section>
     </div>
   );

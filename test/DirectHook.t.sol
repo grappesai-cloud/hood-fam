@@ -4,60 +4,67 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 
 import {HoodLaunchHook} from "../src/direct/HoodLaunchHook.sol";
 import {HoodLaunchToken} from "../src/direct/HoodLaunchToken.sol";
 import {HoodRevenueSplitter} from "../src/direct/HoodRevenueSplitter.sol";
 import {Allocations, Socials} from "../src/direct/DirectTypes.sol";
+import {PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {MockBag} from "./mocks/DirectMocks.sol";
 
-/// @dev A hook's constructor checks that its own address carries the right permission bits, which
-///      is exactly what we do not want while testing the arithmetic. Overriding the check is what
-///      the base contract makes virtual for.
-contract HookHarness is HoodLaunchHook {
-    constructor(IPoolManager manager, address portal_) HoodLaunchHook(manager, portal_) {}
-
-    function validateHookAddress(BaseHook) internal pure override {}
-}
-
-/// @notice The rate a trade pays: the part that is fixed, the part that is burning off, and the
-///         line neither of them may cross.
+/// @notice The rate a trade pays: the part that is fixed, the platform's percent on top, the part
+///         that is burning off, and the line none of them may cross.
 contract DirectHookTest is Test {
-    HookHarness internal hook;
+    HoodLaunchHook internal hook;
+    MockBag internal bag;
     address internal portal = address(this);
+    uint160 internal nextHook = 0x444400CC;
 
-    function setUp() public {
-        hook = new HookHarness(IPoolManager(makeAddr("poolManager")), portal);
-        PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(0)),
-            currency1: Currency.wrap(makeAddr("token")),
-            fee: 10_000,
-            tickSpacing: 200,
-            hooks: IHooks(address(hook))
-        });
-        HoodLaunchHook.InitParams memory p;
-        p.token = makeAddr("token");
-        p.quote = address(0);
-        p.splitter = makeAddr("splitter");
-        p.factory = address(0);
-        p.tokenIsZero = false;
-        p.buyTaxBps = 500;
-        p.sellTaxBps = 500;
-        p.snipeTaxBps = 5_000;
-        p.snipeDecaySeconds = 3;
-        p.tickBond = 161_200;
-        p.key = key;
-        hook.initialize(p);
+    /// @dev A real hook reads its permissions off its own address, so each one is etched at an
+    ///      address whose low bits say beforeSwap, afterSwap and both return deltas.
+    function _fresh() internal returns (HoodLaunchHook h) {
+        address at = address(nextHook);
+        nextHook += 0x10000;
+        deployCodeTo("HoodLaunchHook.sol:HoodLaunchHook", abi.encode(IPoolManager(makeAddr("poolManager")), portal), at);
+        h = HoodLaunchHook(payable(at));
     }
 
-    function test_the_rate_starts_high_and_ends_at_the_launch_tax() public {
+    /// @dev A storage template, copied per call: building the whole struct in one frame is one
+    ///      variable too many for the compiler.
+    HoodLaunchHook.InitParams internal tpl;
+
+    function setUp() public {
+        bag = new MockBag();
+        tpl.token = makeAddr("token");
+        tpl.splitter = makeAddr("splitter");
+        tpl.bag = address(bag);
+        tpl.tickBond = 161_200;
+        tpl.key.currency1 = Currency.wrap(makeAddr("token"));
+        tpl.key.fee = 10_000;
+        tpl.key.tickSpacing = 200;
+        hook = _fresh();
+        hook.initialize(_params(500, 500, 5_000, 3));
+    }
+
+    function _params(uint16 buy, uint16 sell, uint16 snipe, uint32 window)
+        internal
+        view
+        returns (HoodLaunchHook.InitParams memory p)
+    {
+        p = tpl;
+        p.buyTaxBps = buy;
+        p.sellTaxBps = sell;
+        p.snipeTaxBps = snipe;
+        p.snipeDecaySeconds = window;
+    }
+
+    function test_the_rate_starts_high_and_ends_at_the_launch_tax_plus_the_platforms_percent() public {
         vm.warp(hook.launchTime());
-        assertEq(hook.currentTaxBps(true), 5_500, "the first instant is the launch tax plus all of the surcharge");
+        assertEq(hook.currentTaxBps(true), 5_600, "the first instant is the tax, the percent and all of the surcharge");
         vm.warp(hook.launchTime() + 3);
-        assertEq(hook.currentTaxBps(true), 500);
+        assertEq(hook.currentTaxBps(true), 600);
+        assertEq(hook.currentTaxBps(false), 600, "a sell pays the same schedule and never the surcharge");
         assertEq(hook.currentSnipeBps(), 0);
     }
 
@@ -94,17 +101,18 @@ contract DirectHookTest is Test {
     }
 
     function test_a_launch_cannot_be_configured_past_the_cap() public {
-        HookHarness fresh = new HookHarness(IPoolManager(makeAddr("pm2")), portal);
-        HoodLaunchHook.InitParams memory p;
-        p.token = makeAddr("token");
-        p.quote = address(0);
-        p.splitter = makeAddr("splitter");
-        p.buyTaxBps = 1_000;
-        p.sellTaxBps = 1_000;
-        p.snipeTaxBps = 9_000; // 10% + 90% is over the 99% line
-        p.snipeDecaySeconds = 3;
+        HoodLaunchHook fresh = _fresh();
+        // 10% + 90% is over the 99% line
+        HoodLaunchHook.InitParams memory over = _params(1_000, 1_000, 9_000, 3);
         vm.expectRevert(HoodLaunchHook.BadTax.selector);
-        fresh.initialize(p);
+        fresh.initialize(over);
+        // 10% + 89% sits on it, and at swap time the platform's percent comes off the surcharge
+        fresh.initialize(_params(1_000, 1_000, 8_900, 3));
+        assertEq(fresh.currentTaxBps(true), 9_900);
+        // the wizard's default opening: 1% tax, 98% surcharge
+        HoodLaunchHook wizard = _fresh();
+        wizard.initialize(_params(100, 100, 9_800, 3));
+        assertEq(wizard.currentTaxBps(true), 9_900);
     }
 
     /// @dev The snipe surcharge must decay within a bounded window (M3): without a ceiling on
@@ -113,32 +121,51 @@ contract DirectHookTest is Test {
     ///      mutation testing showed the bound was only covered by a fork test, and the fork job does
     ///      not gate CI, so a regression here would have slipped through.
     function test_a_launch_cannot_set_a_decay_window_past_the_ceiling() public {
-        HookHarness fresh = new HookHarness(IPoolManager(makeAddr("pmDecay")), portal);
-        HoodLaunchHook.InitParams memory p;
-        p.token = makeAddr("token");
-        p.splitter = makeAddr("splitter");
-        p.buyTaxBps = 100;
-        p.sellTaxBps = 100;
-        p.snipeTaxBps = 500;
-        p.snipeDecaySeconds = uint32(fresh.MAX_SNIPE_DECAY_SECONDS()) + 1;
+        HoodLaunchHook fresh = _fresh();
+        HoodLaunchHook.InitParams memory over = _params(100, 100, 500, uint32(fresh.MAX_SNIPE_DECAY_SECONDS()) + 1);
         vm.expectRevert(HoodLaunchHook.BadTax.selector);
-        fresh.initialize(p);
+        fresh.initialize(over);
 
         // and the boundary itself is allowed
-        HookHarness ok = new HookHarness(IPoolManager(makeAddr("pmDecayOk")), portal);
-        p.snipeDecaySeconds = uint32(ok.MAX_SNIPE_DECAY_SECONDS());
-        ok.initialize(p); // no revert
+        HoodLaunchHook ok = _fresh();
+        ok.initialize(_params(100, 100, 500, uint32(ok.MAX_SNIPE_DECAY_SECONDS()))); // no revert
     }
 
     function test_a_launch_cannot_charge_more_than_a_tenth_per_side() public {
-        HookHarness fresh = new HookHarness(IPoolManager(makeAddr("pm3")), portal);
-        HoodLaunchHook.InitParams memory p;
-        p.token = makeAddr("token");
-        p.splitter = makeAddr("splitter");
-        p.buyTaxBps = 1_001;
-        p.sellTaxBps = 500;
+        HoodLaunchHook fresh = _fresh();
+        HoodLaunchHook.InitParams memory over = _params(1_001, 500, 0, 0);
         vm.expectRevert(HoodLaunchHook.BadTax.selector);
+        fresh.initialize(over);
+    }
+
+    function test_a_launch_needs_a_bag_and_penalties_under_their_ceilings() public {
+        HoodLaunchHook fresh = _fresh();
+        HoodLaunchHook.InitParams memory p = _params(500, 500, 0, 0);
+        p.bag = address(0);
+        vm.expectRevert(HoodLaunchHook.NoBag.selector);
         fresh.initialize(p);
+
+        p.bag = address(bag);
+        p.penalties = PenaltyConfig(2_501, 60, 0, 0, 0, false);
+        vm.expectRevert(HoodLaunchHook.BadPenalty.selector);
+        fresh.initialize(p);
+        p.penalties = PenaltyConfig(0, 0, 2_501, 300, 0, false);
+        vm.expectRevert(HoodLaunchHook.BadPenalty.selector);
+        fresh.initialize(p);
+        p.penalties = PenaltyConfig(0, 0, 0, 0, 5_001, false);
+        vm.expectRevert(HoodLaunchHook.BadPenalty.selector);
+        fresh.initialize(p);
+
+        p.penalties = PenaltyConfig(2_500, 3_600, 2_500, 2_000, 5_000, true);
+        fresh.initialize(p);
+        (uint16 jeet, uint32 window, uint16 whale, uint24 limit, uint16 king, bool toVault) = fresh.penalties();
+        assertEq(jeet, 2_500);
+        assertEq(window, 3_600);
+        assertEq(whale, 2_500);
+        assertEq(limit, 2_000);
+        assertEq(king, 5_000);
+        assertTrue(toVault);
+        assertEq(fresh.vault(), bag.vault(), "the vault is read off the Bag");
     }
 }
 

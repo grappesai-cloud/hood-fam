@@ -11,7 +11,8 @@ import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodTokenLock} from "../src/HoodTokenLock.sol";
 import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
-import {MockGraduator, MockUSD} from "./mocks/Mocks.sol";
+import {PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {MockBag, MockGraduator, MockUSD} from "./mocks/Mocks.sol";
 
 /// @notice Shared rig: one launchpad, one preset, helpers to launch and to trade.
 contract BaseTest is Test {
@@ -21,6 +22,9 @@ contract BaseTest is Test {
     HoodTokenLock internal locker;
     MockGraduator internal graduator;
     MockUSD internal usd;
+    /// @notice Every platform fee lands here. A mock that records and holds; the real Bag's rules
+    ///         are tested in its own suite.
+    MockBag internal bag;
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
@@ -32,7 +36,7 @@ contract BaseTest is Test {
     HoodCurve internal houseCurve;
 
     uint256 internal configId;
-    uint256 internal constant LAUNCH_FEE = 0.0005 ether;
+    uint256 internal constant LAUNCH_FEE = 0.002 ether;
 
     function setUp() public virtual {
         HoodDeployer bytecode = new HoodDeployer();
@@ -43,9 +47,12 @@ contract BaseTest is Test {
         locker = new HoodTokenLock();
         graduator = new MockGraduator(address(factory));
         usd = new MockUSD();
+        bag = new MockBag(treasury);
 
         vm.startPrank(owner);
+        router.setKeeper(address(this));
         factory.setModules(address(router), address(staking), address(graduator));
+        factory.setBag(address(bag));
         factory.setFirstBuyLocker(address(locker));
         factory.setLaunchFee(LAUNCH_FEE);
         configId = factory.addConfig(_config());
@@ -66,11 +73,24 @@ contract BaseTest is Test {
             startCap: 1 ether, // fully diluted valuation at the first token
             graduationCap: 10 ether, // and at the last curve token
             liquidityBps: 9000,
-            protocolFeeBps: 30,
-            creatorFeeBps: 70,
+            // The 1% platform fee: 70 bps into the Bag, 30 bps down the creator's split.
+            protocolFeeBps: 70,
+            creatorFeeBps: 30,
             poolFee: 3000,
             tickSpacing: 60,
             enabled: true
+        });
+    }
+
+    /// @notice No jeet tax, no whale tax, no king pot: what most launches pick.
+    function _noPenalties() internal pure returns (PenaltyConfig memory) {
+        return PenaltyConfig({
+            jeetTaxBps: 0,
+            jeetWindowSeconds: 0,
+            whaleTaxBps: 0,
+            whaleTickLimit: 0,
+            kingBps: 0,
+            penaltiesToVault: false
         });
     }
 
@@ -121,7 +141,8 @@ contract BaseTest is Test {
             firstBuy: 0,
             firstBuyLock: 0,
             salt: bytes32(uint256(1)),
-            econ: bytes32(0)
+            econ: bytes32(0),
+            penalties: _noPenalties()
         });
     }
 

@@ -23,13 +23,30 @@ import {IHoodFeeRouter} from "../interfaces/IHoodFeeRouter.sol";
 import {IHoodToken} from "../interfaces/IHoodToken.sol";
 import {PairTransfer} from "../libraries/PairTransfer.sol";
 import {Launch} from "../HoodTypes.sol";
+import {PenaltyConfig} from "../bag/BagTypes.sol";
+
+/// @notice The one hook every graduated pool trades through (HoodGraduationHook), declared against
+///         this file's own PoolKey, which encodes exactly like v4-core's.
+interface IHoodGraduationHook {
+    function register(PoolKey calldata key, address token, address pot, PenaltyConfig calldata penalties) external;
+}
+
+/// @notice What a launch's pot lets the graduation handler do: keep the pool's own addresses out of
+///         the holder count, so the supply sitting in the pool never earns what holders are paid.
+interface IHoodPotExclude {
+    function exclude(address who) external;
+}
 
 /// @title UniswapV4Graduator
 /// @notice Turns a sold-out curve into a Uniswap v4 pool and keeps the position forever.
-/// @dev The position NFT never leaves this contract and this contract has no owner, no transfer
-///      function and no way to decrease liquidity. The only thing anybody can do with it is
-///      collect the fees it earned, which go straight back into the token's fee split. That is the
-///      whole point: graduated liquidity is locked, and the lock is the absence of code, not a promise.
+/// @dev The position NFT never leaves this contract and this contract has no transfer function and
+///      no way to decrease liquidity. The only thing anybody can do with it is collect the fees it
+///      earned, which go straight back into the token's fee split. That is the whole point:
+///      graduated liquidity is locked, and the lock is the absence of code, not a promise.
+///
+///      Every pool it opens names the graduation hook, which takes the platform fee and the sell-side
+///      penalties on every swap. The hook is named once, by the factory owner, and cannot be changed
+///      after that; until it is named no pool can be opened, so no launch runs without it.
 contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -54,6 +71,8 @@ contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
     IUniversalRouter public immutable universalRouter;
     IPermit2 public immutable permit2;
     IStateView public immutable stateView;
+    /// @notice The graduation hook every pool opened here trades through. Set once, then fixed.
+    address public hook;
 
     struct Position {
         PoolKey key;
@@ -69,7 +88,13 @@ contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
     event FeesCollected(address indexed token, uint256 pairAmount, uint256 tokenBurned);
     event Compounded(address indexed token, uint256 pairAmount);
     event BoughtBack(address indexed token, uint256 pairSpent, uint256 burned);
+    event HookSet(address indexed hook);
+    /// @notice The pot would not take the exclusion. Graduation goes on; the pot needs a look.
+    event PotExcludeFailed(address indexed token, address indexed pot, address who);
 
+    error NotOwner();
+    error HookAlreadySet();
+    error HookNotSet();
     error NotACurve();
     error AlreadyGraduated();
     error NotGraduated();
@@ -96,6 +121,19 @@ contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
         universalRouter = IUniversalRouter(universalRouter_);
         permit2 = IPermit2(permit2_);
         stateView = IStateView(stateView_);
+    }
+
+    /// @notice Names the graduation hook, once.
+    /// @dev A setter rather than a constructor argument so the deploy order stays free: a v4 hook's
+    ///      address has to be mined against its own creation code, which does not depend on this
+    ///      contract, and nothing that constructs this contract has to change to carry it. There is
+    ///      no way to change it afterwards, and `_key` refuses to build a key without it.
+    function setHook(address hook_) external {
+        if (msg.sender != factory.owner()) revert NotOwner();
+        if (hook != address(0)) revert HookAlreadySet();
+        if (hook_ == address(0)) revert HookNotSet();
+        hook = hook_;
+        emit HookSet(hook_);
     }
 
     /// @inheritdoc IGraduationHandler
@@ -144,6 +182,9 @@ contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
         if (pairToken == address(0) && msg.value != pairAmount) revert FundsNotReceived();
 
         PoolKey memory key = _key(token, pairToken, poolFee, tickSpacing);
+        // Before anything touches the pool: the price walk below is a swap, and the hook refuses a
+        // swap on a pool it has no row for.
+        _register(token, key, l.pot);
         bool tokenIsZero = key.currency0 == token;
         (uint256 amount0, uint256 amount1) =
             tokenIsZero ? (tokenAmount, pairAmount) : (pairAmount, tokenAmount);
@@ -196,6 +237,25 @@ contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
         _positions[token] = Position({key: key, tokenId: tokenId, exists: true});
         _sweepLeftovers(token, pairToken);
         emit PoolOpened(token, pairToken, tokenId, sqrtPriceX96, liquidity);
+    }
+
+    /// @dev Writes the pool's row in the hook (token, pot, the launch's penalties) and keeps the
+    ///      pool manager and the hook out of the pot's holder count: the pool's reserves are most of
+    ///      the supply, and a pot that counted them would book most of every deposit to an address
+    ///      that never claims. A pot that refuses the exclusion cannot hold the raise hostage in the
+    ///      curve, so that failure is an event rather than a revert.
+    function _register(address token, PoolKey memory key, address pot) internal {
+        IHoodGraduationHook(hook).register(key, token, pot, factory.penaltiesOf(token));
+        if (pot == address(0)) return;
+        _exclude(token, pot, address(poolManager));
+        _exclude(token, pot, hook);
+    }
+
+    function _exclude(address token, address pot, address who) internal {
+        try IHoodPotExclude(pot).exclude(who) {}
+        catch {
+            emit PotExcludeFailed(token, pot, who);
+        }
     }
 
     /// @inheritdoc IGraduationHandler
@@ -387,11 +447,13 @@ contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
 
     function _key(address token, address pairToken, uint24 poolFee, int24 tickSpacing)
         internal
-        pure
+        view
         returns (PoolKey memory)
     {
+        address h = hook;
+        if (h == address(0)) revert HookNotSet();
         (address c0, address c1) = pairToken < token ? (pairToken, token) : (token, pairToken);
-        return PoolKey({currency0: c0, currency1: c1, fee: poolFee, tickSpacing: tickSpacing, hooks: address(0)});
+        return PoolKey({currency0: c0, currency1: c1, fee: poolFee, tickSpacing: tickSpacing, hooks: h});
     }
 
     function _currentPrice(PoolKey memory key) internal view returns (uint160 sqrtPriceX96) {

@@ -78,8 +78,8 @@ contract AllowQuotes is Script {
                     startCap: startCaps[i],
                     graduationCap: graduationCaps[i],
                     liquidityBps: 9000,
-                    protocolFeeBps: 30,
-                    creatorFeeBps: 70,
+                    protocolFeeBps: 70,
+                    creatorFeeBps: 30,
                     poolFee: 3000,
                     tickSpacing: 60,
                     enabled: true

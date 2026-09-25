@@ -365,7 +365,7 @@ export function createDirectClient({
   const claimDividends = (splitter: Address, account: Address) =>
     write(splitter, hoodRevenueSplitterAbi, "claimDividends", [account]);
   const claimCreator = (splitter: Address, to: Address) =>
-    write(splitter, hoodRevenueSplitterAbi, "claim", [to]);
+    write(splitter, hoodRevenueSplitterAbi, "claimCreator", [to]);
   const pushLiquidity = (splitter: Address) => write(splitter, hoodRevenueSplitterAbi, "pushLiquidity", []);
   const sweep = (splitter: Address) => write(splitter, hoodRevenueSplitterAbi, "sweep", []);
   const harvest = (locker: Address) => write(locker, hoodLockerAbi, "harvestFees", []);

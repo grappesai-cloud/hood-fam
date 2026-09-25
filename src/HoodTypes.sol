@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {PenaltyConfig} from "./bag/BagTypes.sol";
+
 /// @notice Where the creator leg of the trading fee goes. Chosen at launch, locked forever.
 /// @dev An allocation rather than a choice: the four legs are spent pro rata on every flush and
 ///      must add up to exactly 10_000, so a creator can pay their stakers and keep a slice and
@@ -68,6 +70,11 @@ struct LaunchParams {
     uint64 firstBuyLock; // seconds the first buy is locked in the staking vault; 0 = not locked
     bytes32 salt; // vanity salt, namespaced by the caller
     bytes32 econ; // economics hash pinned by the caller; see HoodFactory.previewLaunchEconomics
+    // The sell-side penalties this launch runs after graduation (jeet tax, whale dump tax, king
+    // of the hill, lockers eat the jeets). Fixed at launch; the graduation hook reads them off
+    // the factory. All zero means none of them. Appended last so the call encodes the same way
+    // for every field before it.
+    PenaltyConfig penalties;
 }
 
 /// @notice The registry row for a launched token.
@@ -90,4 +97,8 @@ struct Launch {
     address hook; // direct mode only
     address splitter; // direct mode only
     address locker; // direct mode only
+    /// @notice The launch's pot (IHoodPot): the per-share accumulator that pays this token's holders
+    ///         in its quote. A HoodPot printed at launch for a curve launch; the revenue splitter
+    ///         for a direct one. Appended last so older readers of the row keep decoding.
+    address pot;
 }

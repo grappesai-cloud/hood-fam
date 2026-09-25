@@ -75,4 +75,17 @@ export const directAddresses = {
   buybackModule: configured(process.env.NEXT_PUBLIC_BUYBACK_MODULE),
 };
 
+/// The Bag and its outlets. Every one is optional: a deployment that has not wired the Bag yet
+/// renders the pages it had, and the panels that need one of these say so in a sentence instead
+/// of sending a transaction to the zero address.
+export const bagAddresses = {
+  bag: configured(process.env.NEXT_PUBLIC_BAG),
+  payday: configured(process.env.NEXT_PUBLIC_PAYDAY),
+  burnClock: configured(process.env.NEXT_PUBLIC_BURN_CLOCK),
+  boosts: configured(process.env.NEXT_PUBLIC_BOOSTS),
+  graduationHook: configured(process.env.NEXT_PUBLIC_GRADUATION_HOOK),
+  openingAuction: configured(process.env.NEXT_PUBLIC_OPENING_AUCTION),
+  houseCoin: configured(process.env.NEXT_PUBLIC_HOUSE_COIN),
+};
+
 export const EXPLORER = "https://robinhoodchain.blockscout.com";

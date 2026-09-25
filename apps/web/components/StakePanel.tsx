@@ -10,6 +10,7 @@ import { addresses } from "@/lib/config";
 import { api } from "@/lib/api";
 import { fmt, LOCK_TIERS, pairSymbol, timeUntil } from "@/lib/format";
 import { useBatch } from "@/lib/safe";
+import { VAULT_NOT_OPEN } from "@/components/portfolio/VaultEarnings";
 
 const approveAbi = [
   { type: "function", name: "allowance", stateMutability: "view", inputs: [{ type: "address" }, { type: "address" }], outputs: [{ type: "uint256" }] },
@@ -109,10 +110,11 @@ export function StakePanel() {
   if (!named) {
     return (
       <div className="panel space-y-2 p-4">
-        <h3 className="font-semibold">The room is not open yet</h3>
+        <h3 className="font-semibold">The Vault is not open yet</h3>
+        <p className="text-xs dim">{VAULT_NOT_OPEN}</p>
         <p className="text-xs dim">
-          Locking here is one coin: the pad&apos;s own. It has not been named on chain yet, so
-          nothing can be locked and no launch can point its fee at this room.
+          Locking here is one coin: the house coin. Until it is named on chain nothing can be
+          locked, and the Vault&apos;s share of every trade is held inside the Bag, not lost.
         </p>
       </div>
     );
@@ -123,7 +125,7 @@ export function StakePanel() {
       <div>
         <h3 className="font-semibold">Lock {symbol}</h3>
         <p className="text-xs dim">
-          Every launch on the board that pays stakers pays this room. Longer lock, bigger share.
+          You lock {symbol}, the Vault pays you every block from what the Bag sends it. Longer lock, bigger share.
         </p>
       </div>
 
@@ -149,6 +151,9 @@ export function StakePanel() {
           </button>
         ))}
       </div>
+      <p className="text-xs dim">
+        180 days at 2.5x is the top tier. A 365-day lock earns the same 2.5x; the contract refuses anything longer.
+      </p>
 
       <details className="text-xs dim">
         <summary className="cursor-pointer">send a stake to someone else</summary>
@@ -185,11 +190,10 @@ export function LockElsewhere({ token }: { token: Address }) {
     <div className="panel space-y-2 p-4">
       <h3 className="font-semibold">Locking is one coin</h3>
       <p className="text-xs dim">
-        This token cannot be locked, and neither can any other launch. The stakers leg of the fee
-        here is paid to whoever locked the pad&apos;s own coin, which is the one room every launch
-        on the board pays into.
+        This token cannot be locked, and neither can any other launch. The Vault is paid by the
+        Bag out of every trade on the board, and it pays whoever locked the house coin.
       </p>
-      <Link className="btn btn-ghost w-full text-xs" href="/lock">go to the room</Link>
+      <Link className="btn btn-ghost w-full text-xs" href="/lock">go to the Vault</Link>
     </div>
   );
 }

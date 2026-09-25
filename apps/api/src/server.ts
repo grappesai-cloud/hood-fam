@@ -15,7 +15,7 @@ const GZIP_MIN_BYTES = 1024;
 
 import { pool, currentSeason } from "./db.js";
 import { pairAsset, PAIR_ASSETS as PAIR_CATALOG, robinhood } from "@hood/sdk";
-import { PAIR_ASSETS as PRICEABLE, pairUsdPrice } from "./price.js";
+import { PAIR_ASSETS as PRICEABLE, pairUsdPrice, pairUsdQuote } from "./price.js";
 import { resolveQuote } from "./quote-resolver.js";
 import { hasNativeRoute, localNativeRoute, nativeQuoteRoute } from "./uniswap-route.js";
 
@@ -33,6 +33,7 @@ import { registerSupport } from "./support.js";
 import { registerUploads } from "./uploads.js";
 import { registerSocial } from "./social.js";
 import { registerQuests } from "./quests.js";
+import { registerBag, tokenBag, walletBag } from "./bag.js";
 import { pnlLeaderboard, walletPnl } from "./pnl.js";
 import { chainHead, contracts, integrations, isAdmin } from "./admin.js";
 import { closeSeason, frozenLeaderboard, listSeasons, openSeason, SeasonError, snapshotSeason } from "./seasons.js";
@@ -64,6 +65,10 @@ const PROGRESS = `case when mode = 'direct' then
 const SYSTEM_TRADERS = [
   process.env.HOOD_FACTORY, process.env.HOOD_FEE_ROUTER, process.env.HOOD_STAKING, process.env.HOOD_GRADUATOR,
   process.env.HOOD_PORTAL, process.env.HOOD_BUYBACK_MODULE,
+  // The Bag's machines: the burn clock buys the house coin, the graduation hook and the opening
+  // auction sit inside swaps, and the rest hold money that moves through the tape.
+  process.env.HOOD_BAG, process.env.HOOD_PAYDAY, process.env.HOOD_BURN_CLOCK, process.env.HOOD_BOOSTS,
+  process.env.HOOD_GRADUATION_HOOK, process.env.HOOD_OPENING_AUCTION,
 ].filter(Boolean).map((a) => a!.toLowerCase());
 
 /// How much of X-Forwarded-For to believe. A count of hops, never the whole header.
@@ -134,6 +139,17 @@ export async function buildServer() {
     [/^\/leaderboard$/, "public, s-maxage=5, stale-while-revalidate=30"],
     [/^\/seasons$/, "public, s-maxage=10, stale-while-revalidate=60"],
     [/^\/stats$/, "public, s-maxage=10, stale-while-revalidate=60"],
+    // The Bag. The keeper's two routes (/payday/:epoch, /auctions/open) are deliberately absent:
+    // what the keeper signs must never come out of a cache.
+    [/^\/bag$/, "public, s-maxage=10, stale-while-revalidate=30"],
+    [/^\/bag\/tape$/, "public, s-maxage=3, stale-while-revalidate=10"],
+    [/^\/shame$/, "public, s-maxage=30, stale-while-revalidate=60"],
+    [/^\/tokens\/:token\/pot$/, "public, s-maxage=5, stale-while-revalidate=20"],
+    [/^\/tokens\/:token\/king$/, "public, s-maxage=2, stale-while-revalidate=4"],
+    [/^\/tokens\/:token\/auction$/, "public, s-maxage=2, stale-while-revalidate=10"],
+    [/^\/tokens\/:token\/penalties$/, "public, s-maxage=3, stale-while-revalidate=15"],
+    [/^\/boosts$/, "public, s-maxage=5, stale-while-revalidate=20"],
+    [/^\/vault$/, "public, s-maxage=10, stale-while-revalidate=30"],
   ];
   app.addHook("onSend", async (req, reply, payload) => {
     if (req.method !== "GET" || (reply.statusCode >= 300) || reply.getHeader("cache-control")) return payload;
@@ -255,13 +271,17 @@ export async function buildServer() {
     const q = req.query as Record<string, string | undefined>;
     const limit = clampInt(q.limit, 30, 100, 1);
     const offset = clampInt(q.offset, 0, 1_000_000);
+    // Whether the launch holds a boost slot this hour. The hour is the first parameter so the
+    // flag can sit in both the select and the sort; the filters below number themselves after it.
+    const params: unknown[] = [Math.floor(Date.now() / 3_600_000)];
+    const BOOSTED = `exists (select 1 from boosts b where b.token = launches.token and b.hour_epoch = $1)`;
     const sort =
       q.sort === "volume" ? "volume_24h desc"
       : q.sort === "progress" ? `(${PROGRESS}) desc`
       : q.sort === "graduated" ? "graduated_at desc nulls last"
+      : q.sort === "boost" ? `(${BOOSTED}) desc, launched_at desc`
       : "launched_at desc";
     const where: string[] = [];
-    const params: unknown[] = [];
     if (q.creator) { params.push(q.creator.toLowerCase()); where.push(`creator = $${params.length}`); }
     if (q.phase) { params.push(Number(q.phase)); where.push(`phase = $${params.length}`); }
     if (q.category === "new") where.push(`launched_at >= now() - interval '24 hours'`);
@@ -280,10 +300,15 @@ export async function buildServer() {
     else if (q.status === "curve" || q.status === "sold_out" || q.status === "graduated") {
       params.push(q.status); where.push(`(${STATUS}) = $${params.length}`);
     }
-    if (q.q) { params.push(`%${q.q.toLowerCase()}%`); where.push(`(lower(name) like $${params.length} or lower(symbol) like $${params.length})`); }
+    if (q.q) { params.push(`%${q.q.toLowerCase()}%`); where.push(`(lower(name) like $${params.length} or lower(symbol) like $${params.length} or lower(token) like $${params.length})`); }
     params.push(limit, offset);
     const { rows } = await pool.query(
-      `select *, (${STATUS}) as status from launches ${where.length ? "where " + where.join(" and ") : ""}
+      `select *, (${STATUS}) as status, (${BOOSTED}) as boosted,
+              coalesce(
+                (select t.price from trades t where t.token = launches.token and t.ts <= now() - interval '24 hours' order by t.ts desc limit 1),
+                (select t.price from trades t where t.token = launches.token and t.ts > now() - interval '24 hours' order by t.ts asc limit 1)
+              ) as price_24h_ago
+       from launches ${where.length ? "where " + where.join(" and ") : ""}
        order by ${sort} limit $${params.length - 1} offset $${params.length}`,
       params,
     );
@@ -312,7 +337,12 @@ export async function buildServer() {
          from fee_events where token = $1`, [token.toLowerCase()]),
       pool.query(`select coalesce(sum(amount),0) as staked, count(*) as positions from stakes where token = $1 and active`, [token.toLowerCase()]),
     ]);
-    return { ...rows[0], holders: Number(holders[0].holders), fees: fees[0], staking: stakes[0] };
+    // The dollar price of one unit of the pair, with its source, so the page can print a market
+    // cap in dollars and say it is derived, or print a dash and say why. Never a zero.
+    const [usd, bag] = await Promise.all([pairUsdQuote(rows[0].pair_token), tokenBag(rows[0])]);
+    // `pot`, `penalties`, `paid_to_holders` and `boosted` come from the Bag's tables; `pot` is
+    // the effective one (a direct launch's splitter when the row carries none).
+    return { ...rows[0], holders: Number(holders[0].holders), fees: fees[0], staking: stakes[0], usd, ...bag };
   });
 
   app.get("/tokens/:token/trades", async (req) => {
@@ -358,13 +388,20 @@ export async function buildServer() {
     });
   });
 
+  /// Biggest first, a hundred a page. The keeper walks every holder of a pot's token with
+  /// `offset` to push their payouts, so the order has to be stable across pages: the address
+  /// breaks a tie between equal balances, and a page is the same page a second later.
   app.get("/tokens/:token/holders", async (req) => {
     const { token } = req.params as { token: string };
+    const q = req.query as Record<string, string | undefined>;
+    const limit = clampInt(q.limit, 100, 100, 1);
+    const offset = clampInt(q.offset, 0, 10_000_000);
     const { rows } = await pool.query(
-      `select address, balance from balances where token = $1 and balance > 0 order by balance desc limit 100`,
-      [token.toLowerCase()],
+      `select address, balance from balances where token = $1 and balance > 0
+       order by balance desc, address limit $2 offset $3`,
+      [token.toLowerCase(), limit, offset],
     );
-    return { holders: rows };
+    return { holders: rows, limit, offset };
   });
 
   /// The global FOMO tape: newest human trades with enough launch metadata to render without a
@@ -435,17 +472,30 @@ export async function buildServer() {
   app.get("/portfolio/:address", async (req) => {
     const { address } = req.params as { address: string };
     const a = address.toLowerCase();
-    const [{ rows: held }, { rows: stakes }, { rows: created }] = await Promise.all([
+    const [{ rows: held }, { rows: stakes }, { rows: created }, { rows: earnings }] = await Promise.all([
       pool.query(
         `select b.token, b.balance, l.symbol, l.name, l.image, l.price, l.pair_token, l.phase,
                 l.pair_symbol, l.pair_decimals
          from balances b join launches l on l.token = b.token
          where b.address = $1 and b.balance > 0 order by b.balance desc`, [a]),
       pool.query(`select * from stakes where owner = $1 and active`, [a]),
-      pool.query(`select token, symbol, name, image, phase, volume_total from launches where creator = $1`, [a]),
+      pool.query(`select token, symbol, name, image, phase, volume_total, pair_token, pair_symbol, pair_decimals from launches where creator = $1`, [a]),
+      pool.query(
+        `select l.token, l.symbol, l.name, l.mode, l.pair_token, l.pair_symbol, l.pair_decimals,
+                l.creator, l.fee_recipient, l.splitter,
+                coalesce((select sum(f.to_creator) from fee_events f where f.token = l.token and f.kind in ('flushed', 'swept')), 0) as creator_distributed,
+                coalesce((select sum(f.amount) from fee_events f where f.token = l.token and f.kind = 'creator_claimed'), 0) as creator_claimed,
+                coalesce((select sum(d.amount) from dividend_events d where d.token = l.token and d.holder = $1), 0) as dividends_claimed
+         from launches l
+         where l.creator = $1 or l.fee_recipient = $1
+            or exists (select 1 from balances b where b.token = l.token and b.address = $1 and b.balance > 0)
+            or exists (select 1 from dividend_events d where d.token = l.token and d.holder = $1)
+         order by l.launched_at desc limit 100`, [a]),
     ]);
-    const pnl = await walletPnl(a);
-    return { address: a, holdings: held, stakes, launches: created, pnl, points: await pointsFor(a, await currentSeason()) };
+    // `pushed`, `payday`, `payday_total`, `vault` and `bounties`: what the Bag's machines already
+    // paid this wallet.
+    const [pnl, bag] = await Promise.all([walletPnl(a), walletBag(a)]);
+    return { address: a, holdings: held, stakes, launches: created, earnings, pnl, points: await pointsFor(a, await currentSeason()), ...bag };
   });
 
   app.get("/points/:address", async (req) => {
@@ -606,6 +656,7 @@ export async function buildServer() {
   interface PairRow {
     address: Address; symbol: string; name: string | null; decimals: number; share: boolean;
     allowed: boolean; lockThreshold: string; usd: number;
+    usdSource: string | null; usdReason: string | null;
   }
   let lastPairs: PairRow[] | null = null;
 
@@ -652,7 +703,10 @@ export async function buildServer() {
         allowed: ok?.status === "success" ? Boolean(ok.result) : false,
         readable: ok?.status === "success",
         lockThreshold: lock?.status === "success" ? String(lock.result) : "0",
-        usd: await pairUsdPrice(asset.address),
+        ...(await (async () => {
+          const quote = await pairUsdQuote(asset.address);
+          return { usd: quote.usd ?? 0, usdSource: quote.source, usdReason: quote.reason };
+        })()),
       };
     }));
 
@@ -662,7 +716,7 @@ export async function buildServer() {
     const pairs: PairRow[] = rows.map(({ readable, ...rest }) => {
       if (readable) return rest;
       const remembered = previous.get(rest.address);
-      return remembered ? { ...remembered, usd: rest.usd } : rest;
+      return remembered ? { ...remembered, usd: rest.usd, usdSource: rest.usdSource, usdReason: rest.usdReason } : rest;
     }).filter((r) => r.allowed);
     if (rows.every((r) => r.readable)) lastPairs = pairs;
     return { pairs };
@@ -679,16 +733,108 @@ export async function buildServer() {
               count(*) filter (where phase = 2 or bonded) as graduated,
               coalesce(sum(volume_total), 0) as volume_total,
               coalesce(sum(volume_24h), 0) as volume_24h,
+              -- The two sums above add ether to dollars to shares; they are a sort key, not a
+              -- figure. These are the same sums over the native pair only, which is one currency
+              -- and can carry a unit on a page.
+              coalesce(sum(volume_24h) filter (where pair_token = $2), 0) as volume_24h_native,
+              coalesce(sum(volume_total) filter (where pair_token = $2), 0) as volume_total_native,
+              count(distinct pair_token) as pairs,
               -- Both figures count the same population. Counting every row as a trade while
               -- counting only people as traders reads as "the machines traded", which inflates the
               -- headline with our own buybacks, harvests and the portal's first buy.
               (select count(*) from trades where trader <> all($1::text[])) as trades,
               (select count(distinct trader) from trades where trader <> all($1::text[])) as traders
        from launches`,
-      [SYSTEM_TRADERS],
+      [SYSTEM_TRADERS, zeroAddress],
     );
     return rows[0];
     });
+  });
+
+  // ---------------------------------------------------------------- the ledger
+
+  /// Every payout the protocol ever made, as the chain recorded it. A launch's split is a promise on
+  /// the wizard; this is the receipt: each flush of a curve's fee router, each sweep of a direct
+  /// launch's splitter, each protocol claim and buyback, with the transaction that did it. Totals
+  /// are grouped by the pair the money was paid in, because ether, dollars and shares do not add
+  /// up; a dollar total is offered on top for the pairs that have a price source, and the pairs
+  /// that have none are named rather than counted as zero.
+  const LEDGER_KINDS = ["flushed", "swept", "protocol_claimed", "creator_claimed", "bought_back", "referral_paid"];
+  const ledgerQuery = z.object({
+    token: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(60),
+    before: z.coerce.number().int().positive().optional(),
+  });
+  app.get("/ledger", async (req, reply) => {
+    const q = ledgerQuery.parse(req.query);
+    const token = q.token?.toLowerCase();
+    if (token && !isAddress(token)) return reply.code(400).send({ error: "bad token" });
+
+    const params: unknown[] = [LEDGER_KINDS];
+    let where = `f.kind = any($1::text[])`;
+    if (token) { params.push(token); where += ` and f.token = $${params.length}`; }
+    const totalsWhere = where;
+    const totalsParams = [...params];
+    if (q.before) { params.push(q.before); where += ` and f.id < $${params.length}`; }
+    params.push(q.limit);
+
+    const [{ rows }, totals] = await Promise.all([
+      pool.query(
+        `select f.id, f.token, f.kind, f.amount, f.result, f.to_stakers, f.to_buyback, f.to_liquidity, f.to_creator,
+                f.recipient, f.tx, f.ts, l.symbol, l.name, l.image, l.mode, l.pair_token, l.pair_symbol, l.pair_decimals
+           from fee_events f join launches l on l.token = f.token
+          where ${where}
+          order by f.id desc limit $${params.length}`,
+        params,
+      ),
+      cached(`ledger-totals:${token ?? "all"}`, 10_000, async () => {
+        const { rows: byPair } = await pool.query(
+          `select l.pair_token, l.pair_symbol, l.pair_decimals,
+                  count(*) filter (where f.kind in ('flushed', 'swept')) as distributions,
+                  count(distinct f.token) as tokens,
+                  coalesce(sum(f.amount) filter (where f.kind in ('flushed', 'swept')), 0) as distributed,
+                  coalesce(sum(f.to_stakers), 0) as to_stakers,
+                  coalesce(sum(f.to_buyback), 0) as to_buyback,
+                  coalesce(sum(f.to_liquidity), 0) as to_liquidity,
+                  coalesce(sum(f.to_creator), 0) as to_creator,
+                  coalesce(sum(f.result) filter (where f.kind = 'swept'), 0) as to_dividends,
+                  coalesce(sum(f.amount) filter (where f.kind = 'protocol_claimed'), 0) as to_protocol,
+                  coalesce(sum(f.amount) filter (where f.kind = 'referral_paid'), 0) as to_referrers,
+                  coalesce(sum(f.result) filter (where f.kind = 'flushed'), 0) as burned
+             from fee_events f join launches l on l.token = f.token
+            where ${totalsWhere}
+            group by 1, 2, 3
+            order by distributions desc`,
+          totalsParams,
+        );
+        // Dollars, derived per pair from whatever priced that pair, and only for the pairs that
+        // have a price. The rest are listed by name so a reader knows what the total leaves out.
+        const priced = await Promise.all(byPair.map(async (r) => {
+          const quote = await pairUsdQuote(r.pair_token);
+          const decimals = Number(r.pair_decimals ?? pairAsset(r.pair_token)?.decimals ?? 18);
+          const distributedUsd = quote.usd == null ? null : (Number(r.distributed) / 10 ** decimals) * quote.usd;
+          return { ...r, usd: quote, distributedUsd };
+        }));
+        const unpriced = priced.filter((r) => r.distributedUsd == null && Number(r.distributions) > 0);
+        const total = priced.some((r) => r.distributedUsd != null)
+          ? priced.reduce((sum, r) => sum + (r.distributedUsd ?? 0), 0)
+          : null;
+        return {
+          pairs: priced,
+          usd: {
+            total,
+            reason: unpriced.length
+              ? `${unpriced.map((r) => r.pair_symbol ?? pairAsset(r.pair_token)?.symbol ?? "a pair").join(", ")} ${unpriced.length === 1 ? "has" : "have"} no dollar price and ${unpriced.length === 1 ? "is" : "are"} left out`
+              : total == null ? "nothing has been paid out yet" : null,
+          },
+        };
+      }),
+    ]);
+    return {
+      rows,
+      totals,
+      nextBefore: rows.length === q.limit ? Number(rows[rows.length - 1].id) : null,
+    };
   });
 
   // ---------------------------------------------------------------- admin
@@ -797,6 +943,9 @@ export async function buildServer() {
   // is: one signature, no account, and nothing here can spend anything.
   registerSocial(app);
   registerQuests(app);
+  /// The Bag, the pots, Payday, the burn clock, the boosts and the wall of shame. Reads only;
+  /// the two keeper routes exclude the same machines the boards do.
+  registerBag(app, { systemTraders: SYSTEM_TRADERS });
   registerStream(app, { message: chatMessage });
   /// Token art, so a launch carries a link instead of a data URI. Awaited because the route needs
   /// the multipart parser registered under it; with no bucket configured it answers 501 and

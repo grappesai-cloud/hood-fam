@@ -17,7 +17,9 @@ import {HoodLaunchHook} from "../src/direct/HoodLaunchHook.sol";
 import {HoodLocker} from "../src/direct/HoodLocker.sol";
 import {HoodRevenueSplitter} from "../src/direct/HoodRevenueSplitter.sol";
 import {HoodBuybackModule} from "../src/direct/HoodBuybackModule.sol";
+import {HoodOpeningAuction} from "../src/direct/HoodOpeningAuction.sol";
 import {Allocations, DirectConfig, Socials} from "../src/direct/DirectTypes.sol";
+import {PenaltyConfig} from "../src/bag/BagTypes.sol";
 import {ExactInputSingleParams, PoolKey as RhPoolKey, V4Actions} from "../src/interfaces/IExternal.sol";
 import {HoodFactory} from "../src/HoodFactory.sol";
 import {HoodDeployer} from "../src/HoodDeployer.sol";
@@ -27,6 +29,7 @@ import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
 import {LaunchMode} from "../src/HoodTypes.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {MockUSD} from "./mocks/Mocks.sol";
+import {MockBag} from "./mocks/DirectMocks.sol";
 
 interface IPermit2 {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
@@ -61,6 +64,9 @@ contract ForkDirectTest is Test {
     HoodPortal internal portal;
     HoodDirectDeployer internal deployer;
     HoodBuybackModule internal buyback;
+    /// @notice Where the platform's 70 bps and the launch fee land. A mock that records and holds;
+    ///         the real Bag has its own suite and the curve fork suites stand up the real one.
+    MockBag internal bag;
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
     address internal creator = makeAddr("creator");
@@ -84,8 +90,12 @@ contract ForkDirectTest is Test {
         );
         deployer.initialize(address(portal));
         buyback = new HoodBuybackModule(POOL_MANAGER, address(portal));
-        vm.prank(owner);
+        bag = new MockBag();
+        vm.startPrank(owner);
         portal.setBuybackModule(address(buyback));
+        portal.setBag(address(bag));
+        portal.setAuction(address(new HoodOpeningAuction(address(portal))));
+        vm.stopPrank();
 
         vm.deal(creator, 100 ether);
         vm.deal(alice, 100 ether);
@@ -131,7 +141,9 @@ contract ForkDirectTest is Test {
             maxBuyBps: 550,
             tickStart: TICK_START,
             tickBond: TICK_BOND,
-            allocations: Allocations(2_500, 2_500, 4_000, 1_000)
+            allocations: Allocations(2_500, 2_500, 4_000, 1_000),
+            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
+            auctionBlocks: 0
         });
 
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
@@ -153,10 +165,10 @@ contract ForkDirectTest is Test {
         // Mine first: the salt lookup is an external call, and it would eat the prank.
         bytes32 hookSalt = _mineHookSalt();
         vm.prank(creator);
-        HoodPortal.Addresses memory out = portal.createLaunch{value: 0.0005 ether + 0.2 ether}(input, hookSalt);
+        HoodPortal.Addresses memory out = portal.createLaunch{value: 0.002 ether + 0.2 ether}(input, hookSalt);
 
         token = HoodLaunchToken(out.token);
-        hook = HoodLaunchHook(out.hook);
+        hook = HoodLaunchHook(payable(out.hook));
         splitter = HoodRevenueSplitter(payable(out.splitter));
         assertEq(splitter.creator(), alice, "the launcher's fee recipient is independent from the launcher");
         locker = HoodLocker(payable(out.locker));
@@ -245,6 +257,8 @@ contract ForkDirectTest is Test {
             vm.startPrank(owner);
             freshPortal.setBuybackModule(address(new HoodBuybackModule(POOL_MANAGER, address(freshPortal))));
             freshPortal.setRegistry(address(factory));
+            freshPortal.setBag(address(bag));
+            freshPortal.setAuction(address(new HoodOpeningAuction(address(freshPortal))));
             vm.stopPrank();
             factory.setPortal(address(freshPortal));
 
@@ -253,7 +267,9 @@ contract ForkDirectTest is Test {
                 buyTaxBps: 500, sellTaxBps: 500, snipeTaxBps: 0, snipeDecaySeconds: 0,
                 restrictionBlocks: 0, maxHoldBps: 10_000, maxBuyBps: 10_000,
                 tickStart: TICK_START, tickBond: TICK_BOND,
-                allocations: Allocations(2_500, 2_500, 4_000, 1_000)
+                allocations: Allocations(2_500, 2_500, 4_000, 1_000),
+            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
+            auctionBlocks: 0
             });
             HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
                 name: "Shared", symbol: "SHARED", logo: "ipfs://shared", description: "one registry",
@@ -262,7 +278,7 @@ contract ForkDirectTest is Test {
                 initialBuy: 0
             });
             vm.prank(creator);
-            HoodPortal.Addresses memory out = freshPortal.createLaunch{value: 0.0005 ether}(input, salt2);
+            HoodPortal.Addresses memory out = freshPortal.createLaunch{value: 0.002 ether}(input, salt2);
 
             // the registry knows it, and knows which machine made it
             assertTrue(factory.getLaunch(out.token).exists);
@@ -316,7 +332,9 @@ contract ForkDirectTest is Test {
             buyTaxBps: 500, sellTaxBps: 500, snipeTaxBps: 0, snipeDecaySeconds: 0,
             restrictionBlocks: 0, maxHoldBps: 10_000, maxBuyBps: 10_000,
             tickStart: openTick, tickBond: bondTick,
-            allocations: Allocations(2_500, 2_500, 4_000, 1_000)
+            allocations: Allocations(2_500, 2_500, 4_000, 1_000),
+            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
+            auctionBlocks: 0
         });
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
             name: "Dollar", symbol: "USDFAM", logo: "", description: "",
@@ -330,7 +348,7 @@ contract ForkDirectTest is Test {
         bytes32 hookSalt = _mineHookSalt(3_000_000);
         vm.startPrank(creator);
         usd.approve(address(portal), type(uint256).max);
-        HoodPortal.Addresses memory out = portal.createLaunch{value: 0.0005 ether}(input, hookSalt);
+        HoodPortal.Addresses memory out = portal.createLaunch{value: 0.002 ether}(input, hookSalt);
         vm.stopPrank();
 
         assertEq(out.token, predicted, "the clone landed where the app predicted");
@@ -342,13 +360,13 @@ contract ForkDirectTest is Test {
         IPermit2(PERMIT2).approve(address(usd), UNIVERSAL_ROUTER, type(uint160).max, type(uint48).max);
         vm.stopPrank();
         _buyWith(address(usd), out.token, out.hook, tokenIsZero, alice, 1_000e6);
-        HoodLaunchHook(out.hook).flushClaims();
+        HoodLaunchHook(payable(out.hook)).flushClaims();
 
-        assertApproxEqRel(usd.balanceOf(out.splitter), 50e6 + 25e6, 0.02e18, "five percent of both buys, in dollars");
+        // 5% creator tax plus the 30 bps creator leg of the platform fee, on both buys, in dollars
+        assertApproxEqRel(usd.balanceOf(out.splitter), 79.5e6, 0.02e18, "five percent and thirty bps of both buys");
         HoodRevenueSplitter(payable(out.splitter)).sweep();
-        assertEq(usd.balanceOf(treasury), 0, "nothing is pushed from inside a sweep");
-        HoodRevenueSplitter(payable(out.splitter)).claimProtocol();
-        assertApproxEqRel(usd.balanceOf(treasury), 7.5e6, 0.02e18, "a tenth to the protocol, in dollars, pulled");
+        assertEq(usd.balanceOf(treasury), 0, "nothing reaches the treasury by hand: the platform's share is the Bag's");
+        assertApproxEqRel(bag.total(bag.TRADE(), address(usd)), 10.5e6, 0.02e18, "70 bps of both buys, in dollars, in the Bag");
         assertGt(HoodRevenueSplitter(payable(out.splitter)).pendingDividends(alice), 0);
 
         // the buyback module's ERC-20 branch
@@ -467,7 +485,9 @@ contract ForkDirectTest is Test {
             buyTaxBps: 500, sellTaxBps: 500, snipeTaxBps: 0, snipeDecaySeconds: 0,
             restrictionBlocks: 30, maxHoldBps: 500, maxBuyBps: 550,
             tickStart: TICK_START, tickBond: TICK_BOND,
-            allocations: Allocations(2_500, 2_500, 4_000, 1_000)
+            allocations: Allocations(2_500, 2_500, 4_000, 1_000),
+            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
+            auctionBlocks: 0
         });
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
             name: "Greedy", symbol: expectFail ? "GREED" : "FAIR", logo: "", description: "",
@@ -479,7 +499,7 @@ contract ForkDirectTest is Test {
         vm.deal(creator, 10 ether);
         vm.prank(creator);
         if (expectFail) vm.expectRevert();
-        HoodPortal.Addresses memory out = portal.createLaunch{value: 0.0005 ether + amount}(input, hookSalt);
+        HoodPortal.Addresses memory out = portal.createLaunch{value: 0.002 ether + amount}(input, hookSalt);
         if (!expectFail) assertGt(IERC20(out.token).balanceOf(creator), 0);
     }
 
@@ -627,7 +647,8 @@ contract ForkDirectTest is Test {
         hook.flushClaims();
         splitter.sweep();
 
-        assertGt(treasury.balance, 0, "the protocol tenth");
+        assertGt(bag.total(bag.TRADE(), address(0)), 0, "the platform's 70 bps went into the Bag");
+        assertEq(treasury.balance, 0, "nothing reaches the treasury by hand");
         assertGt(splitter.creatorClaimable(), 0);
         assertGt(splitter.buybackPot(), 0);
         assertGt(splitter.liquidityPot(), 0);
@@ -637,9 +658,10 @@ contract ForkDirectTest is Test {
         splitter.claimDividends(alice);
         assertGt(alice.balance, before);
 
-        vm.prank(creator);
-        splitter.claim(creator);
-        assertGt(creator.balance, 0);
+        uint256 recipientBefore = alice.balance;
+        vm.prank(alice);
+        splitter.claim(alice);
+        assertGt(alice.balance, recipientBefore, "the configured fee recipient can claim");
     }
 
     function test_fork_anybody_can_run_the_buyback_and_it_burns() public {
@@ -693,12 +715,12 @@ contract ForkDirectTest is Test {
         bytes32 salt = _freeHookSalt();
         vm.prank(creator);
         vm.expectRevert(HoodLaunchHook.BadTax.selector);
-        portal.createLaunch{value: 0.0005 ether}(input, salt);
+        portal.createLaunch{value: 0.002 ether}(input, salt);
 
         input.config.snipeDecaySeconds = type(uint32).max;
         vm.prank(creator);
         vm.expectRevert(HoodLaunchHook.BadTax.selector);
-        portal.createLaunch{value: 0.0005 ether}(input, salt);
+        portal.createLaunch{value: 0.002 ether}(input, salt);
     }
 
     function test_fork_a_launch_cannot_set_a_window_that_never_ends() public {
@@ -707,14 +729,14 @@ contract ForkDirectTest is Test {
         bytes32 salt = _freeHookSalt();
         vm.prank(creator);
         vm.expectRevert(HoodPortal.BadWindow.selector);
-        portal.createLaunch{value: 0.0005 ether}(input, salt);
+        portal.createLaunch{value: 0.002 ether}(input, salt);
 
         input.config.restrictionBlocks = type(uint32).max;
         input.config.maxHoldBps = 1;
         input.config.maxBuyBps = 1;
         vm.prank(creator);
         vm.expectRevert(HoodPortal.BadWindow.selector);
-        portal.createLaunch{value: 0.0005 ether}(input, salt);
+        portal.createLaunch{value: 0.002 ether}(input, salt);
     }
 
     /// @dev A salt setUp has not already spent: mining from zero always lands on the same first
@@ -733,7 +755,9 @@ contract ForkDirectTest is Test {
                 buyTaxBps: 100, sellTaxBps: 100, snipeTaxBps: 9_800, snipeDecaySeconds: 3,
                 restrictionBlocks: 30, maxHoldBps: 500, maxBuyBps: 550,
                 tickStart: TICK_START, tickBond: TICK_BOND,
-                allocations: Allocations(10_000, 0, 0, 0)
+                allocations: Allocations(10_000, 0, 0, 0),
+                penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
+                auctionBlocks: 0
             }),
             salt: bytes32(uint256(999)), initialBuy: 0
         });

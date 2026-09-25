@@ -140,7 +140,7 @@ export function DirectPanels({ token, hook, splitter, locker, quote, launchedAt,
           <Road label="buy back and burn" bps={Number(allocations[1])} amount={buybackPot} dec={dec} sym={sym} />
           <Road label="holders" bps={Number(allocations[2])} amount={dividendsHeld} dec={dec} sym={sym} />
           <Road label="liquidity" bps={Number(allocations[3])} amount={liquidityPot} dec={dec} sym={sym} />
-          <p className="dim">A tenth goes to the protocol before any of this, and none of it can be changed.</p>
+          <p className="dim">The platform takes 1% of every trade before any of this: 0.30% to the creator, 0.70% into the Bag. The tax above that is all the creator&apos;s, split as shown, and none of it can be changed.</p>
         </div>
 
         <FeeFlow
@@ -188,20 +188,23 @@ export function DirectPanels({ token, hook, splitter, locker, quote, launchedAt,
       ) : (
       <div className="panel space-y-2 p-4">
         <h3 className="font-semibold">Your dividends</h3>
-        <div className="flex items-baseline justify-between text-sm">
-          <span className="dim">claimable</span>
-          <span className="mono">{fmt((pending as bigint | undefined) ?? 0n, dec, 6)} {sym}</span>
-        </div>
         <p className="text-xs dim">
-          Paid out of the tax to whoever holds the token, by balance. Nothing is pushed on a transfer,
-          so holding costs no gas until you claim.
+          {Number(allocations[2]) / 100}% of the tax goes to whoever holds the token, by balance. A keeper
+          pays your share to your wallet every five minutes, gas on the house. Paid to your wallet, no
+          claim needed.
         </p>
-        <button className="btn w-full text-sm" disabled={!address || ((pending as bigint | undefined) ?? 0n) === 0n}
-          onClick={() => writeContractAsync({
-            address: splitter, abi: hoodRevenueSplitterAbi, functionName: "claimDividends", args: [address!],
-          })}>
-          claim
-        </button>
+        <div className="flex items-baseline justify-between text-sm">
+          <span className="dim">booked, not yet pushed</span>
+          <span className="mono">{address ? `${fmt((pending as bigint | undefined) ?? 0n, dec, 6)} ${sym}` : "connect a wallet"}</span>
+        </div>
+        {address && ((pending as bigint | undefined) ?? 0n) > 0n && (
+          <button className="btn btn-ghost w-full text-xs"
+            onClick={() => writeContractAsync({
+              address: splitter, abi: hoodRevenueSplitterAbi, functionName: "claimDividends", args: [address],
+            })}>
+            claim now instead of waiting for the keeper
+          </button>
+        )}
       </div>
       )}
 

@@ -1,8 +1,7 @@
 # What can go wrong, and what cannot
 
-Nothing here has been audited. This document is what an auditor would be handed on the first day:
-the trust model, the things that are impossible by construction, and the things that are merely
-unlikely.
+Nothing here has had an independent audit, and none is planned. This document records the trust
+model, the things intended to be impossible by construction, and the risks that remain.
 
 ## What nobody can do
 
@@ -18,7 +17,7 @@ unlikely.
 ## What the owner can do
 
 Add presets, disable a preset for new launches, change the launch fee, change the pair allow list,
-change the graduation handler for future launches, wire the portal into the registry, open or close
+change the graduation handler for future launches, appoint or rotate the fee-buyback keeper, wire the portal into the registry, open or close
 omnichain routes, and gate NEW direct launches (pause them, or restrict them to a whitelist for a
 staged open; `canLaunch(address)` says so before anyone mines a salt). Changing the treasury reaches
 future protocol claims on every direct launch, because the tenth is pulled to the portal's current
@@ -34,10 +33,20 @@ trust boundary, and a majority of them can do everything in the list above.
 
 ## Accepted risks, named
 
-**No audit.** Nothing here should hold money that matters until it has had one.
+**No independent audit.** The team's self-audit, tests and fork rehearsal do not replace an
+independent review. Do not represent the contracts as audited or invite material deposits solely
+on the strength of this document.
 
-**The keeper key is hot.** It lives in an environment variable on the server. It can only do things
-that are permissionless anyway, so the worst it can do is waste its own gas.
+The dated internal review and its unresolved release gates are in
+[`SELF_AUDIT_2026-09-22.md`](SELF_AUDIT_2026-09-22.md).
+
+**The keeper key is hot.** It lives in an environment variable on the server. Most jobs are
+permissionless, but the curve fee router's `flushBuyback` is deliberately not: a caller who can
+choose a dust `minTokensOut` can sandwich the visible fee pot. The factory owner's Safe appoints
+and can rotate the keeper. A compromised keeper can make a buyback at a bad price and extract
+value from that accrued pot; it cannot change the split or take the curve reserve. Monitor this
+wallet and rotate it promptly. The direct machine's buyback remains permissionless, but its
+per-swap impact cap and once-per-block rule bound one execution (next paragraph).
 
 **Buybacks are immediate, not time-averaged, and capped in impact.** `HoodBuybackModule.run` is
 permissionless. One run may move the price by at most 296 ticks (about three percent); whatever
@@ -101,6 +110,16 @@ blacklisted stablecoin address) would have frozen holders, creators and buybacks
 sharing it. Nobody else's money depends on the treasury accepting funds; tested with a treasury
 that reverts.
 
+**A curve creator's rejected payout cannot block the other fee legs.** A fee recipient may be a
+contract with a reverting fallback, or a token may refuse a transfer to that address. The fee
+router now attempts that payment with bounded callback gas and, if it fails, reserves only that
+recipient's share in `creatorClaimable`. Staking, buyback and liquidity still complete. The named
+recipient alone can call `claimCreator(asset, to)` to redirect its reserved share to an accepting
+address. The router accounts for the reserve so later flushes cannot spend it. A recipient that
+cannot ever call out may still strand **its own** share; this is why the launch UI warns creators
+to choose a wallet they control. A successful EIP-7702 delegated payment can still forward funds
+away after receipt; the router cannot detect that behavior.
+
 **Hook salts are bound to the creator.** The portal hashes `(msg.sender, hookSalt)` before CREATE2,
 so two people mining from zero in the same second never land on the same address and a salt seen
 in the mempool is useless to anyone else. A creator relaunching from the same salt collides only
@@ -148,7 +167,7 @@ funds that are not already in their path.
 ## Static analysis
 
 Slither 0.11.6, run over `src/` with dependencies, tests and scripts excluded, informational and
-low findings dropped. Last run 18-09-2026 against the current tree: 59 results, no high or medium
+low findings dropped. The 18-09-2026 run had 59 results, no high or medium
 finding that is not answered below. Every high and medium finding was read and is answered here, so the next
 person does not have to re-derive the verdicts.
 
@@ -192,5 +211,5 @@ than pull, which is what makes this worth checking rather than merely interestin
 
 ## Reporting
 
-Nothing is deployed yet. Once it is, security contact goes here, along with the addresses that are
-in scope and the ones that are deliberately not.
+The operator has not published a verified security contact and in-scope deployment address list
+here. Do not describe a preview domain as a verified production deployment until those are set.

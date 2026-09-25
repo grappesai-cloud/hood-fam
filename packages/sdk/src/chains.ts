@@ -155,6 +155,14 @@ export interface HoodAddresses {
   graduator: `0x${string}`;
   curveRouter?: `0x${string}`;
   bridgeFactory?: `0x${string}`;
+  /// v3: the Bag and what hangs off it. Each one optional: a deployment from before the Bag has
+  /// none, and a job or a page that needs one says so instead of guessing.
+  bag?: `0x${string}`;
+  payday?: `0x${string}`;
+  burnClock?: `0x${string}`;
+  boosts?: `0x${string}`;
+  graduationHook?: `0x${string}`;
+  openingAuction?: `0x${string}`;
 }
 
 export function addressesFromEnv(env: Record<string, string | undefined> = process.env): HoodAddresses {
@@ -163,6 +171,8 @@ export function addressesFromEnv(env: Record<string, string | undefined> = proce
     if (!v) throw new Error(`missing ${k}`);
     return v as `0x${string}`;
   };
+  // an empty string in .env is "not deployed", the same as the key missing
+  const maybe = (k: string) => (env[k] ? (env[k] as `0x${string}`) : undefined);
   return {
     factory: need("HOOD_FACTORY"),
     feeRouter: need("HOOD_FEE_ROUTER"),
@@ -170,6 +180,12 @@ export function addressesFromEnv(env: Record<string, string | undefined> = proce
     graduator: need("HOOD_GRADUATOR"),
     curveRouter: env.HOOD_CURVE_ROUTER as `0x${string}` | undefined,
     bridgeFactory: env.HOOD_BRIDGE_FACTORY as `0x${string}` | undefined,
+    bag: maybe("HOOD_BAG"),
+    payday: maybe("HOOD_PAYDAY"),
+    burnClock: maybe("HOOD_BURN_CLOCK"),
+    boosts: maybe("HOOD_BOOSTS"),
+    graduationHook: maybe("HOOD_GRADUATION_HOOK"),
+    openingAuction: maybe("HOOD_OPENING_AUCTION"),
   };
 }
 
