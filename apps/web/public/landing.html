@@ -4,13 +4,13 @@
   <head>
     <meta charset="utf-8"/>
     <link href="https://cdn.prod.website-files.com" rel="preconnect" crossorigin="anonymous"/>
-    <title>ox.family · Launch a coin. Hold a coin. Get paid.</title>
-    <meta content="ox.family is a place to launch and trade coins on Robinhood Chain. Every trade pays a small fee, and that fee goes back to people: holders every block, traders every hour. Bots and dumpers pay extra, and that money goes to the holders too." name="description"/>
-    <meta content="ox.family · Launch a coin. Hold a coin. Get paid." property="og:title"/>
-    <meta content="ox.family is a place to launch and trade coins on Robinhood Chain. Every trade pays a small fee, and that fee goes back to people: holders every block, traders every hour. Bots and dumpers pay extra, and that money goes to the holders too." property="og:description"/>
+    <title>ox.family · Buy a coin. Hold it. Get paid every hour.</title>
+    <meta content="ox.family is the launchpad on the side of people who buy and hold. Every trade pays a 1% fee and 80% of it comes back to people: holders, traders, lockers and the creator. Bots, dumpers and creators who run pay extra, and that money goes to the holders. Paid every 5 minutes, every hour and every block, in ETH, USDG or stocks." name="description"/>
+    <meta content="ox.family · Buy a coin. Hold it. Get paid every hour." property="og:title"/>
+    <meta content="ox.family is the launchpad on the side of people who buy and hold. Every trade pays a 1% fee and 80% of it comes back to people: holders, traders, lockers and the creator. Bots, dumpers and creators who run pay extra, and that money goes to the holders. Paid every 5 minutes, every hour and every block, in ETH, USDG or stocks." property="og:description"/>
     <meta content="https://0x.grappes.dev/assets/media/ox-og.png" property="og:image"/>
-    <meta content="ox.family · Launch a coin. Hold a coin. Get paid." name="twitter:title"/>
-    <meta content="ox.family is a place to launch and trade coins on Robinhood Chain. Every trade pays a small fee, and that fee goes back to people: holders every block, traders every hour. Bots and dumpers pay extra, and that money goes to the holders too." name="twitter:description"/>
+    <meta content="ox.family · Buy a coin. Hold it. Get paid every hour." name="twitter:title"/>
+    <meta content="ox.family is the launchpad on the side of people who buy and hold. Every trade pays a 1% fee and 80% of it comes back to people: holders, traders, lockers and the creator. Bots, dumpers and creators who run pay extra, and that money goes to the holders. Paid every 5 minutes, every hour and every block, in ETH, USDG or stocks." name="twitter:description"/>
     <meta property="og:type" content="website"/>
     <meta content="summary_large_image" name="twitter:card"/>
     <meta content="width=device-width, initial-scale=1" name="viewport"/>
@@ -29,7 +29,7 @@
    "name": "What is ox.family?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "A place to launch and trade coins on Robinhood Chain. Anyone can make a coin. People trade it. Every trade pays a small fee, and that fee goes into one pot, the Bag, which pays it back to people on a schedule."
+    "text": "A launchpad on Robinhood Chain that sides with the people who buy and hold. Anyone can make a coin and anyone can trade it. Every trade pays a 1% fee, and 80% of that fee goes back to people: the creator, the holders of the house coin, and the best traders of the hour. People who play dirty pay extra, and that goes to the holders."
    }
   },
   {
@@ -117,7 +117,7 @@
    "name": "What money do I get paid in?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Whatever the coin is priced in: ETH, USDG, or a stock like NVDA or SPY. A coin priced in a stock pays you in that stock."
+    "text": "Whatever the coin is priced in. There are 235 pairs: ETH, USDG, 192 real stocks like NVDA, TSLA or SPY, and 40 coins from the chain. A coin priced in a stock pays you in that stock."
    }
   },
   {
@@ -138,14 +138,45 @@
 
 <script src="/assets/js/finsweetcomponentsconfig-1.0.7.js" type="module" async="" siteId="67a0d60e32c158a5f3186d6f" finsweet="components"></script>
   <style id="ox-reskin">.toggle__globe-container,.globe__country__info,.globe__country-search,.full-coverage-link,.onramp__lottie-content-lottie.is-2x{display:none!important}
-.value_card-lottie,.value_card-logos,.value_card-vid.is-kyc,.onramp__lottie-content-payment-methods{display:none!important}
+.value_card-lottie,.value_card-vid.is-kyc,.value_card-vid.is-ramps,.onramp__lottie-content-payment-methods{display:none!important}
 .onramp__lottie-content-lottie.is-widget{background:url(/assets/media/ox-app-launch.png) center/contain no-repeat}
 .onramp__lottie-content-lottie.is-widget canvas{visibility:hidden}
 .onramp__lottie-content-lottie.is-onramp-chip{background:url(/assets/media/ox-chip.svg) center/contain no-repeat}
 .onramp__lottie-content-lottie.is-onramp-chip svg{visibility:hidden}
 .partner__slide-logo{width:28px;height:auto}
 /* Robinhood: media albastra devine verde */
-.value_card-vid,.onramp__lottie-content-video,.product__grid-item-video,.products__grid-item .w-embed:has(video){filter:grayscale(1) sepia(1) hue-rotate(72deg) saturate(3.4) brightness(0.98)}</style>
+.product__grid-item-video,.products__grid-item .w-embed:has(video){filter:grayscale(1) sepia(1) hue-rotate(72deg) saturate(3.4) brightness(0.98)}
+/* pagina intunecata: subsolul ramane negru (schimbul alb<->negru l-ar fi facut deschis) */
+.footer__menus,.footer__bottom{background-color:#000}
+.footer__menu-title,.footer__cta-text{color:#fff}
+.footer__menu-link{color:#9a9aa8}.footer__menu-link:hover{color:#fff}
+/* globul 3D si globul video pleaca; in locul lor: in ce esti platit (ETH, USDG, NVDA, SPY) */
+.globe__script-container{min-height:560px;background:url(/assets/media/ox-quotes.png) center/contain no-repeat}
+.globe__script-container canvas{display:none!important}
+.onramp__lottie-content-video{background:url(/assets/media/ox-quotes.png) center/contain no-repeat}
+.onramp__lottie-content-video video{visibility:hidden}
+/* cele patru carduri de reguli: un vizual fiecare (treptele Vault, banda Payday, arderea, impartirea taxei) */
+.value_cards .value_card::after{content:'';position:absolute;inset:0;z-index:4;background:center/contain no-repeat;pointer-events:none}
+.value_cards .value_card:nth-child(1)::after{background-image:url(/assets/media/ox-vault.png)}
+.value_cards .value_card:nth-child(3)::after{background-image:url(/assets/media/ox-burn.png)}
+.value_cards .value_card:nth-child(4)::after{background-image:url(/assets/media/ox-split.png)}
+.value_card-logo-list .three__card-logo{width:auto;height:56px}
+/* primele doua carduri: panou inchis (fundalurile lor erau deschise); ultimele doua raman verzi */
+.value_cards .value_card:nth-child(-n+2){background:#161616}
+.value_cards .value_card:nth-child(-n+2) .value_card-bg{visibility:hidden}
+.globe__script-container{position:absolute!important;left:auto!important;right:0!important;top:0!important;width:560px!important;height:560px}
+.header__logo-link.w--current{width:64px;height:64px;padding:0!important;border-radius:999px}   /* doar semnul: cerc, nu oval */
+.products__grid-item-icon{display:none!important}   /* cardurile de reguli: fara sigla langa titlu (cerut 25 Sep) */
+.butter_bar_image{display:none!important}   /* banda de sus: fara sigla (cerut 25 Sep) */
+.butter__bar{background-color:#000!important}.butter__bar,.butter__bar *{color:#fff!important}
+.products__grid-item-link.is-headless .image-19{display:none}
+/* 'is-white' insemna text alb pe fundal inchis; variabila 'white' e acum fundalul paginii, deci textul se pune alb aici */
+.three__card-item-title.is-white,.hero__content.is-white,.heading-style-h3.is-white,.button-text.is-white,.header__navigation-link.is-white,.header__navigation-link-text.is-white{color:#fff}
+.value_card-logo-list .three__card-logo{opacity:1!important}
+/* pre-subsolul pe telefon avea un gradient albastru si o pata turcoaz sub text: verde Robinhood */
+.text__block-bg-blue{background-image:linear-gradient(90deg,#00c805,#0a8f2a)!important}
+.bg__blob.is-onramps{background-color:#2fd94f}
+@media (max-width:767px){.globe__script-container{position:relative!important;right:auto!important;width:100%!important;height:340px;min-height:340px;margin-top:24px}}</style>
 </head>
   <body>
     <div class="page-wrapper">
@@ -153,7 +184,7 @@
         <style>
 /* GLOBAL CSS START */
 [split-text-animation] {
-white-space: pre-wrap;
+#0a0a0a-space: pre-wrap;
 }
 /* GLOBAL CSS END */
 
@@ -168,7 +199,7 @@ grid-template-rows: unset !important;
 }
 
 .header__navigation-dropdown {
-box-shadow: 0px 0px 4.457px 0px #FFF inset, 0px 5px 40px 0px rgba(19, 40, 42, 0.15);
+box-shadow: 0px 0px 4.457px 0px #0a0a0a inset, 0px 5px 40px 0px rgba(19, 40, 42, 0.15);
 }
 
 .header__navigation-link:has(.header__navigation-dropdown)::after {
@@ -378,7 +409,7 @@ transform: unset !important;
 .blog__rich-text p,
 .blog__rich-text ul,
 .blog__rich-text span {
-color: #6A6A84;
+color: #9a9aa8;
 }
 /* BLOG DETAILS END */
 
@@ -397,7 +428,7 @@ display: flex;
 /* PRICING PAGE START */
 
 .pricing__table__head-link:hover path {
-fill: #151515;
+fill: #f4f4f4;
 transition: 0.3s fill ease; 
 }
 
@@ -415,7 +446,7 @@ font-size: 12px;
 
 .tweet__footer-content p span {
 font-weight: 500;
-color: #151515;
+color: #f4f4f4;
 }
 
 @media (min-width: 991px) {
@@ -479,7 +510,7 @@ transition: 0.3s ease-in-out;
 }
 
 .products__grid-item:hover .product__grid-item-icon svg circle {
-fill: #151515;
+fill: #f4f4f4;
 }
 
 @media(max-width: 768px) {
@@ -555,7 +586,7 @@ right: 12rem;
 .tooltip {
 background-color: rgba(26, 30, 39, 0.82);
 border-radius: 40px;
-color: white;
+color: #0a0a0a;
 text-align: center;
 padding: 20px;
 display: none;
@@ -584,10 +615,10 @@ margin-top: 20px;
 
 #pagination button {
 border-radius: 50px;
-border: 1px solid #808099;
-background-color: white;
+border: 1px solid #9a9aa8;
+background-color: #0a0a0a;
 padding: 5px 10px;
-color: #808099;
+color: #9a9aa8;
 }
 
 #pagination .pagination-arrow {
@@ -598,8 +629,8 @@ align-items: center;
 }
 
 #pagination .active {
-background-color: #6a6a84;
-color: white;
+background-color: #9a9aa8;
+color: #0a0a0a;
 }
 
 .country-search {
@@ -618,7 +649,7 @@ border-radius: 1.5rem 1.5rem 0 0;
 }
 
 .input-container:focus-within {
-box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+box-shadow: 0 4px 8px rgba(255, 255, 255, 0.15);
 border-radius: 50px;
 }
 
@@ -631,9 +662,9 @@ left: 20px;
 .country-input {
 width: 100%;
 padding: 8px 35px 8px 56px;
-border: 1px solid #ccc;
+border: 1px solid #3a3a3a;
 border-radius: 60px;
-background: white;
+background: #0a0a0a;
 height: 56px;
 transition: border-radius 0.3s ease-in-out;
 }
@@ -659,9 +690,9 @@ position: absolute;
 top: 100%;
 left: 0;
 width: 100%;
-background: white;
+background: #0a0a0a;
 border-radius: 0 0 1.5rem 1.5rem;
-box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+box-shadow: 0 4px 8px rgba(255, 255, 255, 0.1);
 max-height: 0;
 overflow: hidden;
 opacity: 0;
@@ -734,14 +765,14 @@ appearance: none;
 -webkit-appearance: none;
 width: 20px;
 height: 20px;
-background-color: white; /* <-- unchecked background */
+background-color: #0a0a0a; /* <-- unchecked background */
 cursor: pointer;
 position: relative;
 border-radius: 4px;
 }
 
 .newsletter__form input[type="checkbox"]:checked {
-background-color: black; /* <-- checked background */
+background-color: #ffffff; /* <-- checked background */
 }
 
 .newsletter__form input[type="checkbox"]:checked::after {
@@ -751,18 +782,18 @@ top: 3px;
 left: 7px;
 width: 4px;
 height: 10px;
-border: solid white;
+border: solid #0a0a0a;
 border-width: 0 2px 2px 0;
 transform: rotate(45deg);
 }
 
 .newsletter__form input[type="email"] {
-color: #151515 !important;
+color: #f4f4f4 !important;
 font-family: "Saans TRIAL", Arial, sans-serif;
 }
 
 .form__input.w-select {
-color: #151515 !important;
+color: #f4f4f4 !important;
 font-family: "Saans TRIAL", Arial, sans-serif;
 -webkit-appearance: none;
 -moz-appearance: none;
@@ -785,7 +816,7 @@ display: block
 
 .fs-consent_banner {
 z-index: 9999;
-background-color: #f5f5f5;
+background-color: #161616;
 border-top-left-radius: 16px;
 max-width: 45rem;
 padding: 2rem;
@@ -836,7 +867,7 @@ display: flex
 
 .fs-consent_allow {
 background-color: var(--_colors---off-black);
-color: #fff;
+color: #0a0a0a;
 border-radius: 40px;
 padding: .5rem 1rem;
 font-family: Saans TRIAL,Arial,sans-serif;
@@ -857,7 +888,7 @@ overflow: scroll
 }
 
 .fs-consent_prefs_header {
-border-bottom: 1px solid #0003;
+border-bottom: 1px solid #ffffff33;
 padding-bottom: 1.5rem
 }
 
@@ -866,9 +897,9 @@ font-size: 1.25rem
 }
 
 .fs-consent_prefs_close {
-color: #fff;
+color: #0a0a0a;
 cursor: pointer;
-background-color: #000;
+background-color: #ffffff;
 padding: .5rem;
 text-decoration: none;
 display: flex;
@@ -891,7 +922,7 @@ position: relative
 
 .fs-consent_decline {
 color: var(--_colors---off-black);
-background-color: #ddd;
+background-color: #2a2a2a;
 border-radius: 40px;
 padding: .5rem 1rem;
 font-family: Saans TRIAL,Arial,sans-serif;
@@ -916,7 +947,7 @@ inset: 0%
 
 .fs-consent_prefs_overlay {
 z-index: 1;
-background-color: #0000001a;
+background-color: #ffffff1a;
 width: 100%;
 height: 100%;
 position: absolute;
@@ -941,7 +972,7 @@ line-height: 0
 }
 
 .fs-consent_prefs_form {
-background-color: #fff;
+background-color: #0a0a0a;
 width: 100%;
 max-width: 36.25rem;
 height: 100%;
@@ -952,11 +983,11 @@ position: relative
 
 .fs-consent_open-prefs {
 z-index: 9998;
-color: #333;
+color: #cccccc;
 -webkit-text-decoration: block;
 text-decoration: block;
 cursor: pointer;
-background-color: #ddd;
+background-color: #2a2a2a;
 border-radius: 40px;
 display: block;
 position: fixed;
@@ -966,8 +997,8 @@ inset: auto auto .75rem .75rem
 .fs-consent_open-prefs_wrapper {
 grid-column-gap: 8px;
 grid-row-gap: 8px;
-color: #fff;
-background-color: #000;
+color: #0a0a0a;
+background-color: #ffffff;
 border-radius: 40px;
 flex-flow: row;
 justify-content: flex-start;
@@ -989,7 +1020,7 @@ font-weight: 500
 
 .fs-consent_prefs_link {
 border-bottom: 2px solid var(--_colors---off-black);
-color: #333;
+color: #cccccc;
 padding-top: .5rem;
 padding-bottom: .5rem;
 font-family: Saans TRIAL,Arial,sans-serif;
@@ -1000,7 +1031,7 @@ text-decoration: none
 .fs-consent_prefs_option {
 grid-column-gap: .5rem;
 grid-row-gap: .5rem;
-border-bottom: 1px solid #0003;
+border-bottom: 1px solid #ffffff33;
 flex-flow: column;
 justify-content: flex-start;
 align-items: stretch;
@@ -1082,12 +1113,12 @@ font-family: var(--_typography---primary) !important;
       </div>
       <header class="header">
         <div data-wf--butter__bar-leadmagnet--variant="base" class="butter__bar"><a href="https://0x.grappes.dev/bag" class="butter__bar-link w-inline-block"><div class="container">
-              <div class="butter__bar-content"><img width="100" loading="lazy" alt="ox.family" src="/assets/media/ox-chip.svg" class="butter_bar_image"/><div class="butter__bar-description">The Bag is live on Robinhood Chain. Every fee goes into one pot, and the pot pays people back.</div>
-                <div class="butter__bar-cta">See the pot ↗</div>
+              <div class="butter__bar-content"><img width="100" loading="lazy" alt="ox.family" src="/assets/media/ox-chip.svg" class="butter_bar_image"/><div class="butter__bar-description">Buy and hold, and you get paid from every side, every hour. Only bots and dumpers pay.</div>
+                <div class="butter__bar-cta">See who got paid ↗</div>
               </div>
             </div></a></div>
         <div class="container">
-          <div class="header__wrap"><a data-w-id="8d8d7bda-2535-2326-49c3-cb71ff8b079b" href="/" aria-current="page" class="header__logo-link w-inline-block w--current"><img src="/assets/media/ox-wordmark-dark.svg" alt="ox.family" class="logo-lottie" style="padding:0;height:25px;width:auto"/><div hidden>
+          <div class="header__wrap"><a data-w-id="8d8d7bda-2535-2326-49c3-cb71ff8b079b" href="/" aria-current="page" class="header__logo-link w-inline-block w--current"><img src="/assets/media/ox-mark.svg" alt="ox.family" class="logo-lottie" style="padding:0;height:25px;width:auto"/><div hidden>
               </div><img src="/assets/media/ox-mark.svg" loading="eager" alt="ox.family" class="header__link-logo-mobile"/></a><div class="header__navigation-wrap">
               <div class="header__navigation"><a hoverstagger="link" href="https://0x.grappes.dev/launch" class="header__navigation-link w-inline-block"><div class="stagger-button-wrapper">
                     <div hoverstagger="text" class="header__navigation-link-text">Launch a coin</div>
@@ -1111,7 +1142,7 @@ font-family: var(--_typography---primary) !important;
 </svg></div>
                   <div class="header__navigation-dropdown is-grid"><a href="https://0x.grappes.dev/launch" class="header__navigation-dropdown-link is-grid is-terminal w-inline-block"><div class="header__navigation-dropdown-text header_navigation-dropdown-heading">Snipers pay</div>
                       <div class="header__navigation-dropdown-text">Buy in the first seconds, pay a tax. Holders get it.</div></a><a href="https://0x.grappes.dev/launch" class="header__navigation-dropdown-link is-grid is-onramp w-inline-block"><div class="header__navigation-dropdown-text header_navigation-dropdown-heading">Creators cannot run</div>
-                      <div class="header__navigation-dropdown-text">A creator who sells loses his fees. Holders get them.</div></a><a href="https://0x.grappes.dev/launch" class="header__navigation-dropdown-link is-grid is-swap w-inline-block"><div class="header__navigation-dropdown-text header_navigation-dropdown-heading">Dumps buy the dip</div>
+                      <div class="header__navigation-dropdown-text">A creator who sells loses their fees. Holders get them.</div></a><a href="https://0x.grappes.dev/launch" class="header__navigation-dropdown-link is-grid is-swap w-inline-block"><div class="header__navigation-dropdown-text header_navigation-dropdown-heading">Dumps buy the dip</div>
                       <div class="header__navigation-dropdown-text">Every sell tax buys the coin back, right away.</div></a><a href="https://0x.grappes.dev/launch" class="header__navigation-dropdown-link is-grid is-offramp w-inline-block"><div class="header__navigation-dropdown-text header_navigation-dropdown-heading">King of the hill</div>
                       <div class="header__navigation-dropdown-text">60 seconds with no buy: the last buyer wins the pot.</div></a><a href="https://0x.grappes.dev/launch" class="header__navigation-dropdown-link is-grid is-terminal w-inline-block"><div class="header__navigation-dropdown-text header_navigation-dropdown-heading">First-buyer auction</div>
                       <div class="header__navigation-dropdown-text">Bots bid for the first buy. Half goes to holders,<br/>half stays locked in the pool forever.</div></a></div>
@@ -1184,11 +1215,11 @@ font-family: var(--_typography---primary) !important;
           <div class="container">
             <div class="hero__wrapper">
               <div class="hero__content">
-                <h1 hero-title="" class="heading-style-h2 text-color-black">Launch a coin. Hold a coin. Get paid.</h1>
-                <p hero-text="" class="hero__subtitle">Every trade on ox.family pays a small fee. That fee does not sit with us. It goes into one pot, the Bag, and the Bag pays it back: coin holders every block, traders every hour. Bots, flippers and dumpers pay extra, and that money goes to the holders too. Live on Robinhood Chain.</p>
+                <h1 hero-title="" class="heading-style-h2 text-color-black">Buy. Hold. Get paid every hour.</h1>
+                <p hero-text="" class="hero__subtitle">ox.family is the launchpad on the side of people who buy and hold. 80% of every fee comes back to people, and bots, dumpers and creators who run pay the holders extra. Hold and you get paid every five minutes. Trade and you get paid every hour. Everyone who plays fair gets a share.</p>
                 <div hero-cta="" class="hero__actions"><a hoverstagger="link" href="https://0x.grappes.dev/launch" target="_blank" class="primary-link w-inline-block"><div class="stagger-button-wrapper">
-                      <div hoverstagger="text" class="button-text">Launch a coin</div>
-                      <div hoverstagger="text" class="button-text stagger-duplicate">Launch a coin</div>
+                      <div hoverstagger="text" class="button-text">Start holding</div>
+                      <div hoverstagger="text" class="button-text stagger-duplicate">Start holding</div>
                     </div></a></div>
               </div>
               <div class="hero__video-wrap">
@@ -1197,16 +1228,16 @@ font-family: var(--_typography---primary) !important;
             </div>
           </div>
           <div class="carousel__container">
-            <div class="logo__container"><img src="/assets/media/ox-strip-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-6.svg" loading="eager" alt="Boosts" class="logo__image is-btc"/><img src="/assets/media/ox-strip-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image is-btc"/><img src="/assets/media/ox-strip-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-6.svg" loading="eager" alt="Boosts" class="logo__image"/><img src="/assets/media/ox-strip-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image is-btc"/></div>
-            <div class="logo__container"><img src="/assets/media/ox-strip-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-5.svg" loading="eager" alt="Launch fees" class="logo__image is-btc"/><img src="/assets/media/ox-strip-6.svg" loading="eager" alt="Boosts" class="logo__image is-btc"/><img src="/assets/media/ox-strip-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image"/><img src="/assets/media/ox-strip-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-6.svg" loading="eager" alt="Boosts" class="logo__image is-btc"/></div>
+            <div class="logo__container"><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image is-btc"/><img src="/assets/media/ox-strip-light-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image is-btc"/><img src="/assets/media/ox-strip-light-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image"/><img src="/assets/media/ox-strip-light-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image is-btc"/></div>
+            <div class="logo__container"><img src="/assets/media/ox-strip-light-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image is-btc"/><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image is-btc"/><img src="/assets/media/ox-strip-light-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image"/><img src="/assets/media/ox-strip-light-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image is-btc"/></div>
           </div>
         </section>
         <div class="section_value-cards">
           <div class="container">
             <div class="three_card-header">
-              <h2 split-text-animation="" class="heading-style-h2">One pot. Four rules. Nobody can touch it.</h2>
+              <h2 split-text-animation="" class="heading-style-h2">80% of every fee comes back to you.</h2>
               <div class="three__card-content">
-                <p split-text-animation="" class="three__card-text">Every trade pays 1%. A third of that goes to the person who made the coin. The rest goes into the Bag.<br/>The Bag splits it four ways: 30 to people who locked the house coin, 10 to the best traders of the hour, 10 to buy and burn the house coin, 20 to us. The split is written in the contract. Nobody can change it and nobody can take the money out.</p>
+                <p split-text-animation="" class="three__card-text">Every trade pays 1%. We keep 20 of every 100. The other 80 goes back to the people who use the site.<br/>30 goes to the person who made the coin. 30 goes to people who locked the house coin. 10 goes to the best traders of the hour. 10 buys the house coin and burns it. The split is written in the contract. Nobody can change it, and nobody can take the money out.</p>
                 <div fade-in="" class="three__card-cta"><a hoverstagger="link" href="https://0x.grappes.dev/bag" class="primary-link w-inline-block"><div class="stagger-button-wrapper">
                       <div hoverstagger="text" class="button-text">See the pot live</div>
                       <div hoverstagger="text" class="button-text stagger-duplicate">See the pot live</div>
@@ -1215,25 +1246,25 @@ font-family: var(--_typography---primary) !important;
             </div>
             <div class="value_cards">
               <div class="value_card"><img src="/assets/media/699f051c91f1e791ce505e4c_ramps-bg.avif" loading="lazy" alt="" class="value_card-bg"/><div class="value_card-vid is-ramps w-embed"><video muted playsinline>
-	<source src="/assets/video/GlobeSpin.mp4" type='video/mp4; codecs="hvc1"'>
-  	<source src="/assets/video/GlobeSpin.webm" type="video/webm">
+	<source data-src="GlobeSpin.mp4" type='video/mp4; codecs="hvc1"'>
+  	<source data-src="GlobeSpin.webm" type="video/webm">
 </video></div>
                 <div class="value_card-content">
-                  <div class="three__card-item-title">Lock the house coin, get paid every block</div>
+                  <div class="three__card-item-title">Lock the house coin, get 30% of every fee</div>
                 </div>
               </div>
               <div class="value_card"><img src="/assets/media/699f05301228aff8b7dfb861_payment-bg.avif" loading="lazy" sizes="(max-width: 1240px) 100vw, 1240px" srcset="/assets/media/699f05301228aff8b7dfb861_payment-bg-p-500.avif 500w, /assets/media/699f05301228aff8b7dfb861_payment-bg.avif 1240w" alt="" class="value_card-bg"/><div class="value_card-content">
-                  <div class="three__card-item-title is-white">Trade a lot, get paid every hour</div>
+                  <div class="three__card-item-title is-white">Trade, get 10% of every fee, every hour</div>
                   <div class="value_card-logos">
-                    <div class="value_card-logo-list"><img src="/assets/media/67d1d931b38d263fadcbcd8d_Background.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1d95f2a0b377694543644_Component%201.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1d9741c8658ced107508f_Background-1.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da01dd546f38b4833d3c_Component%201-1.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da0d412ac84cfffa19d1_Component%201-2.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da1ecdffe3c388b1a821_Background-2.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da29ea72e236f9c52e27_Background-3.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da3c385e1f0429dddf42_Background-4.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da47c836652db8ca9916_Background-5.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da47c836652db8ca9916_Background-5.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da69c075be930923e24f_Background-6.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da7b73ea5c8fc6c83a22_Background-7.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da7b73ea5c8fc6c83a22_Background-7.svg" loading="eager" alt="" class="three__card-logo"/></div>
-                    <div class="value_card-logo-list is-bottom"><img src="/assets/media/699f230eef1653cdcc995d4f_r.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da1ecdffe3c388b1a821_Background-2.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da29ea72e236f9c52e27_Background-3.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/699f20fa4abf70e29d1448c0_sepa.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da47c836652db8ca9916_Background-5.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da7b73ea5c8fc6c83a22_Background-7.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da29ea72e236f9c52e27_Background-3.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da3c385e1f0429dddf42_Background-4.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da47c836652db8ca9916_Background-5.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da47c836652db8ca9916_Background-5.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da69c075be930923e24f_Background-6.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da7b73ea5c8fc6c83a22_Background-7.svg" loading="eager" alt="" class="three__card-logo"/><img src="/assets/media/67d1da7b73ea5c8fc6c83a22_Background-7.svg" loading="eager" alt="" class="three__card-logo"/></div>
+                    <div class="value_card-logo-list"><img src="/assets/media/ox-payday-1.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-2.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-3.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-4.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-5.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-6.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-7.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-8.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-9.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-10.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-11.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-12.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-13.png" loading="eager" alt="Payday rule" class="three__card-logo"/></div>
+                    <div class="value_card-logo-list is-bottom"><img src="/assets/media/ox-payday-1.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-2.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-3.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-4.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-5.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-6.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-7.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-8.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-9.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-10.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-11.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-12.png" loading="eager" alt="Payday rule" class="three__card-logo"/><img src="/assets/media/ox-payday-13.png" loading="eager" alt="Payday rule" class="three__card-logo"/></div>
                   </div>
                   <div class="value_card-spacer">
                   </div>
                 </div>
               </div>
               <div class="value_card"><img src="/assets/media/699f0529684d12695be22949_kyc-bg.avif" loading="lazy" sizes="(max-width: 1240px) 100vw, 1240px" srcset="/assets/media/699f0529684d12695be22949_kyc-bg-p-500.avif 500w, /assets/media/699f0529684d12695be22949_kyc-bg.avif 1240w" alt="" class="value_card-bg"/><div class="value_card-content">
-                  <div class="three__card-item-title">Every hour the house coin gets bought and burned</div>
+                  <div class="three__card-item-title">Every hour, 10% of every fee burns the house coin</div>
                   <div class="value_card-lottie">
                   </div>
                   <div class="value_card-spacer">
@@ -1241,7 +1272,7 @@ font-family: var(--_typography---primary) !important;
                 </div>
               </div>
               <div class="value_card"><img src="/assets/media/699f0529684d12695be22949_kyc-bg.avif" loading="lazy" sizes="(max-width: 1242px) 100vw, 1242px" srcset="/assets/media/699f0529684d12695be22949_kyc-bg-p-500.avif 500w, /assets/media/699f0529684d12695be22949_kyc-bg.avif 1242w" alt="" class="value_card-bg"/><div class="value_card-content">
-                  <div class="three__card-item-title is-white">Our part is 20%, and you can see it live</div>
+                  <div class="three__card-item-title is-white">We keep 20%. You can check it live</div>
                   <div class="value_card-vid is-kyc w-embed"><video muted playsinline loop>
 	<source src="/assets/video/kyc-v3.mp4" type='video/mp4; codecs="hvc1"'>
   	<source src="/assets/video/kyc-v3.webm" type="video/webm">
@@ -1257,7 +1288,7 @@ font-family: var(--_typography---primary) !important;
               <div class="globe__section">
                 <div class="globe__section-wrap">
                   <h1 split-text-animation="" class="globe__heading">You get paid in real money.<br/>ETH, USDG, or stocks.</h1>
-                  <p split-text-animation="" class="globe__subtitle">A coin is priced in ETH, in USDG, or in a stock like NVDA or SPY. Whatever it is priced in, that is what lands in your wallet.</p>
+                  <p split-text-animation="" class="globe__subtitle">235 pairs to pick from: ETH, USDG, 192 real stocks like NVDA, TSLA, AAPL or SPY, and 40 coins from the chain. Whatever your coin is priced in, that is what lands in your wallet.</p>
                   <div class="toggle__globe-container is-offramp">
                     <div class="toggle__globe-slider">
                     </div>
@@ -1270,8 +1301,8 @@ font-family: var(--_typography---primary) !important;
                   </div>
                   <div class="globe__country__info-clear is-offramp">
                     <div class="cross-black w-embed"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
-<path d="M15 1L1 15" stroke="#151515" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M1 1L15 15" stroke="#151515" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M15 1L1 15" stroke="#f4f4f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1 1L15 15" stroke="#f4f4f4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg></div>
                     <p class="global__country__info-clear-txt--2">Clear</p>
                   </div>
@@ -1350,7 +1381,7 @@ font-family: var(--_typography---primary) !important;
                 <h3 split-text-animation="" class="text-center">Bots pay you. On every coin.</h3>
               </div>
               <div class="products__grid-text">
-                <p split-text-animation="" class="text-style-subtitle text-center text-color-body">These rules are on for every coin. Each one takes money from someone who plays dirty and gives it to the people who hold.</p>
+                <p split-text-animation="" class="text-style-subtitle text-center text-color-body">These rules are on for every coin. Each one takes money from someone who plays dirty and gives it to the people who hold. Holders get 80% of every penalty.</p>
               </div>
             </div>
             <div class="products__grid-items"><a fade-in="" href="https://0x.grappes.dev/launch" class="products__grid-item-link w-inline-block"><div class="products__grid-item">
@@ -1380,7 +1411,7 @@ font-family: var(--_typography---primary) !important;
   <line x1="17.7714" y1="39.1088" x2="38.3691" y2="18.5111" stroke="white" stroke-width="2.25974"/>
 </svg></div>
                     </div>
-                    <div class="products__grid-item-text">The creator sells his own coin? He loses all his fees, in the same second. The holders get them.</div>
+                    <div class="products__grid-item-text">The creator sells their own coin? They lose all their fees, in the same second. The holders get them.</div>
                   </div><img src="/assets/media/ox-card-slash.png" loading="eager" alt="A creator who sells loses his fees" class="products__grid-item-image"/></div>
                 <div class="product__grid-item-video w-embed"><video loop muted playsinline>
 	<source src="/assets/video/Onramp%20Product%20Card-BG-tr.mp4" type='video/mp4; codecs="hvc1"'>
@@ -1433,8 +1464,8 @@ font-family: var(--_typography---primary) !important;
                     <div class="products__grid-item-text">A tax on fast flippers. A tax on big dumps. King of the hill. A first-buyer auction. The creator turns them on when launching.</div>
                   </div><img src="/assets/media/ox-card-options.png" loading="eager" alt="Extra rules the creator can turn on" class="products__grid-item-image"/></div><img src="/assets/media/69e8fe97b77867f2805a8e85_Headless-token-static-4.avif" loading="lazy" width="791" alt="" class="image-19"/></a></div>
             <div fade-in="" class="products__grid-cta"><a hoverstagger="link" href="https://0x.grappes.dev/launch" target="_blank" class="primary-link w-inline-block"><div class="stagger-button-wrapper">
-                  <div hoverstagger="text" class="button-text">Launch a coin</div>
-                  <div hoverstagger="text" class="button-text stagger-duplicate">Launch a coin</div>
+                  <div hoverstagger="text" class="button-text">Start holding</div>
+                  <div hoverstagger="text" class="button-text stagger-duplicate">Start holding</div>
                 </div></a></div>
           </div>
         </section>
@@ -1446,10 +1477,10 @@ font-family: var(--_typography---primary) !important;
               <div class="onramp__lottie-content-lottie is-2x">
               </div>
               <div class="onramp__lottie-content-title">
-                <h3 class="text-color-black is-scroll-title">One hour on a new coin, <br/>step by step</h3>
+                <h3 class="text-color-black is-scroll-title">One hour of holding, <br/>and every way you get paid</h3>
               </div>
               <div class="onramp__lottie-content-text">
-                <p class="text-style-large">You do not click anything. The money shows up in your wallet every five minutes, and we pay the gas.</p>
+                <p class="text-style-large">You buy, you hold, you do not click anything else. Penalties land in your wallet every five minutes, Payday lands every hour, and we pay the gas.</p>
               </div>
               <div class="onramp__lottie-content-pills">
                 <div class="onramp__lottie-content-pills-wrap">
@@ -1469,7 +1500,7 @@ font-family: var(--_typography---primary) !important;
                     <div class="onramp__lottie-content-pill-text">0:36 a whale dumps, the coin gets bought back</div>
                   </div>
                   <div class="onramp__lottie-content-pill">
-                    <div class="onramp__lottie-content-pill-text">0:44 the creator sells, loses his fees</div>
+                    <div class="onramp__lottie-content-pill-text">0:44 the creator sells, holders get their fees</div>
                   </div>
                   <div class="onramp__lottie-content-pill">
                     <div class="onramp__lottie-content-pill-text">1:00 traders get paid, house coin gets burned</div>
@@ -1479,8 +1510,8 @@ font-family: var(--_typography---primary) !important;
             </div>
             <div class="onramp__lottie-content is-video">
               <div class="onramp__lottie-content-video w-embed"><video autoplay loop playsinline muted width="500" height="500">
-  <source src="/assets/video/GlobeSpin.mp4" type='video/mp4; codecs="hvc1"' />
-  <source src="/assets/video/GlobeSpin.webm" type="video/webm" />
+  <source data-src="GlobeSpin.mp4" type='video/mp4; codecs="hvc1"' />
+  <source data-src="GlobeSpin.webm" type="video/webm" />
 </video></div>
               <div class="onramp__lottie-content-payment-methods">
                 <div class="onramp__lottie-content-payment-methods-wrap"><img src="/assets/media/67d05a6a9ccaada92d4f3ab7_Background-5.svg" loading="lazy" width="29" alt="" class="onramp__lottie-content-payment-method-image"/><img src="/assets/media/67d05ac51bdb56e2ad3a489e_Background.svg" loading="lazy" alt="" class="onramp__lottie-content-payment-method-image"/><img src="/assets/media/67d05a7ed8a0facade02c0d5_Component%203.svg" loading="lazy" alt="" class="onramp__lottie-content-payment-method-image"/><img src="/assets/media/67d05ac58f1fa3d6e9dbd2a9_Component%201.svg" loading="lazy" alt="" class="onramp__lottie-content-payment-method-image"/><div class="is-middle-payment-method"><img src="/assets/media/67d05aaf3556c1424218d7ca_Component%202.svg" loading="lazy" alt="" class="onramp__lottie-content-payment-method-image is-center"/><div class="payment-method-checkmark">
@@ -1500,7 +1531,7 @@ font-family: var(--_typography---primary) !important;
                 <h3 class="heading-style-h6 is-scroll-title">Paid in what the coin<br/>is priced in</h3>
               </div>
               <div class="onramp__lottie-content-text">
-                <p class="text-style-large">ETH, USDG, NVDA or SPY. A coin priced in a stock pays you in that stock.</p>
+                <p class="text-style-large">ETH, USDG, 192 stocks and 40 chain coins: 235 pairs. A coin priced in a stock pays you in that stock.</p>
               </div>
             </div>
             <div class="onramp__lottie-content">
@@ -1529,10 +1560,10 @@ font-family: var(--_typography---primary) !important;
                     </div>
                   </div>
                   <div class="onramp__lottie-content-title">
-                    <h3 class="heading-style-h6 text-color-black is-scroll-title">Wall of shame</h3>
+                    <h3 class="heading-style-h6 text-color-black is-scroll-title">Bots fund your bag</h3>
                   </div>
                   <div class="onramp__lottie-content-text">
-                    <p class="text-style-large">The bots that paid the most, on a public list. <br/>If you held the coin when a bot paid, you get points.</p>
+                    <p class="text-style-large">Every penalty a bot pays lands with the holders. <br/>Hold when a bot pays and you get Payday points on top.</p>
                   </div>
                 </div>
               </div>
@@ -1551,7 +1582,7 @@ font-family: var(--_typography---primary) !important;
         <section class="partners">
           <div class="container">
             <div class="partners__title">
-              <h3 split-text-animation="" class="heading-style-h3">What you get, depending on who you are</h3>
+              <h3 split-text-animation="" class="heading-style-h3">Everyone gets paid. Here is how much.</h3>
             </div>
             <div class="swiper is-partners w-dyn-list">
               <div stagger="" role="list" class="swiper-wrapper is-partners w-dyn-items">
@@ -1559,7 +1590,7 @@ font-family: var(--_typography---primary) !important;
                   <div class="partner__slider-inner">
                     <div class="partner__slide-content">
                       <div class="partner__slide-content-top">
-                        <h4>You made the coin</h4><img src="/assets/media/ox-mark.svg" loading="lazy" id="partner__slide-logo" alt="ox.family" class="partner__slide-logo"/><div class="partner__slide-text">You get a third of every fee on your coin, forever. Launch it straight into a pool and you can add your own tax on top, 1 to 10%, all yours. You choose what your money does: keep it, buy the coin back, pay your holders, or add it to the pool.</div>
+                        <h4>You made the coin</h4><img src="/assets/media/ox-mark.svg" loading="lazy" id="partner__slide-logo" alt="ox.family" class="partner__slide-logo"/><div class="partner__slide-text">You get 30% of every fee on your coin, forever. Launch it straight into a pool and you can add your own tax on top, 1 to 10%, all yours. You choose what your money does: keep it, buy the coin back, pay your holders, or add it to the pool.</div>
                       </div>
                       <div class="partner__slide-content-bottom">
                         <div class="partner__slide-name">Cost to launch a coin</div>
@@ -1572,7 +1603,7 @@ font-family: var(--_typography---primary) !important;
                   <div class="partner__slider-inner">
                     <div class="partner__slide-content">
                       <div class="partner__slide-content-top">
-                        <h4>You hold a coin</h4><img src="/assets/media/ox-mark.svg" loading="lazy" id="partner__slide-logo" alt="ox.family" class="partner__slide-logo"/><div class="partner__slide-text">Bots, flippers and whales pay you. 80% of every penalty goes to the holders, straight to your wallet, every five minutes. When the coin graduates you get a bonus. You never click a claim button.</div>
+                        <h4>You hold a coin</h4><img src="/assets/media/ox-mark.svg" loading="lazy" id="partner__slide-logo" alt="ox.family" class="partner__slide-logo"/><div class="partner__slide-text">Bots, flippers and whales pay you. 80% of every penalty goes to the holders, straight to your wallet, every five minutes. When the coin graduates, a quarter of the graduation fee goes to the holders. Trade it and Payday pays you every hour on top. You never click a claim button.</div>
                       </div>
                       <div class="partner__slide-content-bottom">
                         <div class="partner__slide-name">How often you get paid</div>
@@ -1585,7 +1616,7 @@ font-family: var(--_typography---primary) !important;
                   <div class="partner__slider-inner">
                     <div class="partner__slide-content">
                       <div class="partner__slide-content-top">
-                        <h4>You locked the house coin</h4><img src="/assets/media/ox-mark.svg" loading="lazy" id="partner__slide-logo" alt="ox.family" class="partner__slide-logo"/><div class="partner__slide-text">Lock the house coin and you get a share of every fee on the whole chain, every block, paid in ETH, USDG and stocks. Lock it for a year and you get 2.5 times more than someone who did not lock.</div>
+                        <h4>You locked the house coin</h4><img src="/assets/media/ox-mark.svg" loading="lazy" id="partner__slide-logo" alt="ox.family" class="partner__slide-logo"/><div class="partner__slide-text">Lock the house coin and you get a share of 30% of every fee on ox.family, every block, paid in ETH, USDG and stocks. Lock it for 180 days and your share counts 2.5 times.</div>
                       </div>
                       <div class="partner__slide-content-bottom">
                         <div class="partner__slide-name">When it starts</div>
@@ -1616,7 +1647,7 @@ font-family: var(--_typography---primary) !important;
                 <div class="faq__question-container">
                   <h4 data-w-id="5d7b79e8-5747-c538-81e0-0fdc5dcd3cd1" class="faq__question-title"><strong>What is ox.family?</strong></h4>
                   <div class="faq__answer-container">
-                    <p class="faq__question-answer-2">A place to launch and trade coins on Robinhood Chain. Anyone can make a coin. People trade it. Every trade pays a small fee, and that fee goes into one pot, the Bag, which pays it back to people on a schedule.</p>
+                    <p class="faq__question-answer-2">A launchpad on Robinhood Chain that sides with the people who buy and hold. Anyone can make a coin and anyone can trade it. Every trade pays a 1% fee, and 80% of that fee goes back to people: the creator, the holders of the house coin, and the best traders of the hour. People who play dirty pay extra, and that goes to the holders.</p>
                   </div>
                 </div>
                 <div class="faq__close-btn w-embed"><svg xmlns="http://www.w3.org/2000/svg" width="25" height="25" viewBox="0 0 25 25" fill="none">
@@ -1748,7 +1779,7 @@ font-family: var(--_typography---primary) !important;
                 <div class="faq__question-container">
                   <h4 data-w-id="5d7b79e8-5747-c538-81e0-0fdc5dcd3cff" class="faq__question-title"><strong>What money do I get paid in?</strong></h4>
                   <div class="faq__answer-container">
-                    <p class="faq__question-answer-2">Whatever the coin is priced in: ETH, USDG, or a stock like NVDA or SPY. A coin priced in a stock pays you in that stock.</p>
+                    <p class="faq__question-answer-2">Whatever the coin is priced in. There are 235 pairs: ETH, USDG, 192 real stocks like NVDA, TSLA or SPY, and 40 coins from the chain. A coin priced in a stock pays you in that stock.</p>
                   </div>
                 </div>
                 <div class="faq__close-btn w-embed"><svg xmlns="http://www.w3.org/2000/svg" width="25" height="25" viewBox="0 0 25 25" fill="none">
@@ -1777,10 +1808,10 @@ font-family: var(--_typography---primary) !important;
         </div>
         <div class="container">
           <div class="pre__footer-copy">
-            <h2 split-text-animation="" class="pre__footer-title">Launch. Hold. Get paid.</h2>
-            <h2 class="pre__footer-title-mobile">Launch.<br/>Hold.<br/>Get paid.</h2>
+            <h2 split-text-animation="" class="pre__footer-title">Buy. Hold. Get paid.</h2>
+            <h2 class="pre__footer-title-mobile">Buy.<br/>Hold.<br/>Get paid.</h2>
             <div class="pre__footer-content">
-              <div split-text-animation="" class="pre__footer-text">One pot, four rules, and a clock everyone can see. Live on Robinhood Chain.</div>
+              <div split-text-animation="" class="pre__footer-text">The launchpad on the side of people who buy and hold. Money reaches you every five minutes, every hour and every block. Live on Robinhood Chain.</div>
             </div>
             <div class="pre__footer-content-cta">
               <div fade-in="" class="pre__footer-content-cta-title">Live now | launching a coin costs 0.002 ETH</div>
@@ -1799,8 +1830,8 @@ font-family: var(--_typography---primary) !important;
         </div>
         <div class="pre__footer-marquee-wrap">
           <div class="carousel__container">
-            <div class="logo__container"><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image"/><img src="/assets/media/ox-strip-light-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image"/><img src="/assets/media/ox-strip-light-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image"/><img src="/assets/media/ox-strip-light-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image is-btc"/></div>
-            <div class="logo__container"><img src="/assets/media/ox-strip-light-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image"/><img src="/assets/media/ox-strip-light-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image"/><img src="/assets/media/ox-strip-light-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image is-btc"/></div>
+            <div class="logo__container"><img src="/assets/media/ox-strip-light-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image"/><img src="/assets/media/ox-strip-light-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image"/><img src="/assets/media/ox-strip-light-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image"/><img src="/assets/media/ox-strip-light-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image is-btc"/></div>
+            <div class="logo__container"><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image"/><img src="/assets/media/ox-strip-light-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image"/><img src="/assets/media/ox-strip-light-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image"/><img src="/assets/media/ox-strip-light-5.svg" loading="eager" alt="Launch fees" class="logo__image"/><img src="/assets/media/ox-strip-light-6.svg" loading="eager" alt="Boosts" class="logo__image"/><img src="/assets/media/ox-strip-light-7.svg" loading="eager" alt="Robinhood Chain" class="logo__image"/><img src="/assets/media/ox-strip-light-8.svg" loading="eager" alt="Uniswap v4" class="logo__image"/><img src="/assets/media/ox-strip-light-1.svg" loading="eager" alt="Every trade" class="logo__image"/><img src="/assets/media/ox-strip-light-2.svg" loading="eager" alt="Every graduation" class="logo__image"/><img src="/assets/media/ox-strip-light-3.svg" loading="eager" alt="House coin trades" class="logo__image"/><img src="/assets/media/ox-strip-light-4.svg" loading="eager" alt="Penalties" class="logo__image is-btc"/></div>
           </div>
         </div>
       </section>
