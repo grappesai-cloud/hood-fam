@@ -354,6 +354,10 @@ export function OptionCard({ title, body, on, fixed, tag, onToggle, children }: 
   );
 }
 
+/// The default opening surcharge: half the buy at second zero, gone within three seconds. The
+/// hook allows up to 99% on top of the buy tax; the founder chose the softer opening.
+export const DEFAULT_SNIPE_PCT = 50;
+
 /// The creator's penalty options, the same six cards on both machines. The snipe tax is the one
 /// with a home elsewhere (it is a field of the direct machine's own config), so the direct form
 /// passes it in and the curve form leaves it out. The three defaults that cannot be turned off are
@@ -373,7 +377,7 @@ export function PenaltyOptions({ value, onChange, snipe, postGraduation }: {
       {snipe && (
         <OptionCard title="Snipe tax" tag="on by default" on={snipe.pct > 0}
           body={`A buyer in the first ${snipe.seconds || 3} seconds pays up to ${snipe.pct}% extra, falling to nothing by the end. The holders get it.`}
-          onToggle={(on) => snipe.onChange(on ? snipe.maxPct : 0, on ? (snipe.seconds || 3) : 0)}>
+          onToggle={(on) => snipe.onChange(on ? Math.min(DEFAULT_SNIPE_PCT, snipe.maxPct) : 0, on ? (snipe.seconds || 3) : 0)}>
           <div className="grid gap-4 sm:grid-cols-2">
             <Slider label={`Extra tax at the open ${snipe.pct}%`} hint={`Added to the buy tax at second zero. The hook allows at most ${snipe.maxPct}% on top of your buy tax.`}
               min={1} max={snipe.maxPct} step={1} value={Math.min(snipe.pct, snipe.maxPct)} onChange={(v) => snipe.onChange(v, snipe.seconds || 3)} />

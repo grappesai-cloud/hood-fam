@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 /// A Content-Security-Policy that fits a wallet dApp rather than fighting it.
 /// - `frame-ancestors` is the point: the app has a Connect button and one-click trade, and a page
 ///   that can be framed can be clickjacked into either. Exactly one origin may frame it,
@@ -37,9 +38,18 @@ const SECURITY_HEADERS = [
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
 ];
 
+/// On the ox build the front page is a static landing page (public/landing.html, built in
+/// ~/clona-onramper). The brand is read from the generated app/brand.css rather than from an
+/// environment variable, so a plain `next build` after `npm run brand -- ox` gets the same result
+/// as the Docker build. The app's own home moves to /discover (app/discover/page.tsx).
+const IS_OX = (() => { try { return readFileSync(new URL("./app/brand.css", import.meta.url), "utf8").includes("/ox/"); } catch { return false; } })();
+
 /** @type {import('next').NextConfig} */
 export default {
   reactStrictMode: true,
+  async rewrites() {
+    return IS_OX ? { beforeFiles: [{ source: "/", destination: "/landing.html" }] } : [];
+  },
   // Local design work can run beside a production build or the screenshot harness. Giving the
   // dev server its own dist directory prevents `next build` from replacing files underneath a
   // running `next dev` process (which otherwise surfaces as a missing routes-manifest and a 500).

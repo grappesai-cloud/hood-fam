@@ -2243,3 +2243,633 @@ html[data-brand="ox"] .ox-social-grid.single { grid-template-columns: 1fr; }
   html[data-brand="ox"] .ox-ticker-run { overflow-x: auto; scrollbar-width: none; }
   html[data-brand="ox"] .ox-ticker-label i { animation: none; }
 }
+
+/* ================================================================================ dark face
+   ox.family is a dark product now: a near black page, charcoal cards with soft corners, off-white
+   type set in Saans, and Robinhood green kept for the mark, the arrows, the active states and the
+   numbers that went up. Everything above in this file described an older dark product; this last
+   layer is the one in effect, and every rule in it is scoped to html[data-brand="ox"] so the other
+   faces do not move. Where an earlier rule was written with a long selector, the same selector is
+   repeated here so the later declaration wins on equal specificity. The palette is named once in
+   the first block; the footer and the home hero are pure black on the near black page, on purpose. */
+@font-face { font-family: "Saans"; src: url("/fonts/SaansRegular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Saans"; src: url("/fonts/SaansMedium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+
+html[data-brand="ox"] {
+  --color-ink: #0a0a0a;
+  --color-ink-2: #161616;
+  --color-panel: #161616;
+  --color-line: #ffffff14;
+  --color-dim: #9a9aa8;
+  --color-text: #f4f4f4;
+  --color-lime: #00c805;
+  --color-lime-soft: #2fd94f;
+  --color-red: #ff5000;
+  --color-green: #00c805;
+  --color-bg: #0a0a0a;
+  --font-sans: "Saans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --glass: #161616;
+  --glass-line: #ffffff14;
+  --glass-shadow: 0 1px 2px #00000066, 0 14px 34px -26px #000000cc;
+  --glass-blur: none;
+  --glass-hover-line: #ffffff2e;
+  --glow-lime: none;
+  --glow-lime-strong: none;
+  --liquid-surface: #161616;
+  --liquid-surface-deep: #161616;
+  --liquid-control: #1f1f22;
+  --liquid-lime: #f4f4f4;
+  --liquid-line: #2c2c30;
+  --liquid-line-soft: #ffffff14;
+  --liquid-inset: none;
+  --liquid-shadow: none;
+  --radius: 24px;
+  /* The dark palette, named once. */
+  --ox-steel: #9a9aa8;
+  --ox-line-strong: #2c2c30;
+  --ox-row-line: #ffffff14;
+  --ox-surface-2: #1f1f22;
+  --ox-chip: #1f1f22;
+  --ox-green-dark: #0a8f2a;
+  --ox-green-pale: #134a1f;
+  --ox-green-tint: #0f2a14;
+  --ox-red-tint: #2a1208;
+  --ox-amber: #ffb340;
+  --ox-amber-line: #b37a00;
+  --ox-amber-tint: #2a1f08;
+  --ox-shadow: 0 1px 2px #00000066, 0 14px 34px -26px #000000cc;
+  color-scheme: dark;
+}
+
+html[data-brand="ox"] body { background: #0a0a0a; color: #f4f4f4; font-family: var(--font-sans); font-size: 16px; line-height: 1.5; letter-spacing: -.01em; font-synthesis: none; }
+html[data-brand="ox"] body::before, html[data-brand="ox"] body::after, html[data-brand="ox"] .atmosphere { display: none; }
+html[data-brand="ox"] ::selection { background: #134a1f; color: #ffffff; }
+html[data-brand="ox"] * { scrollbar-color: #2c2c30 transparent; }
+html[data-brand="ox"] :focus-visible { outline-color: #00c805 !important; }
+html[data-brand="ox"] :is(h1, h2, h3, h4) { color: #f4f4f4; font-family: var(--font-sans); font-weight: 500; letter-spacing: -.02em; line-height: 1.05; }
+html[data-brand="ox"] :is(h1, h2, h3, h4) em { background: none; -webkit-background-clip: border-box; background-clip: border-box; color: #00c805; font-style: normal; }
+html[data-brand="ox"] :is(.page-intro h1, .page-head h1, .token-hero h1, .explore-heading h1) { background: none; -webkit-background-clip: border-box; background-clip: border-box; color: #f4f4f4; font-weight: 500; letter-spacing: -.025em; }
+html[data-brand="ox"] .page-intro p { color: #9a9aa8; font-size: 16px; }
+html[data-brand="ox"] .launch-shell > .page-intro p { color: #9a9aa8; }
+html[data-brand="ox"] .dim { color: #9a9aa8; }
+html[data-brand="ox"] .mono { font-family: var(--font-mono); }
+html[data-brand="ox"] .text-\[var\(--color-lime\)\] { color: #2fd94f; }
+html[data-brand="ox"] .positive { color: #00c805; }
+html[data-brand="ox"] .negative { color: #ff5000; }
+
+/* ---------------------------------------------------------------- chrome */
+html[data-brand="ox"] .ox-topbar { position: sticky; top: 0; border: 0; background: #0a0a0a; box-shadow: none; backdrop-filter: none; }
+html[data-brand="ox"] .ox-topbar-inner { display: grid; width: min(100%, 1340px); height: 80px; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; padding: 0 20px; }
+html[data-brand="ox"] .ox-topbar .ox-brand-link { min-height: 44px; margin: 0; padding: 0; justify-self: start; }
+html[data-brand="ox"] .ox-wordmark { gap: 10px; }
+html[data-brand="ox"] .ox-wordmark-mark, html[data-brand="ox"] .ox-topbar .ox-wordmark-mark { width: 45px; height: 27px; }
+html[data-brand="ox"] .ox-wordmark-name { color: #f4f4f4; font-family: var(--font-sans); font-size: 21px; font-weight: 500; letter-spacing: -.03em; }
+html[data-brand="ox"] .ox-topbar .ox-nav { display: flex; align-items: center; gap: 2px; margin: 0; border: 1px solid #ffffff0a; border-radius: 999px; padding: 5px; background: #161616; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .ox-topbar .ox-nav-link { min-height: 38px; border: 0; border-radius: 999px; padding: 0 16px; background: transparent; color: #f4f4f4; font-size: 15px; font-weight: 500; box-shadow: none; }
+html[data-brand="ox"] .ox-topbar .ox-nav-link:hover { background: #1f1f22; color: #f4f4f4; transform: none; }
+html[data-brand="ox"] .ox-topbar .ox-nav-link.active { background: #134a1f; color: #f4f4f4; box-shadow: none; }
+html[data-brand="ox"] .ox-top-actions { justify-self: end; gap: 8px; margin-left: 0; }
+html[data-brand="ox"] .ox-more-menu summary { min-height: 42px; border: 1px solid #2c2c30; border-radius: 999px; padding: 0 16px; background: #1f1f22; color: #f4f4f4; font-size: 14px; font-weight: 500; }
+html[data-brand="ox"] .ox-more-menu[open] summary, html[data-brand="ox"] .ox-more-menu summary:hover { border-color: #f4f4f4; background: #2a2a2e; color: #f4f4f4; }
+html[data-brand="ox"] .ox-more-menu nav { top: 50px; border: 1px solid #ffffff14; border-radius: 18px; padding: 8px; background: #161616; box-shadow: 0 1px 2px #00000066, 0 20px 50px -20px #000000cc; }
+html[data-brand="ox"] .ox-more-menu nav a { border-radius: 10px; padding: 10px 12px; color: #f4f4f4; font-size: 14px; }
+html[data-brand="ox"] .ox-more-menu nav a:hover { background: #0f2a14; color: #f4f4f4; }
+html[data-brand="ox"] .ox-launch-button,
+html[data-brand="ox"] .ox-app-shell .ox-topbar .ox-launch-button { min-height: 42px; border: 1px solid #f4f4f4; border-radius: 999px; padding: 0 18px; background: #f4f4f4; color: #0a0a0a; font-size: 14px; font-weight: 500; box-shadow: none; text-shadow: none; transition: opacity .2s; }
+html[data-brand="ox"] .ox-launch-button:hover,
+html[data-brand="ox"] .ox-app-shell .ox-topbar .ox-launch-button:hover:not(:disabled) { border-color: #ffffff; background: #ffffff; color: #0a0a0a; opacity: 1; }
+html[data-brand="ox"] .ox-launch-button span { color: #0a8f2a; }
+html[data-brand="ox"] .ox-wallet, html[data-brand="ox"] .ox-topbar .ox-wallet { min-height: 42px; border: 1px solid #2c2c30; border-radius: 999px; padding: 0 16px; background: #1f1f22; color: #f4f4f4; font-size: 13px; font-weight: 500; box-shadow: none; backdrop-filter: none; }
+html[data-brand="ox"] .ox-wallet:hover:not(:disabled) { border-color: #f4f4f4; background: #2a2a2e; color: #f4f4f4; }
+html[data-brand="ox"] .ox-wallet-connect,
+html[data-brand="ox"] .ox-app-shell .ox-topbar .ox-wallet-connect { border-color: #134a1f; background: #134a1f; color: #f4f4f4; font-size: 14px; font-weight: 500; box-shadow: none; text-shadow: none; }
+html[data-brand="ox"] .ox-wallet-connect:hover:not(:disabled) { border-color: #0a8f2a; background: #0a8f2a; color: #f4f4f4; }
+html[data-brand="ox"] .ox-wallet-dot { background: #00c805; }
+html[data-brand="ox"] .ox-network-line, html[data-brand="ox"] .ox-product-name { display: none; }
+
+/* The footer stays a pure black block on the near black page. */
+html[data-brand="ox"] .ox-footer { grid-template-columns: auto minmax(200px, 1fr) auto; margin: 32px auto 28px; border: 0; border-radius: 28px; padding: 30px 34px; background: #000000; color: #ffffff; }
+html[data-brand="ox"] .ox-footer .ox-wordmark-name { color: #ffffff; }
+html[data-brand="ox"] .ox-footer p, html[data-brand="ox"] .ox-footer nav { color: #9a9aa8; font-size: 12px; }
+html[data-brand="ox"] .ox-footer nav a { color: #9a9aa8; }
+html[data-brand="ox"] .ox-footer nav a:hover { color: #00c805; }
+
+/* The intro splash, dark. */
+html[data-brand="ox"][data-ox-splash="show"] .ox-intro { background: #0a0a0a; color: #f4f4f4; font-family: var(--font-sans); }
+html[data-brand="ox"] .ox-intro-first > span, html[data-brand="ox"] .ox-intro-second > strong, html[data-brand="ox"] .ox-intro-arrow { font-weight: 500; letter-spacing: -.05em; }
+html[data-brand="ox"] .ox-intro-first > small, html[data-brand="ox"] .ox-intro-eyebrow, html[data-brand="ox"] .ox-intro-foot { font-weight: 500; }
+html[data-brand="ox"] .ox-intro-second { background: #134a1f; color: #f4f4f4; }
+html[data-brand="ox"] .ox-intro-arrow { color: #00c805; }
+
+/* ---------------------------------------------------------------- buttons, inputs, surfaces */
+html[data-brand="ox"] .btn,
+html[data-brand="ox"] .btn:not(.btn-ghost),
+html[data-brand="ox"] .ox-app-shell .ox-content-column .btn:not(.btn-ghost),
+html[data-brand="ox"] .ox-primary-action,
+html[data-brand="ox"] .ox-app-shell .ox-content-column .ox-primary-action { min-height: 44px; border: 1px solid #f4f4f4; border-radius: 70px; padding: 11px 22px; background: #f4f4f4; color: #0a0a0a; font-family: var(--font-sans); font-size: 14px; font-weight: 500; letter-spacing: -.01em; box-shadow: none; text-shadow: none; filter: none; transition: opacity .2s, background .2s, border-color .2s; }
+html[data-brand="ox"] .btn:hover:not(:disabled),
+html[data-brand="ox"] .btn:not(.btn-ghost):hover:not(:disabled),
+html[data-brand="ox"] .ox-primary-action:hover,
+html[data-brand="ox"] .ox-primary-action:hover:not(:disabled) { border-color: #ffffff; background: #ffffff; color: #0a0a0a; box-shadow: none; filter: none; opacity: 1; transform: none; }
+html[data-brand="ox"] .btn:disabled { opacity: .38; }
+html[data-brand="ox"] .btn.btn-ghost, html[data-brand="ox"] .ox-secondary-action { border: 1px solid #2c2c30; background: #1f1f22; color: #f4f4f4; box-shadow: none; backdrop-filter: none; }
+html[data-brand="ox"] .btn.btn-ghost:hover:not(:disabled), html[data-brand="ox"] .ox-secondary-action:hover { border-color: #f4f4f4; background: #2a2a2e; color: #f4f4f4; box-shadow: none; opacity: 1; transform: none; }
+html[data-brand="ox"] .ox-secondary-action span { color: #00c805; }
+html[data-brand="ox"] .ox-board-trade { min-height: 32px; border: 1px solid transparent; border-radius: 999px; padding: 0 12px; background: #134a1f; color: #f4f4f4; font-family: var(--font-sans); font-size: 12px; font-weight: 500; box-shadow: none; backdrop-filter: none; }
+html[data-brand="ox"] .ox-board-trade:hover:not(:disabled), html[data-brand="ox"] .ox-board-trade:hover { border-color: transparent; background: #0a8f2a; color: #f4f4f4; box-shadow: none; }
+html[data-brand="ox"] .ox-board-trade span { color: #2fd94f; }
+html[data-brand="ox"] :is(.input, textarea.input, select.input) { min-height: 44px; border: 1px solid #2c2c30; border-radius: 16px; padding: 11px 14px; background: #1f1f22; color: #f4f4f4; font-family: var(--font-sans); box-shadow: none; backdrop-filter: none; }
+html[data-brand="ox"] :is(.input, textarea.input, select.input):focus { border-color: #00c805; box-shadow: 0 0 0 3px #00c80526; }
+html[data-brand="ox"] .input::placeholder { color: #9a9aa8; }
+html[data-brand="ox"] select.input { color-scheme: dark; }
+html[data-brand="ox"] :is(.panel, .launch-preview, .step, .choice, .launch-bar, .sim, .art-picker, .token-hero, .token-facts, .chart-panel, .trade-panel, .token-tape, .chat-panel, .holder-map, .portfolio-empty, .fact, .way, .fineprint, .safe-strip, .demo-strip, .bridge-workspace) { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); backdrop-filter: none; }
+html[data-brand="ox"] :is(.panel, .launch-preview, .trade-panel, .token-hero, .portfolio-empty, .bridge-workspace):hover { border-color: #ffffff14; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] :is(.panel, .launch-preview, .trade-panel, .bridge-workspace) { border-radius: 24px; }
+html[data-brand="ox"] .lg-sheen, html[data-brand="ox"] .spot::before { display: none; }
+html[data-brand="ox"] .section-kicker, html[data-brand="ox"] .eyebrow { border: 0; padding: 0; background: none; color: #9a9aa8; font-size: 10px; letter-spacing: .1em; }
+html[data-brand="ox"] .section-kicker::before, html[data-brand="ox"] .eyebrow::before { background: #00c805; box-shadow: none; }
+html[data-brand="ox"] .ox-heading-kicker, html[data-brand="ox"] .ox-desk-kicker, html[data-brand="ox"] .ox-lastten .lastten-kicker, html[data-brand="ox"] .lastten-kicker, html[data-brand="ox"] .launch-fee-example-kicker { color: #2fd94f; }
+html[data-brand="ox"] .hatch { background: #ffffff14; }
+
+/* Plain documents: a `.doc-page` of headings, paragraphs, lists and tables inside panels. */
+html[data-brand="ox"] .doc-page { width: min(860px, 100%); margin: 0 auto; }
+html[data-brand="ox"] .doc-page .panel { padding: 26px 30px; }
+html[data-brand="ox"] .doc-page .panel + .panel, html[data-brand="ox"] .doc-page > * + * { margin-top: 16px; }
+html[data-brand="ox"] .doc-page h1 { margin: 0 0 12px; font-size: clamp(34px, 4vw, 48px); }
+html[data-brand="ox"] .doc-page h2 { margin: 0 0 12px; font-size: 26px; }
+html[data-brand="ox"] .doc-page h3 { margin: 22px 0 8px; font-size: 19px; }
+html[data-brand="ox"] .doc-page :is(h2, h3) + :is(p, ul, ol) { margin-top: 0; }
+html[data-brand="ox"] .doc-page :is(p, li) { color: #a3a3a3; font-size: 16px; line-height: 1.6; }
+html[data-brand="ox"] .doc-page p + p, html[data-brand="ox"] .doc-page p + :is(ul, ol), html[data-brand="ox"] .doc-page :is(ul, ol) + p { margin-top: 12px; }
+html[data-brand="ox"] .doc-page :is(ul, ol) { padding-left: 22px; }
+html[data-brand="ox"] .doc-page ul { list-style: disc; }
+html[data-brand="ox"] .doc-page ol { list-style: decimal; }
+html[data-brand="ox"] .doc-page li + li { margin-top: 5px; }
+html[data-brand="ox"] .doc-page li::marker { color: #2fd94f; }
+html[data-brand="ox"] .doc-page a, html[data-brand="ox"] .panel :is(p, li) a { color: #2fd94f; text-decoration: underline; text-underline-offset: 3px; }
+html[data-brand="ox"] .doc-page strong { color: #f4f4f4; font-weight: 500; }
+html[data-brand="ox"] .doc-page code { border-radius: 6px; padding: 1px 6px; background: #1f1f22; font-family: var(--font-mono); font-size: .9em; }
+html[data-brand="ox"] .doc-page hr { margin: 24px 0; border: 0; border-top: 1px solid #ffffff14; }
+html[data-brand="ox"] .doc-page table { width: 100%; margin: 12px 0; border-collapse: collapse; font-size: 14px; }
+html[data-brand="ox"] .doc-page th { padding: 10px 12px; border-bottom: 1px solid #ffffff14; color: #9a9aa8; font-size: 11px; font-weight: 500; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+html[data-brand="ox"] .doc-page td { padding: 10px 12px; border-top: 1px solid #ffffff14; color: #f4f4f4; vertical-align: top; }
+html[data-brand="ox"] .doc-page tr:first-child td { border-top: 0; }
+html[data-brand="ox"] .doc-page blockquote { margin: 14px 0; border-left: 3px solid #00c805; padding: 4px 0 4px 16px; color: #9a9aa8; }
+html[data-brand="ox"] .doc-page .panel > :first-child { margin-top: 0; }
+html[data-brand="ox"] .doc-page .panel > :last-child { margin-bottom: 0; }
+
+/* ---------------------------------------------------------------- the ox home */
+html[data-brand="ox"] .ox-ticker { margin: 8px 0 12px; border: 1px solid #ffffff14; border-radius: 16px; background: #161616; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .ox-ticker-label { border-right-color: #ffffff14; color: #f4f4f4; }
+html[data-brand="ox"] .ox-ticker-label i { box-shadow: none; }
+html[data-brand="ox"] .ox-ticker-item { border-right-color: #ffffff14; color: #9a9aa8; }
+html[data-brand="ox"] .ox-ticker-item:hover { background: #1f1f22; color: #f4f4f4; }
+html[data-brand="ox"] .ox-ticker-item b { color: #2fd94f; }
+html[data-brand="ox"] .ox-identicon { box-shadow: inset 0 0 0 1px #ffffff14; }
+html[data-brand="ox"] .ox-ticker-empty { color: #9a9aa8; }
+html[data-brand="ox"] .ox-ticker-action { border-left-color: #ffffff14; color: #f4f4f4; }
+html[data-brand="ox"] .ox-ticker-action:hover, html[data-brand="ox"] .ox-ticker-action span { color: #2fd94f; }
+html[data-brand="ox"] .ox-market-toolbar .ox-search { border: 1px solid #2c2c30; background: #1f1f22; color: #00c805; box-shadow: none; backdrop-filter: none; }
+html[data-brand="ox"] .ox-market-toolbar .ox-search:focus-within { border-color: #00c805; box-shadow: 0 0 0 3px #00c80526; }
+html[data-brand="ox"] .ox-search input { color: #f4f4f4; font-family: var(--font-sans); }
+html[data-brand="ox"] .ox-search input::placeholder { color: #9a9aa8; }
+html[data-brand="ox"] .ox-search kbd { border-color: #2c2c30; background: #1f1f22; color: #9a9aa8; }
+html[data-brand="ox"] .ox-market-shortcuts > * { border: 1px solid #2c2c30; background: #1f1f22; color: #f4f4f4; font-weight: 500; }
+html[data-brand="ox"] .ox-market-shortcuts > :hover { border-color: #f4f4f4; background: #2a2a2e; color: #f4f4f4; }
+html[data-brand="ox"] .ox-market-shortcuts > * > span { color: #f4f4f4; }
+html[data-brand="ox"] .ox-desk-col { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); scrollbar-color: #2c2c30 transparent; }
+html[data-brand="ox"] .ox-desk-head { border-bottom-color: #ffffff14; background: #161616; backdrop-filter: none; }
+html[data-brand="ox"] .ox-desk-title h2 { color: #f4f4f4; }
+html[data-brand="ox"] .ox-desk-figure strong { color: #f4f4f4; }
+html[data-brand="ox"] .ox-desk-unit { color: #9a9aa8; font-family: var(--font-sans); }
+html[data-brand="ox"] .ox-desk-figure small, html[data-brand="ox"] .ox-desk-empty, html[data-brand="ox"] .ox-desk .money-tape li.feed-empty { color: #9a9aa8; }
+html[data-brand="ox"] .ox-desk-figure.due strong { color: #2fd94f; }
+html[data-brand="ox"] .ox-desk-skeleton i { background: linear-gradient(110deg, #1f1f22 20%, #2a2a2e 40%, #1f1f22 60%) #1f1f22; background-size: 200% 100%; }
+html[data-brand="ox"] .ox-line { color: #f4f4f4; }
+html[data-brand="ox"] .ox-line:hover { background: #1f1f22; }
+html[data-brand="ox"] .ox-line-id strong, html[data-brand="ox"] .ox-line-cap strong { color: #f4f4f4; }
+html[data-brand="ox"] .ox-line-id small, html[data-brand="ox"] .ox-line-cap small { color: #9a9aa8; }
+html[data-brand="ox"] .ox-line-id small b { color: #a3a3a3; }
+html[data-brand="ox"] .ox-line-cap strong.figure-dash, html[data-brand="ox"] .ox-line-change.dim { color: #9a9aa8; }
+html[data-brand="ox"] .ox-line-change.positive { color: #00c805; }
+html[data-brand="ox"] .ox-line-change.negative { color: #ff5000; }
+html[data-brand="ox"] .ox-line-tag { border-color: #2c2c30; color: #9a9aa8; }
+html[data-brand="ox"] .ox-line-tag.hot, html[data-brand="ox"] .ox-line-tag.boost { border-color: #b37a00; background: #2a1f08; color: #ffb340; }
+html[data-brand="ox"] .ox-line-tag.migrated { border-color: #00c80566; background: #0f2a14; color: #2fd94f; }
+html[data-brand="ox"] .ox-desk .money-tape li { border-bottom-color: #ffffff14; }
+html[data-brand="ox"] .ox-desk .money-what { color: #9a9aa8; }
+html[data-brand="ox"] .ox-desk .prov-key { color: #9a9aa8; }
+html[data-brand="ox"] .ox-discover, html[data-brand="ox"] .ox-trending-section, html[data-brand="ox"] .ox-how { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .ox-section-heading > p, html[data-brand="ox"] .ox-section-heading button { color: #9a9aa8; }
+html[data-brand="ox"] .ox-section-heading button:hover, html[data-brand="ox"] .ox-section-heading button span { color: #2fd94f; }
+html[data-brand="ox"] .ox-sort-tabs, html[data-brand="ox"] .ox-view-switch { border: 0; background: #1f1f22; box-shadow: none; backdrop-filter: none; }
+html[data-brand="ox"] .ox-sort-tabs button { color: #9a9aa8; font-family: var(--font-sans); font-weight: 500; }
+html[data-brand="ox"] .ox-sort-tabs button:hover, html[data-brand="ox"] .ox-view-switch button:hover { color: #f4f4f4; }
+html[data-brand="ox"] .ox-sort-tabs button.active, html[data-brand="ox"] .ox-view-switch button.active { border-color: transparent; background: #134a1f; color: #f4f4f4; box-shadow: none; }
+html[data-brand="ox"] .ox-sort-tabs button.active::before { display: none; }
+html[data-brand="ox"] .ox-view-switch button { color: #9a9aa8; }
+html[data-brand="ox"] .ox-state { border: 1px dashed #2c2c30; background: #1f1f22; box-shadow: none; backdrop-filter: none; }
+html[data-brand="ox"] .ox-state > span { border-color: #00c80566; background: #0f2a14; color: #2fd94f; box-shadow: none; }
+html[data-brand="ox"] .ox-state p { color: #9a9aa8; }
+html[data-brand="ox"] .ox-board-wrap { border-color: #ffffff14; background: #161616; box-shadow: none; backdrop-filter: none; scrollbar-color: #2c2c30 transparent; }
+html[data-brand="ox"] .ox-board-table thead { background: #1f1f22; box-shadow: none; }
+html[data-brand="ox"] .ox-board-table th { color: #9a9aa8; }
+html[data-brand="ox"] .ox-board-table tbody tr { border-top-color: #ffffff14; }
+html[data-brand="ox"] .ox-board-table tbody tr:hover { background: #1f1f22; box-shadow: inset 2px 0 0 #00c805; }
+html[data-brand="ox"] .ox-board-table td, html[data-brand="ox"] .ox-board-table td > strong, html[data-brand="ox"] .ox-board-progress-label b { color: #f4f4f4; }
+html[data-brand="ox"] .ox-board-table td > small, html[data-brand="ox"] .ox-board-progress-label small { color: #9a9aa8; }
+html[data-brand="ox"] .ox-board-table td > strong.dim { color: #9a9aa8; }
+html[data-brand="ox"] .ox-board-token strong { color: #f4f4f4; font-family: var(--font-sans); }
+html[data-brand="ox"] .ox-board-token small { color: #9a9aa8; }
+html[data-brand="ox"] .ox-board-token > div { color: #2fd94f; }
+html[data-brand="ox"] .ox-board-table tbody tr:has(.ox-boost-tag) { box-shadow: inset 2px 0 0 #b37a00; }
+html[data-brand="ox"] :is(.ox-progress, .ox-board-progress, .progress-track) { border: 0; background: #ffffff14; box-shadow: none; }
+html[data-brand="ox"] :is(.ox-progress i, .ox-board-progress i, .progress-fill) { background: #00c805; box-shadow: none; }
+html[data-brand="ox"] :is(.ox-progress.done i, .ox-board-progress.done i) { background: #2c2c30; }
+html[data-brand="ox"] .ox-progress.hot, html[data-brand="ox"] .ox-board-progress.hot { box-shadow: none; }
+html[data-brand="ox"] .ox-race-wrap .card-progress > div::after, html[data-brand="ox"] .ox-progress.hot i::after, html[data-brand="ox"] .ox-board-progress.hot i::after { border-color: #161616; background: #00c805; box-shadow: 0 0 0 3px #00c80533; }
+html[data-brand="ox"] .ox-token-card, html[data-brand="ox"] .ox-trending-card { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); backdrop-filter: none; }
+html[data-brand="ox"] .ox-token-card:hover, html[data-brand="ox"] .ox-trending-card:hover { border-color: #ffffff2e; background: #161616; box-shadow: var(--ox-shadow); transform: translateY(-1px); }
+html[data-brand="ox"] .ox-token-art, html[data-brand="ox"] .ox-trending-art { border-color: #ffffff14; background: #1f1f22; box-shadow: none; }
+html[data-brand="ox"] .ox-token-art > div, html[data-brand="ox"] .ox-trending-art > div { color: #2fd94f; }
+html[data-brand="ox"] .ox-trending-art .ox-rank { background: #161616e6; color: #f4f4f4; }
+html[data-brand="ox"] .ox-rank { color: #9a9aa8; }
+html[data-brand="ox"] .ox-trending-name strong, html[data-brand="ox"] .ox-trending-cap strong, html[data-brand="ox"] .ox-token-title strong { color: #f4f4f4; }
+html[data-brand="ox"] .ox-trending-name small, html[data-brand="ox"] .ox-trending-cap small, html[data-brand="ox"] .ox-token-body > p { color: #9a9aa8; }
+html[data-brand="ox"] .ox-token-title small { color: #2fd94f; }
+html[data-brand="ox"] .ox-token-title > b { color: #9a9aa8; }
+html[data-brand="ox"] .ox-token-card:hover .ox-token-title > b { color: #00c805; }
+html[data-brand="ox"] .ox-token-numbers { border-color: #ffffff14; }
+html[data-brand="ox"] .ox-token-numbers > span + span { border-left-color: #ffffff14; }
+html[data-brand="ox"] .ox-token-numbers small { color: #9a9aa8; }
+html[data-brand="ox"] .ox-token-numbers strong, html[data-brand="ox"] .ox-progress-label b { color: #f4f4f4; }
+html[data-brand="ox"] .ox-progress-label { color: #9a9aa8; }
+html[data-brand="ox"] .ox-token-foot { color: #9a9aa8; }
+html[data-brand="ox"] .ox-token-foot b { color: #9a9aa8; font-family: var(--font-sans); }
+html[data-brand="ox"] .ox-token-card:hover .ox-token-foot b { color: #2fd94f; }
+html[data-brand="ox"] .ox-token-skeleton { border-color: #ffffff14; background: linear-gradient(110deg, #1f1f22 20%, #2a2a2e 40%, #1f1f22 60%) #1f1f22; background-size: 200% 100%; }
+html[data-brand="ox"] :is(.ox-live-pill, .ox-status, .ox-age) { border-color: #ffffff14; background: #161616e6; color: #9a9aa8; box-shadow: none; backdrop-filter: none; }
+html[data-brand="ox"] .ox-status { color: #2fd94f; }
+html[data-brand="ox"] .ox-status.done { color: #f4f4f4; }
+html[data-brand="ox"] .ox-card-lock { border-color: #00c80566; background: #161616e6; color: #2fd94f; }
+html[data-brand="ox"] .ox-dev-lock { color: #2fd94f; }
+html[data-brand="ox"] .ox-boost-tag, html[data-brand="ox"] .boost-tag { border-color: #b37a00; background: #2a1f08; color: #ffb340; }
+html[data-brand="ox"] .ox-card-boost { border-color: #b37a00; background: #2a1f08; color: #ffb340; }
+
+/* The hero is a pure black card on the near black home page: the chip from the landing page, at full width. */
+html[data-brand="ox"] .ox-hero, html[data-brand="ox"] .ox-live-tape + .ox-hero { border: 0; border-radius: 28px; background: #000000; color: #ffffff; box-shadow: none; }
+html[data-brand="ox"] .ox-hero h1 { color: #ffffff; font-weight: 500; letter-spacing: -.03em; }
+html[data-brand="ox"] .ox-hero h1 em { color: #00c805; text-shadow: none; }
+html[data-brand="ox"] .ox-hero-copy > p { color: #9a9aa8; }
+html[data-brand="ox"] .ox-live-pill { border: 1px solid #ffffff24; padding: 6px 11px; background: #ffffff0a; color: #d6d6dc; font-size: 11px; letter-spacing: .04em; }
+html[data-brand="ox"] .ox-live-pill i { background: #00c805; box-shadow: none; }
+html[data-brand="ox"] .ox-hero .ox-primary-action, html[data-brand="ox"] .ox-app-shell .ox-content-column .ox-hero .ox-primary-action { border-color: #00c805; background: #00c805; color: #0a0a0a; }
+html[data-brand="ox"] .ox-hero .ox-primary-action:hover, html[data-brand="ox"] .ox-app-shell .ox-content-column .ox-hero .ox-primary-action:hover:not(:disabled) { border-color: #00c805; background: #00c805; color: #0a0a0a; opacity: .85; }
+html[data-brand="ox"] .ox-hero .ox-secondary-action { border-color: #ffffff33; background: transparent; color: #ffffff; }
+html[data-brand="ox"] .ox-hero .ox-secondary-action:hover { border-color: #ffffff; background: transparent; color: #ffffff; }
+html[data-brand="ox"] .ox-primary-action, html[data-brand="ox"] .ox-secondary-action { border-radius: 70px; padding: 0 20px; font-size: 14px; font-weight: 500; }
+html[data-brand="ox"] .ox-trust-line { color: #9c9cae; }
+html[data-brand="ox"] .ox-trust-line span::before { color: #00c805; }
+html[data-brand="ox"] .ox-hero-visual { background: transparent; }
+html[data-brand="ox"] .ox-hero-visual::before, html[data-brand="ox"] .ox-hero-visual::after, html[data-brand="ox"] .ox-hero::before, html[data-brand="ox"] .ox-hero::after { display: none; }
+html[data-brand="ox"] .ox-market-strip { border-color: #ffffff14; border-radius: 20px; background: #161616; box-shadow: var(--ox-shadow); backdrop-filter: none; }
+html[data-brand="ox"] .ox-market-stat { background: none; box-shadow: none; }
+html[data-brand="ox"] .ox-market-stat + .ox-market-stat { border-left-color: #ffffff14; }
+html[data-brand="ox"] .ox-market-stat span { color: #9a9aa8; }
+html[data-brand="ox"] .ox-market-stat strong { color: #f4f4f4; }
+html[data-brand="ox"] .ox-market-stat.hot strong { color: #00c805; }
+html[data-brand="ox"] .ox-market-strip .payday-strip { border-top-color: #ffffff14; }
+html[data-brand="ox"] .payday-clock { color: #2fd94f; }
+html[data-brand="ox"] .ox-how-intro > p { color: #9a9aa8; }
+html[data-brand="ox"] .ox-steps li > b { border-color: #134a1f; background: #0f2a14; color: #2fd94f; box-shadow: none; }
+html[data-brand="ox"] .ox-steps li > span { border-bottom-color: #ffffff14; }
+html[data-brand="ox"] .ox-steps strong { color: #f4f4f4; }
+html[data-brand="ox"] .ox-steps small { color: #9a9aa8; }
+html[data-brand="ox"] .ox-social-panel { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .ox-live-small { color: #9a9aa8; }
+html[data-brand="ox"] .ox-live-small i { box-shadow: none; }
+html[data-brand="ox"] .ox-fomo-row { border-top-color: #ffffff14; color: #f4f4f4; }
+html[data-brand="ox"] .ox-fomo-row:hover { background: #1f1f22; }
+html[data-brand="ox"] .ox-fomo-action { color: #2fd94f; }
+html[data-brand="ox"] .ox-fomo-row.sell .ox-fomo-action { color: #ff5000; }
+html[data-brand="ox"] .ox-fomo-row small, html[data-brand="ox"] .ox-trader-list small { color: #9a9aa8; }
+html[data-brand="ox"] .ox-fomo-row > strong { color: #f4f4f4; }
+html[data-brand="ox"] .ox-fomo-row time { color: #9a9aa8; }
+html[data-brand="ox"] .ox-trader-controls > button, html[data-brand="ox"] .ox-trader-controls > div { border-color: #2c2c30; background: #1f1f22; }
+html[data-brand="ox"] .ox-trader-controls button { color: #9a9aa8; }
+html[data-brand="ox"] .ox-trader-controls button.active { background: #134a1f; color: #f4f4f4; }
+html[data-brand="ox"] .ox-trader-list li { border-top-color: #ffffff14; }
+html[data-brand="ox"] .ox-trader-rank { color: #9a9aa8; }
+html[data-brand="ox"] .ox-trader-avatar { border-color: #134a1f; background: #0f2a14; color: #2fd94f; }
+html[data-brand="ox"] .ox-trader-list strong.positive { color: #00c805; }
+html[data-brand="ox"] .ox-trader-list strong.negative { color: #ff5000; }
+html[data-brand="ox"] .ox-board-note, html[data-brand="ox"] .ox-empty-line { color: #9a9aa8; }
+html[data-brand="ox"] .ox-race-wrap .race { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .ox-race-wrap .card-progress > div { background: #00c805; box-shadow: none; }
+html[data-brand="ox"] .ox-boosted-row .boosted-row-empty, html[data-brand="ox"] .ox-lastten .lastten-empty { border: 1px dashed #2c2c30; background: #1f1f22; color: #9a9aa8; }
+html[data-brand="ox"] .ox-boosted-row .boosted-card, html[data-brand="ox"] .ox-lastten .lastten-card { border-color: #ffffff14; background: #161616; box-shadow: none; }
+html[data-brand="ox"] .ox-boosted-row .boosted-card { border-color: #b37a0066; background: #2a1f08; }
+html[data-brand="ox"] .ox-desk-tabs { border-color: #ffffff14; background: #161616; }
+html[data-brand="ox"] .ox-desk-tabs button { color: #9a9aa8; }
+html[data-brand="ox"] .ox-desk-tabs button.active { background: #134a1f; color: #f4f4f4; }
+
+/* ---------------------------------------------------------------- shared pages: the launch wizard */
+html[data-brand="ox"] .launch-content { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .launch-preview { border-left-color: #ffffff14; background: #1f1f22; }
+html[data-brand="ox"] .launch-preview-label { color: #9a9aa8; }
+html[data-brand="ox"] .launch-preview-symbol, html[data-brand="ox"] .launch-preview-note { color: #9a9aa8; }
+html[data-brand="ox"] .launch-preview-details { border: 1px solid #ffffff14; background: #161616; }
+html[data-brand="ox"] .launch-preview-details .dim { color: #9a9aa8; }
+html[data-brand="ox"] :is(.launch-preview-art, .art-preview, .token-art, .row-art) { border-color: #ffffff14; background: #0f2a14; color: #2fd94f; box-shadow: none; }
+html[data-brand="ox"] .token-art::before, html[data-brand="ox"] .token-art::after { display: none; }
+html[data-brand="ox"] .token-art > div { color: #2fd94f; }
+html[data-brand="ox"] .rail { border: 0; background: none; box-shadow: none; }
+html[data-brand="ox"] .rail-title, html[data-brand="ox"] .what-happens-title { color: #9a9aa8; }
+html[data-brand="ox"] .rail a { border-color: #2c2c30; color: #9a9aa8; }
+html[data-brand="ox"] .rail a:hover { background: #1f1f22; color: #f4f4f4; }
+html[data-brand="ox"] .rail li.current a { border-color: #00c805; background: #0f2a14; color: #f4f4f4; }
+html[data-brand="ox"] .rail li.done .rail-label { color: #f4f4f4; }
+html[data-brand="ox"] :is(.step-n, .choice-mark, .rank, .rail-n, .ox-steps li > b) { border-color: #2c2c30; background: #1f1f22; color: #f4f4f4; box-shadow: none; }
+html[data-brand="ox"] :is(.step-n.done, .rail li.current .rail-n, .rail li.done .rail-n) { border-color: #00c805; background: #134a1f; color: #2fd94f; box-shadow: none; }
+html[data-brand="ox"] .ox-steps li > b { border-color: #134a1f; background: #0f2a14; color: #2fd94f; box-shadow: none; }
+html[data-brand="ox"] .page-title { margin: 6px 0 10px; font-size: clamp(30px, 3vw, 39px); }
+html[data-brand="ox"] .page-lede, html[data-brand="ox"] .portfolio-intro { max-width: 640px; color: #9a9aa8; font-size: 16px; line-height: 1.5; }
+html[data-brand="ox"] .step, html[data-brand="ox"] .step + .step { border-top-color: #ffffff14; background: transparent; box-shadow: none; }
+html[data-brand="ox"] .step-head { border-bottom-color: #ffffff14; }
+html[data-brand="ox"] .step-head h2 { font-weight: 500; }
+html[data-brand="ox"] .step-head p, html[data-brand="ox"] .field-note, html[data-brand="ox"] .launch-subsection > p, html[data-brand="ox"] .launch-mode-note, html[data-brand="ox"] .launch-mode-switch small { color: #9a9aa8; }
+html[data-brand="ox"] .field-label { color: #f4f4f4; font-weight: 500; }
+html[data-brand="ox"] .field-note.bad { color: #ff5000; }
+html[data-brand="ox"] .field-note.good { color: #2fd94f; }
+html[data-brand="ox"] .launch-mode-switch button { border-color: #2c2c30; background: #1f1f22; color: #f4f4f4; }
+html[data-brand="ox"] .launch-mode-switch button.selected { border-color: #00c805; background: #0f2a14; }
+html[data-brand="ox"] .wizard-progress > div { border-bottom-color: #ffffff14; color: #9a9aa8; }
+html[data-brand="ox"] .wizard-progress > div.current { border-color: #00c805; color: #f4f4f4; }
+html[data-brand="ox"] .wizard-progress > div.complete { border-color: #2fd94f; color: #2fd94f; }
+html[data-brand="ox"] .choice { border-color: #2c2c30; background: #1f1f22; box-shadow: none; }
+html[data-brand="ox"] .choice:hover { border-color: #f4f4f4; }
+html[data-brand="ox"] .choice.on { border-color: #00c805; background: #0f2a14; box-shadow: none; }
+html[data-brand="ox"] .choice-title, html[data-brand="ox"] .pair-row-symbol { color: #f4f4f4; }
+html[data-brand="ox"] .choice-meta, html[data-brand="ox"] .choice-body, html[data-brand="ox"] .pair-more summary, html[data-brand="ox"] .pair-row-name { color: #9a9aa8; }
+html[data-brand="ox"] .choice.on .choice-body { color: #a3a3a3; }
+html[data-brand="ox"] .pair-more summary:hover { color: #f4f4f4; }
+html[data-brand="ox"] .pair-row { border-color: #2c2c30; background: #1f1f22; }
+html[data-brand="ox"] .pair-row:hover { border-color: #f4f4f4; background: #2a2a2e; }
+html[data-brand="ox"] .pair-row-price { color: #a3a3a3; }
+html[data-brand="ox"] .choice-mark { color: transparent; }
+html[data-brand="ox"] .choice.on .choice-mark { border-color: #00c805; background: #00c805; color: #0a0a0a; box-shadow: none; }
+html[data-brand="ox"] .launch-bar { border-color: #ffffff14; background: #161616; box-shadow: 0 1px 2px #00000066, 0 18px 44px -20px #000000cc; backdrop-filter: none; }
+html[data-brand="ox"] .launch-bar-cost strong { color: #f4f4f4; }
+html[data-brand="ox"] .launch-bar-cost span, html[data-brand="ox"] .launch-bar-why, html[data-brand="ox"] .what-happens ol { color: #9a9aa8; }
+html[data-brand="ox"] .what-happens { border-top-color: #ffffff14; }
+html[data-brand="ox"] .launch-subsection { border-top-color: #ffffff14; }
+html[data-brand="ox"] .art-picker { border-color: #2c2c30; background: #1f1f22; box-shadow: none; }
+html[data-brand="ox"] .art-picker.over { border-color: #00c805; background: #0f2a14; }
+html[data-brand="ox"] .art-drop > span, html[data-brand="ox"] .art-note { color: #9a9aa8; }
+html[data-brand="ox"] .art-note.warn { color: #ffb340; }
+html[data-brand="ox"] .art-note.good { color: #2fd94f; }
+html[data-brand="ox"] .art-note.bad { color: #ff5000; }
+html[data-brand="ox"] .direct-preset, html[data-brand="ox"] .launch-outcome, html[data-brand="ox"] .option-card { border-color: #2c2c30; background: #1f1f22; color: #f4f4f4; box-shadow: none; }
+html[data-brand="ox"] .direct-preset:hover, html[data-brand="ox"] .launch-outcome:hover, html[data-brand="ox"] .launch-outcome:focus-visible { border-color: #f4f4f4; background: #2a2a2e; }
+html[data-brand="ox"] .direct-preset.selected, html[data-brand="ox"] .launch-outcome.selected, html[data-brand="ox"] .option-card.on { border-color: #00c805; background: #0f2a14; }
+html[data-brand="ox"] .direct-preset strong, html[data-brand="ox"] .launch-outcome strong, html[data-brand="ox"] .option-card-title { color: #f4f4f4; font-weight: 500; }
+html[data-brand="ox"] .direct-preset span, html[data-brand="ox"] .launch-outcome span, html[data-brand="ox"] .launch-outcome-note, html[data-brand="ox"] .option-card-body { color: #9a9aa8; }
+html[data-brand="ox"] .direct-preset.selected span, html[data-brand="ox"] .option-card.on .option-card-body { color: #a3a3a3; }
+html[data-brand="ox"] .option-card.fixed { background: #1f1f22; }
+html[data-brand="ox"] .option-card-tag { border-color: #00c80566; color: #2fd94f; }
+html[data-brand="ox"] .option-card-fixed, html[data-brand="ox"] .option-facts-title { color: #9a9aa8; }
+html[data-brand="ox"] .option-card-controls { border-top-color: #ffffff14; }
+html[data-brand="ox"] .direct-impact, html[data-brand="ox"] .launch-fee-example, html[data-brand="ox"] .launch-curve-summary, html[data-brand="ox"] .launch-review, html[data-brand="ox"] .option-facts, html[data-brand="ox"] .direct-sim-summary > span { border-color: #ffffff14; background: #1f1f22; }
+html[data-brand="ox"] .direct-impact { border-color: #134a1f; background: #0f2a14; }
+html[data-brand="ox"] .direct-impact strong, html[data-brand="ox"] .direct-sim-summary strong, html[data-brand="ox"] .option-facts strong, html[data-brand="ox"] .vault-feeds strong { color: #f4f4f4; font-weight: 500; }
+html[data-brand="ox"] .direct-sim-summary strong { color: #2fd94f; }
+html[data-brand="ox"] .direct-impact span, html[data-brand="ox"] .direct-sim-summary small, html[data-brand="ox"] .direct-sim-caption, html[data-brand="ox"] .option-facts span, html[data-brand="ox"] .vault-feeds span, html[data-brand="ox"] .launch-fee-example > p, html[data-brand="ox"] .launch-fee-example > small, html[data-brand="ox"] .launch-curve-summary span, html[data-brand="ox"] .launch-review-note, html[data-brand="ox"] .launch-fee-example dt, html[data-brand="ox"] .launch-review-rows dt, html[data-brand="ox"] .direct-advanced > summary span { color: #9a9aa8; }
+html[data-brand="ox"] .direct-impact.invalid { border-color: #ff500066; background: #2a1208; }
+html[data-brand="ox"] .direct-impact.invalid strong { color: #ff5000; }
+html[data-brand="ox"] .direct-advanced, html[data-brand="ox"] .launch-advanced { border-color: #2c2c30; background: #1f1f22; }
+html[data-brand="ox"] .direct-advanced > summary, html[data-brand="ox"] .launch-advanced > summary, html[data-brand="ox"] .launch-review-ack { color: #f4f4f4; }
+html[data-brand="ox"] .direct-advanced > summary::after { color: #2fd94f; }
+html[data-brand="ox"] .launch-fee-example dl > div, html[data-brand="ox"] .launch-review-rows > div, html[data-brand="ox"] .launch-review-ack { border-color: #ffffff14; }
+html[data-brand="ox"] .direct-sim-details .sim { border-top-color: #ffffff14; }
+html[data-brand="ox"] .sim { border-color: #ffffff14; background: #1f1f22; box-shadow: none; }
+html[data-brand="ox"] .sim-area { fill: #ffffff0a; }
+html[data-brand="ox"] .sim-band { fill: #00c80526; }
+html[data-brand="ox"] .sim-dot { filter: none; }
+html[data-brand="ox"] .sim-axis, html[data-brand="ox"] .sim-row-label, html[data-brand="ox"] .sim-row-note, html[data-brand="ox"] .sim-note, html[data-brand="ox"] .sim-journey-labels { color: #9a9aa8; fill: #9a9aa8; }
+html[data-brand="ox"] .sim-row-value, html[data-brand="ox"] .sim-journey-labels b { color: #f4f4f4; }
+html[data-brand="ox"] .sim-row-strong .sim-row-value { color: #2fd94f; }
+html[data-brand="ox"] .sim-journey { border-color: #ffffff14; background: #161616; }
+html[data-brand="ox"] .sim-journey-line { background: #ffffff14; }
+html[data-brand="ox"] .sim-journey-line > i { background: #00c805; box-shadow: none; }
+html[data-brand="ox"] .sim-journey-line b { border-color: #161616; box-shadow: 0 0 0 3px #00c80533; }
+html[data-brand="ox"] .toggle { border-color: #2c2c30; background: #1f1f22; color: #9a9aa8; }
+html[data-brand="ox"] .toggle-knob { background: #9a9aa8; }
+html[data-brand="ox"] .toggle.on { border-color: #00c805; background: #0f2a14; color: #2fd94f; }
+html[data-brand="ox"] .toggle.on .toggle-knob { background: #00c805; box-shadow: none; }
+html[data-brand="ox"] .feeflow-waiting, html[data-brand="ox"] .ff-leg { color: #9a9aa8; fill: #9a9aa8; }
+html[data-brand="ox"] .ff-chip { fill: #1f1f22; stroke: #ffffff14; }
+html[data-brand="ox"] .ff-chip-text, html[data-brand="ox"] .ff-pct { fill: #f4f4f4; }
+html[data-brand="ox"] .ff-node-box { fill: #1f1f22; stroke: #2c2c30; }
+html[data-brand="ox"] .ff-glyph { stroke: #9a9aa8; }
+html[data-brand="ox"] .ff-coin { filter: none; }
+html[data-brand="ox"] .ff-node.ff-hit .ff-node-box { fill: #0f2a14; stroke: #00c805; }
+html[data-brand="ox"] .ff-buyback .ff-flame { fill: #00c80533; }
+html[data-brand="ox"] .ff-buyback.ff-hit .ff-flame { fill: #00c805aa; }
+
+/* ---------------------------------------------------------------- shared pages: token, trade, tape, chat */
+html[data-brand="ox"] .token-breadcrumb { color: #9a9aa8; }
+html[data-brand="ox"] .token-breadcrumb a:hover { color: #2fd94f; }
+html[data-brand="ox"] .token-hero::before, html[data-brand="ox"] .token-hero::after, html[data-brand="ox"] .trade-panel::before { display: none; }
+html[data-brand="ox"] .token-hero a { color: #f4f4f4; text-decoration-color: #ffffff2e; }
+html[data-brand="ox"] .token-hero a:hover { color: #2fd94f; }
+html[data-brand="ox"] .token-hero-cap { border-left-color: #ffffff14; }
+html[data-brand="ox"] .chart-heading span, html[data-brand="ox"] .chart-heading small, html[data-brand="ox"] .trade-heading span { color: #9a9aa8; }
+html[data-brand="ox"] .trade-heading { border-bottom-color: #ffffff14 !important; }
+html[data-brand="ox"] .trade-panel { background: #161616; }
+html[data-brand="ox"] .token-tape a { border-top-color: #ffffff14; }
+html[data-brand="ox"] .side-tab { border-color: #2c2c30; background: #1f1f22; color: #9a9aa8; box-shadow: none; }
+html[data-brand="ox"] .side-tab:hover { border-color: #f4f4f4; color: #f4f4f4; }
+html[data-brand="ox"] .side-tab-buy, html[data-brand="ox"] .side-tab.active { border-color: #00c805; background: #0f2a14; color: #2fd94f; box-shadow: none; }
+html[data-brand="ox"] .side-tab-sell { border-color: #ff5000; background: #2a1208; color: #ff5000; box-shadow: none; }
+html[data-brand="ox"] .tape-live, html[data-brand="ox"] .chat-who, html[data-brand="ox"] .chat-note, html[data-brand="ox"] .chat-gate p, html[data-brand="ox"] .chat-count, html[data-brand="ox"] .chat-body.chat-quiet, html[data-brand="ox"] .chat-hide { color: #9a9aa8; }
+html[data-brand="ox"] .tape-line:hover { background: #1f1f22; color: #f4f4f4; }
+html[data-brand="ox"] .tape-side.is-buy { color: #00c805; }
+html[data-brand="ox"] .tape-side.is-sell { color: #ff5000; }
+html[data-brand="ox"] .tape-line.is-new { animation-name: oxTapeArrive; }
+@keyframes oxTapeArrive { from { background: #134a1f; } to { background: transparent; } }
+html[data-brand="ox"] .money-tape li.arrived { animation-name: oxMoneyLand; }
+@keyframes oxMoneyLand { from { background: #0f2a14; } to { background: transparent; } }
+html[data-brand="ox"] .chat-body { color: #f4f4f4; }
+html[data-brand="ox"] .chat-tag, html[data-brand="ox"] .chat-rank, html[data-brand="ox"] .chat-hold { border-color: #ffffff14; background: #1f1f22; color: #9a9aa8; }
+html[data-brand="ox"] .chat-tag { border-color: #00c80566; background: #0f2a14; color: #2fd94f; }
+html[data-brand="ox"] .chat-hide:hover { color: #ff5000; }
+html[data-brand="ox"] .chat-gate, html[data-brand="ox"] .chat-composer { border-top-color: #ffffff14; }
+html[data-brand="ox"] .chat-trade { border-color: #2c2c30; }
+html[data-brand="ox"] .chat-link { color: #2fd94f; }
+html[data-brand="ox"] .race-quiet, html[data-brand="ox"] .race-gap, html[data-brand="ox"] .race-need, html[data-brand="ox"] .race-go, html[data-brand="ox"] .race-rest, html[data-brand="ox"] .race-position { color: #9a9aa8; }
+html[data-brand="ox"] .race-gap strong { color: #2fd94f; }
+html[data-brand="ox"] .race-rest a { border-color: #2c2c30; background: #1f1f22; color: #9a9aa8; }
+html[data-brand="ox"] .race-rest a:hover { border-color: #f4f4f4; color: #f4f4f4; }
+html[data-brand="ox"] .race-board li { border-bottom-color: #ffffff14; }
+html[data-brand="ox"] .card-progress { background-image: repeating-linear-gradient(90deg, #ffffff14 0 3px, transparent 3px 7px); }
+html[data-brand="ox"] .card-progress div { background-image: repeating-linear-gradient(90deg, #00c805 0 3px, transparent 3px 7px); }
+html[data-brand="ox"] .holder-read { border-top-color: #ffffff14; }
+html[data-brand="ox"] .holder-read b { color: #f4f4f4; }
+html[data-brand="ox"] .holder-legend li { border-color: #2c2c30; background: #1f1f22; color: #9a9aa8; }
+html[data-brand="ox"] .holder-legend li b { color: #f4f4f4; }
+html[data-brand="ox"] .holder-legend li.is-creator { border-color: #f4f4f4; color: #f4f4f4; }
+html[data-brand="ox"] .holder-note { color: #9a9aa8; }
+html[data-brand="ox"] .holder-dot.is-creator circle { stroke: #f4f4f4; }
+html[data-brand="ox"] .sound-toggle { border-color: #2c2c30; background: #1f1f22; color: #9a9aa8; }
+html[data-brand="ox"] .sound-toggle:hover { border-color: #f4f4f4; color: #f4f4f4; }
+html[data-brand="ox"] .sound-toggle.is-on { border-color: #00c805; background: #0f2a14; color: #f4f4f4; }
+html[data-brand="ox"] .sound-dot { background: #9a9aa8; }
+html[data-brand="ox"] .sound-toggle.is-on .sound-dot { background: #00c805; box-shadow: none; }
+html[data-brand="ox"] .sound-what { color: #9a9aa8; }
+html[data-brand="ox"] .token-locked, html[data-brand="ox"] .token-locked-line { border-color: #00c80566; background: #0f2a14; color: #2fd94f; }
+html[data-brand="ox"] .token-art-badge, html[data-brand="ox"] .spotlight-flag { border-color: #ffffff14; background: #161616e6; color: #f4f4f4; backdrop-filter: none; }
+html[data-brand="ox"] .token-age { color: #9a9aa8; }
+html[data-brand="ox"] .token-card { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .token-card:hover { border-color: #ffffff2e; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .token-id strong, html[data-brand="ox"] .token-figure strong { color: #f4f4f4; }
+html[data-brand="ox"] .token-id > span, html[data-brand="ox"] .token-figure small, html[data-brand="ox"] .token-card-bottom, html[data-brand="ox"] .token-state, html[data-brand="ox"] .token-go { color: #9a9aa8; }
+html[data-brand="ox"] .token-state.on { color: #2fd94f; }
+html[data-brand="ox"] .token-skeleton { border-color: #ffffff14; background: #1f1f22; }
+html[data-brand="ox"] .board-message { border-color: #2c2c30; background: #1f1f22; }
+html[data-brand="ox"] .board-message p { color: #9a9aa8; }
+html[data-brand="ox"] .board-message .message-symbol { color: #00c805; text-shadow: none; }
+html[data-brand="ox"] .holders-paid { border-top-color: #ffffff14; }
+html[data-brand="ox"] .holders-paid-legs li { border-color: #ffffff14; background: #1f1f22; color: #9a9aa8; }
+html[data-brand="ox"] .holders-paid-legs li b, html[data-brand="ox"] .king-rounds b, html[data-brand="ox"] .payday-amounts b, html[data-brand="ox"] .ledger-legs b, html[data-brand="ox"] .money-what b, html[data-brand="ox"] .money-what a { color: #f4f4f4; }
+html[data-brand="ox"] .holders-paid-link, html[data-brand="ox"] .king-rounds, html[data-brand="ox"] .payday-pot, html[data-brand="ox"] .payday-sub, html[data-brand="ox"] .payday-rule, html[data-brand="ox"] .payday-dash, html[data-brand="ox"] .paid-out { color: #9a9aa8; }
+html[data-brand="ox"] .holders-paid-link a, html[data-brand="ox"] .paid-out a { color: #2fd94f; }
+html[data-brand="ox"] .payday-kicker { color: #9a9aa8; }
+html[data-brand="ox"] .payday-rule b { color: #a3a3a3; }
+html[data-brand="ox"] .king-panel.running { border-color: #00c80566; }
+html[data-brand="ox"] .king-timer { color: #f4f4f4; }
+html[data-brand="ox"] .king-timer.live { color: #2fd94f; text-shadow: none; }
+html[data-brand="ox"] .king-timer.over { color: #ffb340; }
+html[data-brand="ox"] .king-figures .mono a, html[data-brand="ox"] .auction-figures .mono a { color: #f4f4f4; text-decoration-color: #ffffff2e; }
+html[data-brand="ox"] .king-rounds { border-top-color: #ffffff14; }
+html[data-brand="ox"] .boost-hours button, html[data-brand="ox"] .boost-slot { border-color: #2c2c30; background: #1f1f22; color: #9a9aa8; }
+html[data-brand="ox"] .boost-slot { color: #f4f4f4; }
+html[data-brand="ox"] .boost-hours button small, html[data-brand="ox"] .boost-slot small { color: #9a9aa8; }
+html[data-brand="ox"] .boost-hours button.active { border-color: #b37a00; background: #2a1f08; color: #f4f4f4; }
+html[data-brand="ox"] .boost-slot:not(:disabled):hover { border-color: #b37a00; }
+html[data-brand="ox"] .boost-slot.picked { border-color: #b37a00; background: #2a1f08; }
+html[data-brand="ox"] .boost-slot.mine { border-color: #b37a00; }
+html[data-brand="ox"] .boost-slot.mine small { color: #ffb340; }
+html[data-brand="ox"] .auction-panel.closed { border-color: #b37a0066; }
+html[data-brand="ox"] .boosted-row-kicker { color: #ffb340; }
+html[data-brand="ox"] .boosted-row-empty, html[data-brand="ox"] .lastten-empty { border-color: #2c2c30; color: #9a9aa8; }
+html[data-brand="ox"] .boosted-card { border-color: #b37a0066; background: #2a1f08; }
+html[data-brand="ox"] .boosted-card:hover { border-color: #b37a00; }
+html[data-brand="ox"] .boosted-card-id small, html[data-brand="ox"] .lastten-head p, html[data-brand="ox"] .lastten-rank, html[data-brand="ox"] .lastten-id small { color: #9a9aa8; }
+html[data-brand="ox"] .lastten-card { border-color: #ffffff14; background: #161616; }
+html[data-brand="ox"] .lastten-card:hover { border-color: #ffffff2e; }
+html[data-brand="ox"] .graduation-celebration { border-color: #00c80566; background: #161616; box-shadow: 0 1px 2px #00000066, 0 24px 60px -24px #000000cc; backdrop-filter: none; }
+html[data-brand="ox"] .graduation-celebration strong { color: #2fd94f; }
+html[data-brand="ox"] .graduation-celebration span { color: #9a9aa8; }
+
+/* ---------------------------------------------------------------- shared pages: the lists */
+html[data-brand="ox"] .head-figure strong, html[data-brand="ox"] .headline strong, html[data-brand="ox"] .row-name strong, html[data-brand="ox"] .row-num strong, html[data-brand="ox"] .way strong, html[data-brand="ox"] .fact strong, html[data-brand="ox"] .creator-launch-name a, html[data-brand="ox"] .portfolio-row, html[data-brand="ox"] .earn-grid .figure .mono, html[data-brand="ox"] .tier .mono, html[data-brand="ox"] .ledger-legs b, html[data-brand="ox"] .bag-slots li a, html[data-brand="ox"] .shame-payer a { color: #f4f4f4; }
+html[data-brand="ox"] .head-figure span, html[data-brand="ox"] .panel-head .n, html[data-brand="ox"] .panel-head .aside, html[data-brand="ox"] .ladder-label, html[data-brand="ox"] .season-pick, html[data-brand="ox"] .fact span, html[data-brand="ox"] .shame-head, html[data-brand="ox"] .money-tape-live, html[data-brand="ox"] .prov-key, html[data-brand="ox"] .figure-reason, html[data-brand="ox"] .figure-dash, html[data-brand="ox"] .earn-when, html[data-brand="ox"] .vault-feeds li::before { color: #9a9aa8; }
+html[data-brand="ox"] .row-name span, html[data-brand="ox"] .row-num span, html[data-brand="ox"] .way > span, html[data-brand="ox"] .ladder-step i, html[data-brand="ox"] .headline p, html[data-brand="ox"] .fact-row > span:first-child, html[data-brand="ox"] .empty-inline, html[data-brand="ox"] .fineprint summary, html[data-brand="ox"] .fineprint ul, html[data-brand="ox"] .creator-badge, html[data-brand="ox"] .creator-note, html[data-brand="ox"] .creator-note-off, html[data-brand="ox"] .portfolio-empty p, html[data-brand="ox"] .portfolio-loading, html[data-brand="ox"] .portfolio-section-heading span, html[data-brand="ox"] .leaderboard-rules-head span, html[data-brand="ox"] .leaderboard-table-title span, html[data-brand="ox"] .rule-chips span, html[data-brand="ox"] .ledger-pair-legs span:nth-child(odd), html[data-brand="ox"] .ledger-when, html[data-brand="ox"] .ledger-what span, html[data-brand="ox"] .ledger-legs, html[data-brand="ox"] .ledger-tx, html[data-brand="ox"] .bag-legs span:nth-child(odd), html[data-brand="ox"] .bag-note, html[data-brand="ox"] .bag-reason, html[data-brand="ox"] .bag-sources > summary, html[data-brand="ox"] .bag-clock span, html[data-brand="ox"] .bag-rows > div > span:first-child, html[data-brand="ox"] .bag-fine, html[data-brand="ox"] .bag-slot-n, html[data-brand="ox"] .money-when, html[data-brand="ox"] .money-what, html[data-brand="ox"] .money-tx, html[data-brand="ox"] .tier, html[data-brand="ox"] .quest-card p, html[data-brand="ox"] .watch-label, html[data-brand="ox"] .empty p, html[data-brand="ox"] .direct-launch-wrap .dim { color: #9a9aa8; }
+html[data-brand="ox"] .fact-row > span:last-child, html[data-brand="ox"] .rank, html[data-brand="ox"] .rank.r2, html[data-brand="ox"] .rank.r3, html[data-brand="ox"] .tier.top, html[data-brand="ox"] .fineprint summary:hover { color: #f4f4f4; }
+html[data-brand="ox"] .ledger-tx:hover, html[data-brand="ox"] .money-tx:hover, html[data-brand="ox"] .money-what a:hover, html[data-brand="ox"] .portfolio-row:hover, html[data-brand="ox"] .token-tape a:hover, html[data-brand="ox"] .creator-launch-name a:hover { color: #2fd94f; }
+html[data-brand="ox"] .tier.top .mono, html[data-brand="ox"] .ladder-step b, html[data-brand="ox"] .quest-reward { color: #2fd94f; }
+html[data-brand="ox"] .panel-head, html[data-brand="ox"] .portfolio-section-heading, html[data-brand="ox"] .ladder, html[data-brand="ox"] .creator-block, html[data-brand="ox"] .bag-sources, html[data-brand="ox"] .bag-fine, html[data-brand="ox"] .option-card-controls { border-color: #ffffff14; }
+html[data-brand="ox"] .panel-head .n { border-color: #ffffff14; background: #1f1f22; }
+html[data-brand="ox"] .row, html[data-brand="ox"] .fact-row, html[data-brand="ox"] .tier, html[data-brand="ox"] .feed-list li, html[data-brand="ox"] .ledger-list li, html[data-brand="ox"] .money-tape li, html[data-brand="ox"] .shame-list li, html[data-brand="ox"] .bag-slots li, html[data-brand="ox"] .bag-addresses li, html[data-brand="ox"] .token-tape a, html[data-brand="ox"] .holder-read, html[data-brand="ox"] .tape-line { border-color: #ffffff14; }
+html[data-brand="ox"] .rows a.row:hover { background: #1f1f22; }
+html[data-brand="ox"] .row-you { background: #0f2a14; box-shadow: inset 2px 0 0 #00c805; }
+html[data-brand="ox"] .row-meter { background-image: repeating-linear-gradient(90deg, #ffffff14 0 3px, transparent 3px 7px); }
+html[data-brand="ox"] .row-meter i { background-image: repeating-linear-gradient(90deg, #00c805 0 3px, transparent 3px 7px); }
+html[data-brand="ox"] .empty-inline::before { border-color: #00c805; box-shadow: none; }
+html[data-brand="ox"] .rank.r1 { border-color: #00c805; background: #134a1f; color: #2fd94f; box-shadow: none; }
+html[data-brand="ox"] .way, html[data-brand="ox"] .fact { border-color: #ffffff14; background: #1f1f22; box-shadow: none; }
+html[data-brand="ox"] .ladder-step, html[data-brand="ox"] .rule-chips span, html[data-brand="ox"] .creator-badge, html[data-brand="ox"] .watch-chip, html[data-brand="ox"] .watch-button, html[data-brand="ox"] .bag-copy { border-color: #2c2c30; background: #1f1f22; }
+html[data-brand="ox"] .watch-button { color: #f4f4f4; }
+html[data-brand="ox"] .watch-button.is-watching { border-color: #00c805; background: #0f2a14; color: #2fd94f; }
+html[data-brand="ox"] .watch-initials { background: #0f2a14; color: #2fd94f; }
+html[data-brand="ox"] .creator-badge-on { border-color: #00c805; background: #0f2a14; color: #2fd94f; box-shadow: none; }
+html[data-brand="ox"] .bag-copy { color: #9a9aa8; }
+html[data-brand="ox"] .bag-copy:hover { border-color: #f4f4f4; background: #2a2a2e; color: #f4f4f4; }
+html[data-brand="ox"] .bag-kinds { border: 0; background: #1f1f22; }
+html[data-brand="ox"] .bag-kinds .sort-tab { color: #9a9aa8; }
+html[data-brand="ox"] .bag-kinds .sort-tab.active { background: #134a1f; color: #f4f4f4; }
+html[data-brand="ox"] .sort-tab { color: #9a9aa8; }
+html[data-brand="ox"] .sort-tab:hover { background: #1f1f22; color: #f4f4f4; }
+html[data-brand="ox"] .sort-tab.active { border-color: transparent; background: #134a1f; color: #f4f4f4; }
+html[data-brand="ox"] .money-tape-live i { box-shadow: none; }
+html[data-brand="ox"] details.fineprint { border-color: #ffffff14; background: #1f1f22; }
+html[data-brand="ox"] .fineprint li::before { background: #00c805; }
+html[data-brand="ox"] .quest-bar { background: #ffffff14; }
+html[data-brand="ox"] .quest-bar i { background: #00c805; }
+html[data-brand="ox"] .leaderboard-table table th, html[data-brand="ox"] .trader-shell th, html[data-brand="ox"] .refer-shell th { color: #9a9aa8; }
+html[data-brand="ox"] .leaderboard-table tbody tr:hover { background: #1f1f22; }
+html[data-brand="ox"] .portfolio-stats > div { border-left-color: #ffffff14; }
+html[data-brand="ox"] .prov { border-color: #2c2c30; color: #9a9aa8; }
+html[data-brand="ox"] .prov-measured { border-color: #00c80566; color: #2fd94f; }
+html[data-brand="ox"] .prov-reported { border-color: #7aa2ff66; color: #7aa2ff; }
+html[data-brand="ox"] .prov-derived { border-color: #2c2c30; color: #9a9aa8; }
+html[data-brand="ox"] .prov-sep { color: #2c2c30; }
+html[data-brand="ox"] .ox-market-strip .prov-key, html[data-brand="ox"] .market-summary .prov-key { border-top-color: #ffffff14; }
+html[data-brand="ox"] .market-summary { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); backdrop-filter: none; }
+html[data-brand="ox"] .stat + .stat { border-left-color: #ffffff14; }
+html[data-brand="ox"] .stat > span { color: #9a9aa8; }
+html[data-brand="ox"] .stat strong, html[data-brand="ox"] .stat:nth-child(3) strong { color: #f4f4f4; }
+html[data-brand="ox"] .stat::after { background-image: repeating-linear-gradient(90deg, #00c805 0 3px, transparent 3px 7px); }
+html[data-brand="ox"] .bridge-shell { background: transparent; box-shadow: none; }
+html[data-brand="ox"] .bridge-workspace { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .bridge-workspace .panel { border-color: #ffffff14; background: #1f1f22; box-shadow: none; }
+html[data-brand="ox"] .bridge-workspace .panel label span { color: #9a9aa8; }
+html[data-brand="ox"] .bridge-tabs button, html[data-brand="ox"] .bridge-tabs button.bridge-tab-active { border: 1px solid #2c2c30; background: #1f1f22; color: #9a9aa8; box-shadow: none; }
+html[data-brand="ox"] .bridge-tabs button.bridge-tab-active { border-color: transparent; background: #134a1f; color: #f4f4f4; }
+html[data-brand="ox"] .empty { border-color: #ffffff14; background: #161616; box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .empty h2 { font-weight: 500; }
+html[data-brand="ox"] .demo-strip { border-color: #b37a0066; background: #2a1f08; color: #f4f4f4; box-shadow: none; }
+html[data-brand="ox"] .demo-strip strong, html[data-brand="ox"] .demo-strip a { color: #ffb340; }
+html[data-brand="ox"] .demo-strip a:hover { color: #ffffff; }
+html[data-brand="ox"] .safe-strip { border-bottom-color: #ffffff14; background: #0f2a14; color: #f4f4f4; box-shadow: none; }
+html[data-brand="ox"] .wallet-door { border-color: #ffffff14; background: #161616; box-shadow: 0 1px 2px #00000066, 0 20px 50px -20px #000000cc; }
+html[data-brand="ox"] .support-launcher, html[data-brand="ox"] .help-button { box-shadow: var(--ox-shadow); }
+html[data-brand="ox"] .search-field { border-color: #2c2c30; background: #1f1f22; color: #9a9aa8; box-shadow: none; }
+html[data-brand="ox"] .search-field input { color: #f4f4f4; }
+html[data-brand="ox"] .search-field > span { color: #00c805; text-shadow: none; }
+html[data-brand="ox"] .search-key { border-color: #2c2c30; background: #1f1f22; color: #9a9aa8; }
+html[data-brand="ox"] .tape { border-color: #ffffff14; }
+html[data-brand="ox"] .tape a { color: #f4f4f4; }
+html[data-brand="ox"] .tape a b { color: #2fd94f; }
+html[data-brand="ox"] .tape a i { background: #00c805; }
+html[data-brand="ox"] .tape-empty { color: #9a9aa8; }
+html[data-brand="ox"] .creator-progress .card-progress { background-image: repeating-linear-gradient(90deg, #ffffff14 0 3px, transparent 3px 7px); }
+
+/* ---------------------------------------------------------------- the phone */
+@media (max-width: 900px) {
+  html[data-brand="ox"] .ox-topbar-inner { grid-template-columns: auto 1fr; }
+  html[data-brand="ox"] .ox-topbar .ox-nav { display: none; }
+  html[data-brand="ox"] .launch-preview { border-top-color: #ffffff14; }
+  html[data-brand="ox"] .ox-footer { grid-template-columns: 1fr; gap: 14px; }
+}
+@media (max-width: 640px) {
+  html[data-brand="ox"] .ox-topbar-inner { height: 64px; gap: 8px; padding: 0 12px; }
+  html[data-brand="ox"] .ox-topbar .ox-wordmark-mark { width: 38px; height: 23px; }
+  html[data-brand="ox"] .ox-wordmark-name { font-size: 18px; }
+  html[data-brand="ox"] .ox-more-menu summary { min-height: 40px; padding: 0 12px; font-size: 13px; }
+  html[data-brand="ox"] .ox-launch-button, html[data-brand="ox"] .ox-app-shell .ox-topbar .ox-launch-button { min-width: 40px; min-height: 40px; padding: 0 11px; font-size: 0; }
+  html[data-brand="ox"] .ox-launch-button span { font-size: 18px; }
+  html[data-brand="ox"] .ox-topbar .ox-wallet { min-height: 40px; padding: 0 12px; }
+  html[data-brand="ox"] .ox-ticker { margin: 4px -16px 10px; border-right: 0; border-left: 0; border-radius: 0; box-shadow: none; }
+  html[data-brand="ox"] .ox-mobile-nav { grid-template-columns: repeat(6, 1fr); min-height: 64px; border: 1px solid #ffffff14; border-radius: 999px; padding: 6px; background: #161616; box-shadow: 0 1px 2px #00000066, 0 18px 44px -18px #000000cc; backdrop-filter: none; }
+  html[data-brand="ox"] .ox-mobile-nav a { border-radius: 999px; color: #9a9aa8; font-size: 9px; font-weight: 500; }
+  html[data-brand="ox"] .ox-mobile-nav a span { font-size: 16px; }
+  html[data-brand="ox"] .ox-mobile-nav a.active { border-color: transparent; background: transparent; color: #2fd94f; box-shadow: none; }
+  html[data-brand="ox"] .ox-mobile-nav a.active span { color: #00c805; }
+  html[data-brand="ox"] .ox-mobile-nav a.create { margin: 0 2px; border-color: #f4f4f4; border-radius: 999px; background: #f4f4f4; color: #0a0a0a; box-shadow: none; text-shadow: none; }
+  html[data-brand="ox"] .ox-mobile-nav a.create span { color: #0a8f2a; font-size: 20px; }
+  html[data-brand="ox"] .ox-footer { width: calc(100% - 24px); margin-bottom: 96px; padding: 24px 22px 26px; border-radius: 22px; }
+  html[data-brand="ox"] .doc-page .panel { padding: 20px 18px; }
+  html[data-brand="ox"] .panel-head { flex-wrap: wrap; row-gap: 6px; }
+  html[data-brand="ox"] .hatch { display: none; }
+}

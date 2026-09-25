@@ -23,21 +23,27 @@ export function Chart({ token, decimals, totalSupply }: { token: string; decimal
 
   useEffect(() => {
     if (!box.current || chart.current) return;
+    // The colours come from the brand's CSS variables, so a light face (ox) gets its own candles;
+    // a brand that defines none keeps exactly the colours this chart always had.
+    const css = getComputedStyle(document.documentElement);
+    const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+    const up = v("--color-lime", "#ccff00"), down = v("--color-red", "#ff6b70"), dim = v("--color-dim", "#949a8d");
+    const line = v("--color-line", "#ffffff14");
     chart.current = createChart(box.current, {
       // Transparent, not a colour: the chart sits inside a glass panel, and a solid fill here would
       // punch a grey rectangle through it. The grid and the axes drop to the sheet's hairline so
       // the chart is drawn on the same surface as everything around it.
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#949a8d", fontSize: 11 },
-      grid: { vertLines: { color: "#ffffff0d" }, horzLines: { color: "#ffffff0d" } },
-      rightPriceScale: { borderColor: "#ffffff14" },
-      timeScale: { borderColor: "#ffffff14", timeVisible: true },
-      crosshair: { vertLine: { color: "#ccff0059", labelBackgroundColor: "#ccff00" }, horzLine: { color: "#ccff0059", labelBackgroundColor: "#ccff00" } },
+      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: dim, fontSize: 11 },
+      grid: { vertLines: { color: line }, horzLines: { color: line } },
+      rightPriceScale: { borderColor: line },
+      timeScale: { borderColor: line, timeVisible: true },
+      crosshair: { vertLine: { color: up + "59", labelBackgroundColor: up }, horzLine: { color: up + "59", labelBackgroundColor: up } },
       height: 320,
       autoSize: true,
     });
     series.current = chart.current.addCandlestickSeries({
-      upColor: "#ccff00", downColor: "#ff6b70", borderVisible: false,
-      wickUpColor: "#ccff00", wickDownColor: "#ff6b70",
+      upColor: up, downColor: down, borderVisible: false,
+      wickUpColor: up, wickDownColor: down,
       priceFormat: { type: "price", precision: 4, minMove: 0.0001 },
     });
     return () => { chart.current?.remove(); chart.current = null; };

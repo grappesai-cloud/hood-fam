@@ -13,7 +13,10 @@ export const revalidate = 900;
 
 const STATIC: { path: string; priority: number; changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"] }[] = [
   { path: "/", priority: 1, changeFrequency: "hourly" },
+  { path: "/discover", priority: 0.9, changeFrequency: "hourly" },
   { path: "/launch", priority: 0.9, changeFrequency: "weekly" },
+  { path: "/whitepaper", priority: 0.6, changeFrequency: "monthly" },
+  { path: "/docs", priority: 0.6, changeFrequency: "monthly" },
   { path: "/portfolio", priority: 0.5, changeFrequency: "daily" },
   { path: "/creator", priority: 0.5, changeFrequency: "daily" },
   { path: "/leaderboard", priority: 0.7, changeFrequency: "hourly" },

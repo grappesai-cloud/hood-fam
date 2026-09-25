@@ -12,7 +12,7 @@ import { pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
 import { detectPortalGeneration, encodeAuctionBlocks, encodePenalties, penaltiesInUse, penaltyProblem, penaltyReviewRows, portalAbis, PENALTY_FORM_DEFAULTS, type PenaltyForm } from "@/lib/launchAbi";
 import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
-import { Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, PenaltyOptions, Slider, Step, WhatHappens, WizardNav, WizardProgress } from "@/components/LaunchUI";
+import { DEFAULT_SNIPE_PCT, Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, PenaltyOptions, Slider, Step, WhatHappens, WizardNav, WizardProgress } from "@/components/LaunchUI";
 import { DirectSim } from "@/components/Sim";
 import { brand } from "@/brands";
 
@@ -70,7 +70,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     openFdv: "10", bondFdv: "100",
     // The snipe tax is on by default: with the 1% buy tax it makes 99% at the open, which is the
     // hook's ceiling, gone after three seconds.
-    buyTax: 1, sellTax: 1, snipeTax: MAX_COMBINED_PCT - 1, snipeSeconds: 3,
+    buyTax: 1, sellTax: 1, snipeTax: DEFAULT_SNIPE_PCT, snipeSeconds: 3,
     restrictionBlocks: 0, maxHold: 20, maxBuy: 20,
     creatorBps: 25, buybackBps: 25, dividendsBps: 40, liquidityBps: 10,
     feeRecipient: "",

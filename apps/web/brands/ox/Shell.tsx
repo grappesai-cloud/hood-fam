@@ -14,7 +14,7 @@ import { brand } from "@/brands";
 import { Wordmark } from "./Wordmark";
 
 const PRIMARY_NAV = [
-  { href: "/", label: "Discover" },
+  { href: "/discover", label: "Discover" },
   { href: "/following", label: "Following" },
   { href: "/analytics", label: "Analytics" },
   { href: "/portfolio", label: "Portfolio" },
@@ -29,6 +29,8 @@ const MORE_NAV = [
   { href: "/airdrop", label: "Season drop" },
   { href: "/refer", label: "Refer" },
   { href: "/bridge", label: "Bridge" },
+  { href: "/docs", label: "Docs" },
+  { href: "/whitepaper", label: "Whitepaper" },
 ] as const;
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -54,10 +56,10 @@ export function Shell({ children }: { children: ReactNode }) {
       </div>
       <header className="ox-topbar">
         <div className="ox-topbar-inner">
-          <Link href="/" className="ox-brand-link" aria-label={`${brand.name} home`}><Wordmark /></Link>
+          <Link href="/discover" className="ox-brand-link" aria-label={`${brand.name} home`}><Wordmark /></Link>
           <nav className="ox-nav" aria-label="Launchpad navigation">
             {PRIMARY_NAV.map((item) => {
-              const active = item.href === "/" ? path === "/" : path.startsWith(item.href);
+              const active = path.startsWith(item.href);
               return <Link key={item.href} href={item.href} className={active ? "ox-nav-link active" : "ox-nav-link"}>{item.label}</Link>;
             })}
           </nav>
@@ -85,13 +87,13 @@ export function Shell({ children }: { children: ReactNode }) {
           <Wordmark />
           <p>Community tokens are volatile and may lose all value. Verify the contract address before trading. {brand.copy.footnote}</p>
           <nav aria-label="Legal">
-            <Link href="/analytics">Analytics</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
+            <Link href="/docs">Docs</Link><Link href="/whitepaper">Whitepaper</Link><Link href="/analytics">Analytics</Link><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link>
           </nav>
         </footer>
       </div>
 
       <nav className="ox-mobile-nav" aria-label="Mobile navigation">
-        <Link className={path === "/" ? "active" : ""} href="/"><span>⌂</span>Discover</Link>
+        <Link className={path.startsWith("/discover") ? "active" : ""} href="/discover"><span>⌂</span>Discover</Link>
         <Link className={path.startsWith("/portfolio") ? "active" : ""} href="/portfolio"><span>◫</span>Portfolio</Link>
         <Link className="create" href="/launch"><span>＋</span>Launch</Link>
         <Link className={path.startsWith("/leaderboard") ? "active" : ""} href="/leaderboard"><span>↗</span>Board</Link>
