@@ -2245,14 +2245,13 @@ html[data-brand="ox"] .ox-social-grid.single { grid-template-columns: 1fr; }
 
 /* ================================================================================ dark face
    bags.fam is a dark product now: a near black page, charcoal cards with soft corners, off-white
-   type set in Saans, and Robinhood green kept for the mark, the arrows, the active states and the
+   type set in Helvetica, and Robinhood green kept for the mark, the arrows, the active states and the
    numbers that went up. Everything above in this file described an older dark product; this last
    layer is the one in effect, and every rule in it is scoped to html[data-brand="ox"] so the other
    faces do not move. Where an earlier rule was written with a long selector, the same selector is
    repeated here so the later declaration wins on equal specificity. The palette is named once in
    the first block; the footer and the home hero are pure black on the near black page, on purpose. */
-@font-face { font-family: "Saans"; src: url("/fonts/SaansRegular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: "Saans"; src: url("/fonts/SaansMedium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+/* Helvetica from the device (Helvetica Neue on Apple, Arial elsewhere): no font file is served. */
 
 html[data-brand="ox"] {
   --color-ink: #0a0a0a;
@@ -2266,7 +2265,7 @@ html[data-brand="ox"] {
   --color-red: #ff5000;
   --color-green: #00c805;
   --color-bg: #0a0a0a;
-  --font-sans: "Saans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
   --glass: #161616;
   --glass-line: #ffffff14;
   --glass-shadow: 0 1px 2px #00000066, 0 14px 34px -26px #000000cc;
