@@ -19,7 +19,7 @@ async function post(path: string, body: unknown, key: string): Promise<Json> {
       "content-type": "application/json",
       "x-api-key": key,
       "x-universal-router-version": "2.1.1",
-      "x-agent-info": JSON.stringify({ decision_origin: "human_mediated", integration_name: "ox.family", version: "1" }),
+      "x-agent-info": JSON.stringify({ decision_origin: "human_mediated", integration_name: "bags.fam", version: "1" }),
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15_000),

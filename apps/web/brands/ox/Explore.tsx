@@ -147,15 +147,15 @@ export function Explore() {
           </p>
           <div className="ox-hero-actions">
             <Link className="ox-primary-action" href="/launch"><span>＋</span>Create token</Link>
-            <Link className="ox-secondary-action" href="/airdrop">See the fee pool <span>↗</span></Link>
+            <Link className="ox-secondary-action" href="/airdrop">See your cut <span>↗</span></Link>
           </div>
           <div className="ox-trust-line"><span>Transparent curves</span><span>Creator fee wallet</span><span>Locked liquidity at graduation</span></div>
         </div>
-        <div className="ox-hero-visual" aria-label="OX pixel logo">
+        <div className="ox-hero-visual" aria-label="bags.fam">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/ox/ox-pixel.svg"
-            alt="OX pixel-art logo"
+            src="/ox/bags-mark.svg"
+            alt="bags.fam"
             width={50}
             height={30}
             loading="lazy"
@@ -294,5 +294,5 @@ function isDevLocked(token: TokenRow) {
 }
 
 function State({ title, body, action }: { title: string; body: string; action?: React.ReactNode }) {
-  return <div className="ox-state"><span>OX</span><h3>{title}</h3><p>{body}</p>{action}</div>;
+  return <div className="ox-state"><span>bags</span><h3>{title}</h3><p>{body}</p>{action}</div>;
 }

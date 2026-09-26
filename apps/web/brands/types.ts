@@ -44,6 +44,8 @@ export interface Brand {
     board: string;
     /// What the season revenue share is called.
     drop: string;
+    /// The drop page's own title, when a brand names it. Without one the page says "The drop".
+    dropTitle?: string;
     /// The line in the footer, after the risk warning.
     footnote: string;
   };

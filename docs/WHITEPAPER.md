@@ -1,6 +1,6 @@
-# ox.family
+# bags.fam
 
-ox.family is a token launchpad on Robinhood Chain, chain id 4663. Anyone can launch a token in one
+bags.fam is a token launchpad on Robinhood Chain, chain id 4663. Anyone can launch a token in one
 transaction. The token trades from the first block. Every trade pays a fee of 1%. The contracts
 split that fee by rules that are written in code and fixed at launch. Nobody can change the rules
 of a live token afterwards. Not the creator, and not us.
@@ -14,7 +14,7 @@ Version 3. Contracts deployed on Robinhood Chain on 25 September 2026.
 
 ## Contents
 
-1. [What ox.family is](#what-oxfamily-is)
+1. [What bags.fam is](#what-bagsfam-is)
 2. [Two ways to launch](#two-ways-to-launch)
 3. [What a trade costs](#what-a-trade-costs)
 4. [The Bag](#the-bag)
@@ -35,9 +35,9 @@ Version 3. Contracts deployed on Robinhood Chain on 25 September 2026.
 19. [Risks](#risks)
 20. [Contract addresses](#contract-addresses)
 
-## What ox.family is
+## What bags.fam is
 
-ox.family is a place to launch a token and trade it. A launch is one transaction. The token trades
+bags.fam is a place to launch a token and trade it. A launch is one transaction. The token trades
 from the first block. Every trade pays a fee of 1%. The contracts split that fee by rules that are
 written in code and fixed at launch.
 

@@ -1,4 +1,4 @@
-/* ox.family — a social launchpad with the market mechanics kept legible.
+/* bags.fam: a social launchpad with the market mechanics kept legible.
    The lime light and black field come from the supplied OX mark. Discovery borrows the quick,
    friendly rhythm of a social feed; the lifecycle and market facts stay explicit. */
 
@@ -1743,8 +1743,7 @@ html[data-brand="ox"] .empty-body::before {
   width: 66px;
   height: 44px;
   margin-bottom: 15px;
-  background: url("/ox/ox-pixel.svg") center / contain no-repeat;
-  image-rendering: pixelated;
+  background: url("/ox/bags-mark.svg") center / contain no-repeat;
 }
 html[data-brand="ox"] .empty h2 { font-weight: 600; }
 html[data-brand="ox"] .empty p { color: #a8aea5; }
@@ -2245,7 +2244,7 @@ html[data-brand="ox"] .ox-social-grid.single { grid-template-columns: 1fr; }
 }
 
 /* ================================================================================ dark face
-   ox.family is a dark product now: a near black page, charcoal cards with soft corners, off-white
+   bags.fam is a dark product now: a near black page, charcoal cards with soft corners, off-white
    type set in Saans, and Robinhood green kept for the mark, the arrows, the active states and the
    numbers that went up. Everything above in this file described an older dark product; this last
    layer is the one in effect, and every rule in it is scoped to html[data-brand="ox"] so the other
@@ -2873,3 +2872,14 @@ html[data-brand="ox"] .creator-progress .card-progress { background-image: repea
   html[data-brand="ox"] .panel-head { flex-wrap: wrap; row-gap: 6px; }
   html[data-brand="ox"] .hatch { display: none; }
 }
+
+/* ---------------------------------------------------------------- bags.fam mark
+   The mark is a square bag, not the wide pixel ox: every slot that held the ox is sized to a square. */
+html[data-brand="ox"] .ox-wordmark-mark, html[data-brand="ox"] .ox-topbar .ox-wordmark-mark { width: 28px; height: 28px; overflow: visible; }
+html[data-brand="ox"] .empty-body::before { width: 44px; height: 44px; }
+html[data-brand="ox"] .ox-hero-visual img { image-rendering: auto; }
+@media (max-width: 760px) { html[data-brand="ox"] .ox-topbar .ox-wordmark-mark { width: 24px; height: 24px; } }
+
+/* Your cut lives in the top menu; the copy in More shows only where that menu is folded away. */
+html[data-brand="ox"] .ox-more-menu nav a.ox-more-cut { display: none; }
+@media (max-width: 900px) { html[data-brand="ox"] .ox-more-menu nav a.ox-more-cut { display: block; } }

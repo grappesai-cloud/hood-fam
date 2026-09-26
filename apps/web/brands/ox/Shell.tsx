@@ -15,6 +15,7 @@ import { Wordmark } from "./Wordmark";
 
 const PRIMARY_NAV = [
   { href: "/discover", label: "Discover" },
+  { href: "/airdrop", label: "Your cut" },
   { href: "/following", label: "Following" },
   { href: "/analytics", label: "Analytics" },
   { href: "/portfolio", label: "Portfolio" },
@@ -26,7 +27,6 @@ const MORE_NAV = [
   { href: "/bag", label: "The Bag" },
   { href: "/quests", label: "Quests" },
   { href: "/lock", label: "Lock" },
-  { href: "/airdrop", label: "Season drop" },
   { href: "/refer", label: "Refer" },
   { href: "/bridge", label: "Bridge" },
   { href: "/docs", label: "Docs" },
@@ -46,7 +46,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="ox-app-shell">
       <div className="ox-intro" aria-hidden="true">
-        <div className="ox-intro-first"><span>ox.family</span><small>ROBINHOOD CHAIN</small></div>
+        <div className="ox-intro-first"><span>bags.fam</span><small>ROBINHOOD CHAIN</small></div>
         <div className="ox-intro-second">
           <span className="ox-intro-eyebrow">A market for every community</span>
           <strong>CREATE<br />TRADE</strong>
@@ -68,6 +68,8 @@ export function Shell({ children }: { children: ReactNode }) {
             <details className="ox-more-menu">
               <summary>More <span aria-hidden="true">⌄</span></summary>
               <nav aria-label="More pages">
+                {/* The top menu folds away under 900px; this keeps Your cut one tap from the top there. */}
+                <Link className="ox-more-cut" href="/airdrop">Your cut</Link>
                 {MORE_NAV.map((item) => <Link key={item.href} href={item.href}>{item.label}</Link>)}
               </nav>
             </details>

@@ -139,6 +139,10 @@ const events = {
   buybackWanted: parseAbiItem("event BuybackWanted(address token)"),
   // the graduation hook: one hook for every graduated pool, so the log names the token
   poolPenalty: parseAbiItem("event Penalty(bytes32 indexed reason, address indexed payer, address indexed token, uint256 amount, uint256 toHolders, uint256 toBag)"),
+  // ...and the pool it takes over at graduation, so the pool's swaps can be read like a direct launch's
+  poolRegistered: parseAbiItem(
+    "event PoolRegistered(bytes32 indexed id, address indexed token, address indexed pot, (uint16 jeetTaxBps, uint32 jeetWindowSeconds, uint16 whaleTaxBps, uint24 whaleTickLimit, uint16 kingBps, bool penaltiesToVault) penalties)",
+  ),
   // the sniper auction
   auctionBid: parseAbiItem("event Bid(address indexed token, address indexed bidder, uint256 amount, uint64 endBlock)"),
   auctionSettled: parseAbiItem("event Settled(address indexed token, address indexed winner, uint256 amount, uint256 toHolders, uint256 toLiquidity)"),
@@ -628,6 +632,20 @@ function registerPool(poolId: string, token: string, quote: string) {
   pools.set(poolId, { token, quote, tokenIsZero: token < quote });
 }
 
+/// A curve launch's pool, opened at graduation. From then on the coin trades there, from this app,
+/// from Uniswap or from an aggregator like GMGN, and every one of those swaps is a PoolManager Swap
+/// like a direct launch's. Without the pool in the map they were skipped: no tape line, no cost
+/// basis, no points. The graduator is the only caller the hook accepts, so the pair is the curve's.
+async function onPoolRegistered(log: Log & { args: Record<string, unknown> }) {
+  const token = lower(log.args.token);
+  if (!tokens.has(token)) return;
+  const poolId = (log.args.id as string).toLowerCase();
+  const { rows } = await pool.query<{ pair_token: string }>(
+    `update launches set pool_id = $2 where token = $1 returning pair_token`, [token, poolId],
+  );
+  if (rows[0]) registerPool(poolId, token, rows[0].pair_token.toLowerCase());
+}
+
 async function onDirectLaunched(log: Log & { args: Record<string, unknown> }) {
   const a = log.args;
   const token = (a.token as string).toLowerCase();
@@ -838,18 +856,55 @@ async function traderOf(log: Log, token: string, side: "buy" | "sell"): Promise<
   const receipt = await client.getTransactionReceipt({ hash: log.transactionHash! });
   // Whoever the tokens moved for. If that was one of our own contracts (a buyback, a harvest), the
   // trade belongs to the contract and scores nothing, even though a person paid the gas for it.
+  const moves = receipt.logs
+    .filter((l) => l.address.toLowerCase() === token && l.topics[0] === TRANSFER_TOPIC)
+    .map((l) => ({ from: topicAddress(l.topics[1]!), to: topicAddress(l.topics[2]!), value: BigInt(l.data) }));
   let who: string | undefined;
-  for (const l of receipt.logs) {
-    if (l.address.toLowerCase() !== token || l.topics[0] !== TRANSFER_TOPIC) continue;
-    const from = topicAddress(l.topics[1]!);
-    const to = topicAddress(l.topics[2]!);
-    if (side === "buy" && from === POOL_MANAGER) { who = to; break; }
-    if (side === "sell" && to === POOL_MANAGER) { who = from; break; }
+  let at = -1;
+  for (let i = 0; i < moves.length; i++) {
+    if (side === "buy" && moves[i].from === POOL_MANAGER) { who = moves[i].to; at = i; break; }
+    if (side === "sell" && moves[i].to === POOL_MANAGER) { who = moves[i].from; at = i; break; }
+  }
+  // Most trades do not come from this app. An aggregator (GMGN, Uniswap's own router) takes a buy
+  // from the PoolManager into its contract and hands it on, and pulls a sell in before paying the
+  // pool, so the first leg names the router. Follow the hand-offs inside the transaction to the
+  // wallet at the end: forward after a buy, backward before a sell. Only through contracts that are
+  // not ours: the portal handing a first buy to a creator stays the portal's, as it always was.
+  for (let hop = 0; who && hop < 4 && (await passesOn(who)); hop++) {
+    // The biggest leg is the trader's: a router that skims a fee in the token sends that on too.
+    let next = -1;
+    for (let i = 0; i < moves.length; i++) {
+      const m = moves[i];
+      const fits = side === "buy"
+        ? i > at && m.from === who && m.to !== POOL_MANAGER && !BURNT.has(m.to)
+        : i < at && m.to === who && m.from !== POOL_MANAGER && m.from !== zeroAddress;
+      if (fits && (next < 0 || m.value > moves[next].value)) next = i;
+    }
+    if (next < 0) break;
+    who = side === "buy" ? moves[next].to : moves[next].from;
+    at = next;
   }
   who ??= receipt.from.toLowerCase();
   traderCache.set(key, who);
   return who;
 }
+
+const BURNT = new Set([zeroAddress, "0x000000000000000000000000000000000000dead"]);
+const hasCode = new Map<string, boolean>();
+/// A router: a contract that is not a piece of our machine. The UniversalRouter is on the system
+/// list so it never scores in its own name, but it is exactly the kind of contract to look through.
+async function passesOn(address: string): Promise<boolean> {
+  if (machines.has(address) || (SYSTEM.has(address) && address !== UNIVERSAL_ROUTER)) return false;
+  let code = hasCode.get(address);
+  if (code === undefined) {
+    // A wallet with an EIP-7702 delegation carries 0xef0100 plus an address. It is still a person.
+    const bytes = (await client.getCode({ address: address as Address })) ?? "0x";
+    code = bytes !== "0x" && !bytes.startsWith("0xef0100");
+    hasCode.set(address, code);
+  }
+  return code;
+}
+const UNIVERSAL_ROUTER = "0x8876789976decbfcbbbe364623c63652db8c0904";
 
 /// Who a launch's fee comes back to.
 ///
@@ -1713,6 +1768,9 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
     case "Flushed": if (address === FEE_ROUTER) await onFeeEvent(l, "flushed"); break;
     case "SoldOut":
       if (curves.has(address)) await pool.query(`update launches set phase = 1 where curve = $1`, [address]);
+      break;
+    case "PoolRegistered":
+      if (GRADUATION_HOOK && address === GRADUATION_HOOK) await onPoolRegistered(l);
       break;
     case "Graduated":
       if (curves.has(address)) {

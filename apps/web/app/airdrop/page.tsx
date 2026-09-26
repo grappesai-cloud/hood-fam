@@ -8,6 +8,7 @@ import { ClaimPanel } from "@/components/airdrop/ClaimPanel";
 import { SeasonFacts, useSeasonAirdrop } from "@/components/airdrop/SeasonFacts";
 import { WhatThisIsNot } from "@/components/airdrop/WhatThisIsNot";
 import { usd, type SeasonList } from "@/components/airdrop/data";
+import { brand } from "@/brands";
 
 /// The season pool, end to end: what it is worth so far, what your points are worth of it, what
 /// more activity would add, and the button that takes it once the season is split. Nothing on this
@@ -27,8 +28,8 @@ export default function AirdropPage() {
     <div className="space-y-4">
       <div className="page-head">
         <header className="page-intro">
-          <div className="section-kicker">The drop</div>
-          <h1>The drop</h1>
+          <div className="section-kicker">{brand.copy.dropTitle ?? "The drop"}</div>
+          <h1>{brand.copy.dropTitle ?? "The drop"}</h1>
           <p>A cut of what the protocol earned. Points decide how it splits.</p>
         </header>
         <div className="head-side">
