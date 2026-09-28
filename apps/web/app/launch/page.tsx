@@ -9,13 +9,28 @@ import { hoodFactoryAbi, hoodStakingAbi, BPS, FEE_LEG_LABEL, LOCK_TIERS, curveBu
 import { addresses } from "@/lib/config";
 import { api, type PairRow, type ResolvedQuote, type RouteAvailability } from "@/lib/api";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
-import { detectFactoryGeneration, encodePenalties, factoryAbis, penaltiesInUse, penaltyProblem, penaltyReviewRows, PENALTY_FORM_DEFAULTS, type PenaltyForm } from "@/lib/launchAbi";
+import { detectFactoryGeneration, encodePenalties, factoryAbis, factoryTakesGuard, factoryTakesPenalties, penaltiesInUse, penaltyProblem, penaltyReviewRows, PENALTY_FORM_DEFAULTS, type PenaltyForm } from "@/lib/launchAbi";
+import { CURVE_GUARD_DEFAULTS, CurveGuardOptions, encodeGuard, guardProblem, guardReviewRows, type CurveGuardForm } from "@/components/CurveGuardOptions";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
 import { Choice, Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, PenaltyOptions, Slider, Step, WhatHappens, WizardNav, WizardProgress } from "@/components/LaunchUI";
 import { CurveSim } from "@/components/Sim";
 import { useBatch } from "@/lib/safe";
 import { brand } from "@/brands";
+import plannedPairs from "@/lib/plannedPairs.json";
+
+/// The pairs the quotes plan (deploy/quotes.plan.json) sized a preset for, with that preset's two
+/// caps. Until the owner applies the plan to this factory they are not on its allow list, but
+/// launchCustom takes any ERC-20, so the menu offers them and launches them with the plan's own
+/// numbers. Once the plan is applied the API lists them as allowed and this list stops mattering.
+interface PlannedPair {
+  address: string; symbol: string; name: string | null; share: boolean; decimals: number;
+  startCap: string; graduationCap: string;
+}
+/// The shares people come looking for go first, because the menu shows only its first six up front.
+const HEADLINE = ["NVDA", "TSLA", "SPY", "AAPL"];
+const rank = (p: PlannedPair) => (HEADLINE.includes(p.symbol) ? HEADLINE.indexOf(p.symbol) : HEADLINE.length);
+const PLANNED: PlannedPair[] = [...plannedPairs.pairs].sort((a, b) => rank(a) - rank(b));
 
 interface CurvePreset {
   /// What this preset's caps are written in, and the only pair it may be launched against.
@@ -122,6 +137,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const [reviewedFingerprint, setReviewedFingerprint] = useState("");
   const receipt = useWaitForTransactionReceipt({ hash });
   const [penalties, setPenalties] = useState<PenaltyForm>(PENALTY_FORM_DEFAULTS);
+  const [guard, setGuard] = useState<CurveGuardForm>(CURVE_GUARD_DEFAULTS);
 
   // Which LaunchParams the deployed factory reads, off its bytecode: the Bag release appends
   // `penalties` at the end, the one before it does not know the field. See lib/launchAbi.ts.
@@ -135,8 +151,9 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     staleTime: Infinity,
   });
   const generation = factoryGeneration.data ?? undefined;
-  const supportsPenalties = generation === "v3";
-  const penaltyError = penaltyProblem(penalties);
+  const supportsPenalties = factoryTakesPenalties(generation);
+  const supportsGuard = factoryTakesGuard(generation);
+  const penaltyError = penaltyProblem(penalties) ?? (supportsGuard ? guardProblem(guard) : undefined);
   const penaltiesUnsupported = penaltiesInUse(penalties) && generation !== undefined && !supportsPenalties;
 
   const [form, setForm] = useState({
@@ -190,7 +207,27 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     queryFn: () => api<{ pairs: PairRow[] }>("/pairs"),
     staleTime: 60_000,
   });
-  const pairs = pairData?.pairs ?? [];
+  const allowedPairs = pairData?.pairs ?? [];
+  // The plan's pairs join the menu only once the API has answered, so an allowed pair is never
+  // shown as a planned one (and launched through launchCustom) just because it loaded first.
+  const plannedRows = pairData
+    ? PLANNED.filter((p) => !allowedPairs.some((a) => a.address.toLowerCase() === p.address.toLowerCase()))
+    : [];
+  const pairs: (PairRow & { usdReason?: string | null })[] = [
+    ...allowedPairs,
+    ...plannedRows.map((p) => ({ ...p, allowed: false, lockThreshold: "0", usd: 0, usdReason: "price on pick" })),
+  ];
+  const planned = form.customPair
+    ? undefined
+    : plannedRows.find((p) => p.address.toLowerCase() === form.pairToken.toLowerCase());
+  // A planned pair has no price in the API's list, so the one picked is read on its own.
+  const { data: plannedQuote } = useQuery({
+    queryKey: ["custom-quote", planned?.address.toLowerCase()],
+    queryFn: () => api<ResolvedQuote>(`/pairs/resolve/${planned!.address}`),
+    enabled: Boolean(planned),
+    staleTime: 60_000,
+    retry: false,
+  });
   const customAddressValid = isAddress(form.customAddress) && form.customAddress.toLowerCase() !== zeroAddress;
   const { data: customQuote, error: customQuoteError, isFetching: customQuoteLoading } = useQuery({
     queryKey: ["custom-quote", form.customAddress.toLowerCase()],
@@ -222,7 +259,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   });
   const { data: econ } = useReadContract({
     address: addresses.factory, abi: hoodFactoryAbi, functionName: "previewLaunchEconomics",
-    args: [BigInt(form.configId), form.pairToken], query: { enabled: !form.customPair, refetchInterval: 15_000 },
+    args: [BigInt(form.configId), form.pairToken], query: { enabled: !form.customPair && !planned, refetchInterval: 15_000 },
   });
 
   useEffect(() => {
@@ -236,7 +273,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const chosenPair = pairs.find((p) => p.address.toLowerCase() === form.pairToken.toLowerCase());
   const pairDec = form.customPair ? (customQuote?.decimals ?? 18) : (chosenPair?.decimals ?? pairDecimals(form.pairToken));
   const pair = form.customPair ? (customQuote?.symbol ?? "custom token") : (chosenPair?.symbol ?? pairSymbol(form.pairToken));
-  const pairUsd = form.customPair ? (customQuote?.usd ?? 0) : (chosenPair?.usd ?? 0);
+  const pairUsd = form.customPair ? (customQuote?.usd ?? 0) : planned ? (plannedQuote?.usd ?? 0) : (chosenPair?.usd ?? 0);
   const firstBuyWei = units(form.firstBuy, pairDec);
   const customStartCap = units(form.customStart, pairDec);
   const customGraduationCap = units(form.customGraduation, pairDec);
@@ -273,7 +310,12 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const presetFits = (cfg?: CurvePreset) =>
     Boolean(cfg?.enabled) && cfg!.pairToken.toLowerCase() === form.pairToken.toLowerCase();
   const presetsForPair = ((configs ?? []) as { result?: CurvePreset }[]).filter((c) => presetFits(c.result)).length;
-  const chosen = ((configs ?? []) as { result?: CurvePreset }[])[form.configId]?.result;
+  // A planned pair's preset is the one the plan would publish, built with the same numbers
+  // script/AllowQuotes.s.sol writes, and it goes on chain through launchCustom.
+  const plannedPreset = planned
+    ? { ...customConfig, startCap: BigInt(planned.startCap), graduationCap: BigInt(planned.graduationCap) }
+    : undefined;
+  const chosen = plannedPreset ?? ((configs ?? []) as { result?: CurvePreset }[])[form.configId]?.result;
   const openingCap = form.customPair ? customStartCap : chosen?.startCap;
   const graduationCap = form.customPair ? customGraduationCap : chosen?.graduationCap;
   // The trading fee. The Bag's leg is not the creator's to move; everything above it is, up to
@@ -306,7 +348,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : chosen
       ? { ...chosen, creatorFeeBps, enabled: true }
       : null;
-  const useCustomConfig = form.customPair || feeMoved;
+  const useCustomConfig = form.customPair || feeMoved || Boolean(planned);
 
   const tokenDone = form.name.length > 0 && form.symbol.length > 0 && symbolFree !== false;
   const splitTotal = form.stakers + form.buyback + form.liquidity + form.creator;
@@ -321,7 +363,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const recipient = form.feeRecipient.trim() || address || "";
   const recipientOk = !form.feeRecipient.trim() || isAddress(form.feeRecipient.trim());
   const reviewedTerms = JSON.stringify({
-    form, penalties, generation, pair, recipient, totalFeeBps,
+    form, penalties, guard, generation, pair, recipient, totalFeeBps,
     opening: String(form.customPair ? customStartCap : chosen?.startCap ?? ""),
     graduation: String(form.customPair ? customGraduationCap : chosen?.graduationCap ?? ""),
     econ: String(econ ?? ""),
@@ -441,6 +483,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         ? (`0x${"0".repeat(64)}` as `0x${string}`)
         : ((econ as `0x${string}`) ?? (`0x${"0".repeat(64)}` as `0x${string}`)),
     } as const;
+    if (supportsGuard) return { ...base, penalties: encodePenalties(penalties), guard: encodeGuard(guard) };
     return supportsPenalties ? { ...base, penalties: encodePenalties(penalties) } : base;
   }
 
@@ -550,7 +593,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             <div className="grid gap-2 sm:grid-cols-2">
               <Choice selected={!form.customPair} onClick={() => {
                 set("customPair", false); set("pairToken", (pairs[0]?.address as Address | undefined) ?? zeroAddress); set("firstBuy", "");
-              }} title="Curated pairs" body="ETH, USDG and the liquid assets already reviewed by the pad." meta="standard" />
+              }} title="Curated pairs" body="ETH, USDG, tokenized stocks like NVDA and SPY, and the liquid coins already reviewed by the pad." meta="standard" />
               <Choice selected={form.customPair} onClick={() => { set("customPair", true); set("firstBuy", ""); }}
                 title="Paste any coin" body="Launch against any compatible Robinhood Chain ERC-20, including an existing meme coin." meta="meme-to-meme" />
             </div>
@@ -558,7 +601,15 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             {!form.customPair ? <>
               <PairChooser pairs={pairs} value={form.pairToken} loading={pairsLoading} error={pairsError} compact
                 onPick={(address: Address) => { set("pairToken", address); set("firstBuy", ""); set("configId", 0); }} />
-              <div className="grid gap-2">
+              {plannedPreset && <div className="grid gap-2">
+                <Choice selected onClick={() => {}}
+                  title={`Starts at ${fmt(plannedPreset.startCap, pairDec, 3)} ${pair}, graduates at ${fmt(plannedPreset.graduationCap, pairDec, 3)} ${pair}`}
+                  body={`${plannedPreset.curveSupplyBps / 100}% of the supply trades on the curve. The rest goes into the pool at graduation, locked.${
+                    pairUsd > 0 ? ` About $${Math.round((Number(plannedPreset.startCap) / 10 ** pairDec) * pairUsd).toLocaleString()} at the open, $${Math.round((Number(plannedPreset.graduationCap) / 10 ** pairDec) * pairUsd).toLocaleString()} at graduation.` : ""
+                  } Your launch publishes this preset and opens ${pair} as a pair.`}
+                  meta={`${(plannedPreset.protocolFeeBps + plannedPreset.creatorFeeBps) / 100}% per trade`} />
+              </div>}
+              {!plannedPreset && <div className="grid gap-2">
                 {((configs ?? []) as { result?: CurvePreset }[]).map((c, i) => {
                   const cfg = c.result;
                   if (!cfg?.enabled || !presetFits(cfg)) return null;
@@ -571,8 +622,8 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                       meta={`${(cfg.protocolFeeBps + cfg.creatorFeeBps) / 100}% per trade`} />
                   );
                 })}
-              </div>
-              {presetsForPair === 0 && <p className="text-xs text-[var(--color-red)]">No preset is denominated in {pair} yet. Pick another pair.</p>}
+              </div>}
+              {!plannedPreset && presetsForPair === 0 && <p className="text-xs text-[var(--color-red)]">No preset is denominated in {pair} yet. Pick another pair.</p>}
             </> : <>
               <Field label="Robinhood Chain token address"
                 help="Paste the parent coin's ERC-20 address. Metadata and available USDG liquidity are read directly from chain."
@@ -667,7 +718,14 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           )}
 
           {activeStep === 3 && (
-          <Step n={4} title="Penalties after graduation" purpose="These run on the graduated pool, through the hook every pool shares. Who pays extra, how much, and who gets it. Fixed at launch." done={!penaltyError}>
+          <Step n={4} title={supportsGuard ? "Sniper protection and penalties" : "Penalties after graduation"} purpose={supportsGuard ? "Who pays extra at the open and after graduation, how much, and who gets it. Fixed at launch." : "These run on the graduated pool, through the hook every pool shares. Who pays extra, how much, and who gets it. Fixed at launch."} done={!penaltyError}>
+            {supportsGuard && (
+              <>
+                <h3 className="option-heading">At the open, on the curve</h3>
+                <CurveGuardOptions value={guard} onChange={setGuard} />
+                <h3 className="option-heading">After graduation, on the pool</h3>
+              </>
+            )}
             <PenaltyOptions value={penalties} onChange={setPenalties} postGraduation />
             {penaltyError && <p className="field-note bad">{penaltyError}</p>}
             {penaltiesUnsupported && <p className="field-note bad">The factory on this deployment is the version before creator penalties. What you turned on here cannot reach it yet.</p>}
@@ -685,6 +743,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 { label: "Your split goes to", value: `Creator ${form.creator}% · burn ${form.buyback}% · liquidity ${form.liquidity}%${form.stakers > 0 ? ` · Vault lockers ${form.stakers}%` : ""}` },
                 { label: "Creator fee wallet", value: form.creator > 0 ? (recipient || "Connect a wallet") : "No creator share" },
                 { label: "First buy", value: firstBuyWei > 0n ? `${form.firstBuy} ${pair}${form.firstBuyLock > 0 ? ` · locked ${LOCKS.find((lock) => lock.seconds === form.firstBuyLock)?.label ?? ""}` : ""}` : "None" },
+                ...(supportsGuard ? guardReviewRows(guard) : []),
                 ...penaltyReviewRows(penalties, { postGraduation: true }),
                 { label: "Launch cost", value: `${feeDisplay} plus gas${firstBuyWei > 0n ? ` and your ${form.firstBuy} ${pair} first buy` : ""}` },
               ]}
