@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 const SECTIONS = [
-  ["what", "What bags.fam is"],
+  ["what", "What hood.fam is"],
   ["launch", "Two ways to launch"],
   ["cost", "What a trade costs"],
   ["bag", "The Bag"],

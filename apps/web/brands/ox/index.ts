@@ -5,8 +5,8 @@ import { Wordmark } from "./Wordmark";
 
 export const brand: Brand = {
   id: "ox",
-  name: "bags.fam",
-  host: "bags.fam",
+  name: "hood.fam",
+  host: "hood.fam",
   tagline: "Launch. Trade. Share the fees.",
   description:
     "Launch and trade tokens on Robinhood Chain. Eligible activity earns season points toward a share of collected fees; creators choose where their fee share goes.",
@@ -31,7 +31,7 @@ export const brand: Brand = {
     board: "Discover",
     drop: "Your cut",
     dropTitle: "Your cut",
-    footnote: "bags.fam never takes custody of your funds.",
+    footnote: "hood.fam never takes custody of your funds.",
   },
   Shell,
   Explore,

@@ -62,6 +62,14 @@ export default {
       // Versioned brand art is immutable. Public assets otherwise default to max-age=0, which made
       // the 3D hero arrive again on every navigation and look as if it were being painted in rows.
       { source: "/ox/:asset*.webp", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+      // The landing's files. Every reference in landing.html carries ?v=<hash of the file>, so a
+      // stamped URL never changes content and can be kept for a year. What main.js and the CSS load
+      // by themselves (Lottie JSON, videos, backgrounds) is unstamped and gets a day. The later rule
+      // wins when both match.
+      ...["/assets/:path*", "/vendor/:path*"].flatMap((source) => [
+        { source, headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }] },
+        { source, has: [{ type: "query", key: "v" }], headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+      ]),
       // Safe{Wallet} fetches the Safe App manifest from its own origin before it will open the app.
       { source: "/manifest.json", headers: [{ key: "Access-Control-Allow-Origin", value: "*" }] },
     ];

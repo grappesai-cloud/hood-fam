@@ -7,7 +7,7 @@ export function Wordmark({ className }: { className?: string }) {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/ox/bags-mark.svg" alt="" width={32} height={32} loading="eager" decoding="async" />
       </span>
-      <span className="ox-wordmark-name">bags.fam</span>
+      <span className="ox-wordmark-name">hood.fam</span>
     </span>
   );
 }

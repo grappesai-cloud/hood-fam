@@ -46,7 +46,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="ox-app-shell">
       <div className="ox-intro" aria-hidden="true">
-        <div className="ox-intro-first"><span>bags.fam</span><small>ROBINHOOD CHAIN</small></div>
+        <div className="ox-intro-first"><span>hood.fam</span><small>ROBINHOOD CHAIN</small></div>
         <div className="ox-intro-second">
           <span className="ox-intro-eyebrow">A market for every community</span>
           <strong>CREATE<br />TRADE</strong>
