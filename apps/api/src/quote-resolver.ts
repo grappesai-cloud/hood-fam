@@ -1,7 +1,7 @@
 import { createPublicClient, erc20Abi, getAddress, http, isAddress, parseAbi, zeroAddress, type Address } from "viem";
-import { robinhood } from "@hood/sdk";
+import { robinhood, USDG_ADDRESS } from "@hood/sdk";
 
-const USDG = getAddress("0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168");
+const USDG = getAddress(USDG_ADDRESS);
 const V3_FACTORY = getAddress("0x1f7d7550B1b028f7571E69A784071F0205FD2EfA");
 const FEES = [100, 500, 3_000, 10_000] as const;
 const MIN_DEPTH_USD = Number(process.env.CUSTOM_QUOTE_MIN_USD ?? 25_000);

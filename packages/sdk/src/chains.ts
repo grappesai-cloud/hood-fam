@@ -1,7 +1,7 @@
 import { defineChain } from "viem";
 
 /// Robinhood Chain. Arbitrum Orbit, settles on Ethereum, 100ms blocks, ETH for gas.
-export const robinhood = defineChain({
+export const robinhoodMainnet = defineChain({
   id: 4663,
   name: "Robinhood Chain",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -11,6 +11,54 @@ export const robinhood = defineChain({
   },
   contracts: { multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" } },
 });
+
+/// The public testnet, 46630. Uniswap v4, Permit2, Multicall3 and Safe v1.4.1 sit at the same
+/// addresses as on 4663; the dollar and the LayerZero endpoint do not (see `testnet` below).
+export const robinhoodTestnet = defineChain({
+  id: 46630,
+  name: "Robinhood Chain Testnet",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.testnet.chain.robinhood.com"] } },
+  blockExplorers: {
+    default: { name: "Blockscout", url: "https://explorer.testnet.chain.robinhood.com" },
+  },
+  contracts: { multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" } },
+  testnet: true,
+});
+
+/// Which chain this build talks to. Mainnet unless NEXT_PUBLIC_CHAIN_ID (the app, inlined at build)
+/// or HOOD_CHAIN_ID (the api, the keeper, the scripts) says 46630. Each read is its own try: in a
+/// browser bundle `process` exists only where Next wrote the value in.
+function envOf(read: () => string | undefined): string | undefined {
+  try {
+    return read()?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export const chainIdFromEnv = Number(
+  envOf(() => process.env.NEXT_PUBLIC_CHAIN_ID) ?? envOf(() => process.env.HOOD_CHAIN_ID) ?? 4663,
+);
+
+export const isTestnet = chainIdFromEnv === robinhoodTestnet.id;
+
+/// The chain every program here signs and reads on. Named for mainnet because it was the only one.
+/// Typed as the mainnet chain so a wagmi config or a transports map keyed on its id keeps one
+/// literal key; at run time it is whichever chain the environment picked.
+export const robinhood = (isTestnet ? robinhoodTestnet : robinhoodMainnet) as typeof robinhoodMainnet;
+
+/// What differs on 46630. The dollar is our own six-decimal test token, deployed by
+/// .deploy/testnet (anyone can mint it), so its address comes from the environment.
+export const testnet = {
+  lzEndpoint: "0x3aCAAf60502791D199a5a5F0B173D78229eBFe32",
+  lzEid: 40451,
+  usdg: (envOf(() => process.env.NEXT_PUBLIC_USDG) ?? envOf(() => process.env.HOOD_USDG) ??
+    "0x0000000000000000000000000000000000000000") as `0x${string}`,
+} as const;
+
+/// The dollar a launch can be priced in, on whichever chain this build is for.
+export const USDG_ADDRESS: `0x${string}` = isTestnet ? testnet.usdg : "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
 
 /// Uniswap v4 and friends, as deployed on 4663. The UniversalRouter here is a Robinhood FORK with
 /// an extra `minHopPriceX36` field in every swap struct; do not swap it for the canonical one.
@@ -202,9 +250,9 @@ export interface PairAsset {
   share?: true;
 }
 
-export const PAIR_ASSETS: PairAsset[] = [
+const MAINNET_PAIRS: PairAsset[] = [
   { address: "0x0000000000000000000000000000000000000000", symbol: "ETH", decimals: 18 },
-  { address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", symbol: "USDG", decimals: 6 },
+  { address: USDG_ADDRESS, symbol: "USDG", decimals: 6 },
   { address: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", symbol: "NVDA", decimals: 18, share: true },
   { address: "0x1b0E319c6A659F002271B69dB8A7df2F911c153E", symbol: "GME", decimals: 18, share: true },
   { address: "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C", symbol: "SPY", decimals: 18, share: true },
@@ -214,6 +262,11 @@ export const PAIR_ASSETS: PairAsset[] = [
   { address: "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3", symbol: "GOOGL", decimals: 18, share: true },
   { address: "0xc72b96e0E48ecd4DC75E1e45396e26300BC39681", symbol: "INTC", decimals: 18, share: true },
 ];
+
+/// On the testnet only the currency and our test dollar exist; the shares are mainnet tokens.
+export const PAIR_ASSETS: PairAsset[] = isTestnet
+  ? MAINNET_PAIRS.filter((p) => !p.share && (p.symbol !== "USDG" || p.address !== "0x0000000000000000000000000000000000000000"))
+  : MAINNET_PAIRS;
 
 const byAddress = new Map(PAIR_ASSETS.map((p) => [p.address.toLowerCase(), p]));
 

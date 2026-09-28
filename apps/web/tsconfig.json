@@ -34,7 +34,8 @@
     ".next-ox-local/types/**/*.ts",
     ".next/types/**/*.ts",
     ".ox-local-cache/types/**/*.ts",
-    "next-env.d.ts"
+    "next-env.d.ts",
+    ".next-testnet/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

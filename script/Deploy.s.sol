@@ -56,7 +56,12 @@ contract Deploy is Script {
     address internal constant STATE_VIEW = 0xF3334192D15450CdD385c8B70e03f9A6bD9E673b;
     /// LayerZero V2 on 4663. NOT the canonical 0x1a44... address; this one is verified on chain.
     address internal constant LZ_ENDPOINT = 0x6F475642a6e85809B1c36Fa62763669b1b48DD5B;
-    address internal constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168; // six decimals
+    address internal constant USDG_4663 = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168; // six decimals
+    /// @dev The testnet, 46630: the same Uniswap v4, Permit2 and Safe addresses, but its own
+    ///      LayerZero endpoint, and no dollar we can mint, so TESTNET_USDG names ours.
+    uint256 internal constant TESTNET = 46630;
+    address internal constant LZ_ENDPOINT_46630 = 0x3aCAAf60502791D199a5a5F0B173D78229eBFe32;
+    address internal USDG;
     /// Creators pay this to be seen, on both machines. Owner-settable later, capped at 0.01 ether.
     uint256 internal constant LAUNCH_FEE = 0.002 ether;
 
@@ -92,6 +97,7 @@ contract Deploy is Script {
         address treasury = vm.envAddress("TREASURY");
         address keeper = vm.envOr("KEEPER", address(0));
         address deployer = vm.addr(pk);
+        USDG = block.chainid == TESTNET ? vm.envAddress("TESTNET_USDG") : USDG_4663;
 
         if (block.chainid == 4663 && !vm.envOr("ALLOW_EOA_OWNER", false)) {
             _requireSafe("OWNER", owner);
@@ -138,7 +144,7 @@ contract Deploy is Script {
         console.log("graduator ", book.graduator);
         book.curveRouter = address(new HoodCurveRouter(book.factory, UNIVERSAL_ROUTER));
         console.log("curveRouter", book.curveRouter);
-        book.bridge = address(new HoodBridgeFactory(deployer, book.factory, LZ_ENDPOINT));
+        book.bridge = address(new HoodBridgeFactory(deployer, book.factory, block.chainid == TESTNET ? LZ_ENDPOINT_46630 : LZ_ENDPOINT));
         console.log("bridge    ", book.bridge);
     }
 
