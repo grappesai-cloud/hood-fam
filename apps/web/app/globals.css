@@ -1683,15 +1683,22 @@ a.race-lead:hover .race-go { color: var(--color-lime); }
 .desk-tag { display: inline-block; margin-left: 6px; border: 1px solid var(--glass-line); border-radius: 6px; padding: 1px 6px; color: #8f958a; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
 .desk-tag.team { border-color: #ccff0033; color: #b7d84a; }
 .desk-tag.open { border-color: #ccff0066; color: var(--color-lime); }
+.desk-tag.buyer { border-color: #9fb3d966; color: #b9c8e8; }
 .desk-status { font-size: 12px; }
 .desk-status.pending { color: #e6ead9; }
 .desk-status.confirmed { color: var(--color-lime); }
 .desk-status.failed { color: var(--color-red); }
-.desk-manage { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; border: 1px solid var(--glass-line); border-radius: 14px; padding: 14px; background: #ffffff05; }
+.desk-manage { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; border: 1px solid var(--glass-line); border-radius: 14px; padding: 14px; background: #ffffff05; }
 .desk-manage-cell, .desk-batch-cell { display: grid; align-content: start; gap: 8px; min-width: 0; }
 .desk-manage-cell .field-label, .desk-batch-cell .field-label { margin-bottom: 0; }
 .desk-manage-cell .input, .desk-batch-cell .input { padding: 8px 11px; font-size: 12.5px; }
-.desk-batch { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; border-top: 1px solid var(--glass-line); padding-top: 15px; }
+.desk-batch { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; border-top: 1px solid var(--glass-line); padding-top: 15px; }
+.fund-table { min-width: 0; }
+.ws-table { min-width: 720px; }
+.ws-table td.ws-name .input { width: 170px; padding: 6px 10px; font-size: 12.5px; }
+.ws-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ws-link { border: 0; background: none; color: inherit; cursor: pointer; text-decoration: underline dotted; }
+.desk-addresses a { color: inherit; }
 .desk-confirm { display: grid; gap: 10px; border: 1px solid #ccff0055; border-radius: 16px; padding: 16px; background: #ccff000a; }
 .desk-confirm h3 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.02em; }
 .desk-confirm ul { display: grid; gap: 4px; max-height: 300px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }

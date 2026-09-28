@@ -72,7 +72,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
 
   const holders = useQuery({
     queryKey: ["holders", token],
-    queryFn: () => api<{ holders: { address: string; balance: string; team?: boolean }[] }>(`/tokens/${token}/holders`),
+    queryFn: () => api<{ holders: { address: string; balance: string; team?: boolean; exempt?: boolean }[] }>(`/tokens/${token}/holders`),
     refetchInterval: 30_000,
   });
 
@@ -297,7 +297,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
             <div className="space-y-1 text-xs">
               {holders.data?.holders.slice(0, 8).map((h) => (
                 <div key={h.address} className="flex justify-between">
-                  <span className="mono dim">{shortAddress(h.address)}{h.team && <span className="team-tag"> team</span>}</span>
+                  <span className="mono dim">{shortAddress(h.address)}{h.team && <span className="team-tag"> team</span>}{!h.team && h.exempt && <span className="team-tag"> open buyer</span>}</span>
                   <span className="mono">{fmt(BigInt(h.balance))}</span>
                 </div>
               ))}

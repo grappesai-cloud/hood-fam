@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
-  erc20Abi, getAddress, isAddress, parseEther, zeroAddress,
+  erc20Abi, getAddress, isAddress, parseEther, parseUnits, zeroAddress,
   type Address, type Hash, type PrivateKeyAccount,
 } from "viem";
 import { useAccount, usePublicClient, useReadContract, useSendTransaction, useWriteContract } from "wagmi";
@@ -13,15 +13,22 @@ import { addresses, blockZeroAddress, EXPLORER } from "@/lib/config";
 import { fmt, shortAddress } from "@/lib/format";
 import { Field, Step } from "@/components/LaunchUI";
 import { copyLines } from "./VaultPanel";
-import { quoteSale, reason, sellOnCurve, sweepEth, sweepPlan, withdrawLock, type Report } from "./deskChain";
+import {
+  buyInPool, buyOnCurve, quoteCurveBuy, quotePoolBuy, quoteSale, reason, sellOnCurve, sweepEth, sweepPlan, withdrawLock, type Report,
+} from "./deskChain";
 import { PCTS, WalletActions, lockOpen, whenText, type DeskToken, type LockView } from "./WalletActions";
 
-/// The desk itself: every wallet the team has open, plus the token's declared team wallets that are
-/// not open here, read only. Balances and locks are read straight off the chain, not the indexer,
-/// because a desk that acts on a number should act on the current one.
+/// The desk itself: every wallet the team has open, plus the token's declared team wallets and open
+/// buyers that are not open here, read only. Balances and locks are read straight off the chain,
+/// not the indexer, because a desk that acts on a number should act on the current one.
 ///
-/// Every action is started by a press. A batch only runs over wallets somebody ticked, and a sale or
-/// a sweep across several wallets shows the full list before anything is signed.
+/// Every action is started by a press. A batch only runs over wallets somebody ticked, and a buy, a
+/// sale or a sweep across several wallets shows the full list before anything is signed. A batch
+/// buy is many wallets each signing its own buy with its own money, one after another; it is not
+/// one transaction, and nothing here spaces or times them to look like anything but what they are.
+
+/// What a wallet paying in ETH keeps back from a buy, for the buy's own gas.
+const GAS_ROOM = parseEther("0.0003");
 
 export interface TeamRow {
   wallet: string;
@@ -39,6 +46,8 @@ interface DeskRow {
   address: Address;
   account?: PrivateKeyAccount;
   team?: TeamRow;
+  /// Named at launch as an open buyer: no opening tax in the launch's first seconds.
+  buyer: boolean;
   lockId: bigint | null;
 }
 
@@ -54,10 +63,12 @@ interface Entry {
 }
 
 interface Review {
-  kind: "sell" | "sweep";
+  kind: "sell" | "sweep" | "buy";
   title: string;
   lines: { row: DeskRow; text: string }[];
   note: string;
+  /// A buy: what each wallet spends, in the pair's units.
+  each?: bigint;
   pct?: number;
   to?: Address;
 }
@@ -81,11 +92,12 @@ function pctOf(text: string): number {
   return Math.min(100, Math.max(0, Number(text) || 0));
 }
 
-export function WalletDesk({ n, accounts, info, team, label, onLock }: {
+export function WalletDesk({ n, accounts, info, team, exempt, label, onLock }: {
   n: number;
   accounts: PrivateKeyAccount[];
   info: DeskToken | null;
   team: TeamRow[];
+  exempt: string[];
   label: string;
   onLock: () => void;
 }) {
@@ -101,9 +113,11 @@ export function WalletDesk({ n, accounts, info, team, label, onLock }: {
   });
   const locker = lockAddress && lockAddress !== zeroAddress ? (lockAddress as Address) : undefined;
 
-  // Open wallets first, in the file's order; then the declared team wallets that are not open.
+  // Open wallets first, in the order their sets were opened; then the declared team wallets and
+  // the open buyers that are not open here, read only.
   const rows = useMemo<DeskRow[]>(() => {
     const byWallet = new Map(team.map((t) => [t.wallet.toLowerCase(), t]));
+    const buyers = new Set(exempt.map((w) => w.toLowerCase()));
     const seen = new Set<string>();
     const out: DeskRow[] = [];
     for (const account of accounts) {
@@ -111,16 +125,22 @@ export function WalletDesk({ n, accounts, info, team, label, onLock }: {
       if (seen.has(key)) continue;
       seen.add(key);
       const t = byWallet.get(key);
-      out.push({ key, address: account.address, account, team: t, lockId: lockIdOf(t?.lock_id) });
+      out.push({ key, address: account.address, account, team: t, buyer: buyers.has(key), lockId: lockIdOf(t?.lock_id) });
     }
     for (const t of team) {
       const key = t.wallet.toLowerCase();
       if (seen.has(key) || !isAddress(t.wallet)) continue;
       seen.add(key);
-      out.push({ key, address: getAddress(t.wallet), team: t, lockId: lockIdOf(t.lock_id) });
+      out.push({ key, address: getAddress(t.wallet), team: t, buyer: buyers.has(key), lockId: lockIdOf(t.lock_id) });
+    }
+    for (const w of exempt) {
+      const key = w.toLowerCase();
+      if (seen.has(key) || !isAddress(w)) continue;
+      seen.add(key);
+      out.push({ key, address: getAddress(w), buyer: true, lockId: null });
     }
     return out;
-  }, [accounts, team]);
+  }, [accounts, team, exempt]);
 
   const chain = useQuery({
     queryKey: ["team-desk", token ?? "", locker ?? "", rows.map((r) => `${r.key}:${r.lockId ?? ""}`).join(",")],
@@ -231,6 +251,8 @@ export function WalletDesk({ n, accounts, info, team, label, onLock }: {
   const [manage, setManage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [batchPct, setBatchPct] = useState("25");
+  const [buyEach, setBuyEach] = useState("0.01");
+  const [buyMode, setBuyMode] = useState<"each" | "total">("each");
   const [sweepTo, setSweepTo] = useState("");
   const [gasEach, setGasEach] = useState("0.001");
   const [review, setReview] = useState<Review | null>(null);
@@ -238,7 +260,68 @@ export function WalletDesk({ n, accounts, info, team, label, onLock }: {
   const [batchError, setBatchError] = useState<string | null>(null);
 
   const curveOpen = info?.mode === "curve" && info.curve !== null && info.phase === 0;
+  const canBuy = Boolean(info) && (curveOpen || info?.mode === "direct");
   const openLocks = rows.filter((r) => r.account && locker && lockOpen(data[r.key]?.lock, r.address, now));
+
+  /// What each selected wallet spends on a batch buy: the amount as typed, or a total split evenly.
+  function buyAmounts(): { each: bigint; error?: string } {
+    if (!info) return { each: 0n, error: "Choose a token first." };
+    let amount: bigint;
+    try { amount = parseUnits(buyEach.trim() || "0", info.pairDecimals); } catch { return { each: 0n, error: "The amount is not a number." }; }
+    if (amount <= 0n) return { each: 0n, error: "Enter an amount." };
+    if (pickedOpen.length === 0) return { each: 0n, error: "Select open wallets first." };
+    const each = buyMode === "each" ? amount : amount / BigInt(pickedOpen.length);
+    return each > 0n ? { each } : { each: 0n, error: "Too little to split across the selected wallets." };
+  }
+
+  async function reviewBuy() {
+    if (!info || !canBuy) return;
+    const { each, error } = buyAmounts();
+    if (error) { setBatchError(error); return; }
+    setBatchError(null);
+    setReviewing(true);
+    try {
+      const native = info.pairToken.toLowerCase() === zeroAddress;
+      const quotes = await Promise.all(pickedOpen.map((r) =>
+        info.mode === "curve" ? quoteCurveBuy(info.curve!, r.address, each) : quotePoolBuy(info.token, r.address, each)));
+      // A wallet paying in ETH needs the amount plus room for its gas, and no wallet buys while the
+      // opening tax would apply to it: a taxed team buy is a sniper's buy on the token page. Both
+      // kinds are left out here rather than failing after the others have bought.
+      const short: DeskRow[] = [];
+      const taxed: DeskRow[] = [];
+      const lines = pickedOpen
+        .map((row, i) => ({ row, q: quotes[i]! }))
+        .filter(({ row, q }) => {
+          if (q.taxBps > 0n) { taxed.push(row); return false; }
+          const eth = data[row.key]?.eth;
+          if (native && eth !== undefined && eth < each + GAS_ROOM) { short.push(row); return false; }
+          return true;
+        })
+        .map(({ row, q }) => ({
+          row,
+          text: `${fmt(each, info.pairDecimals, 6)} ${info.pairSymbol} for about ${fmt(q.tokensOut, info.decimals, 2)} ${info.symbol}, no opening tax`,
+        }));
+      if (lines.length === 0) {
+        setBatchError(taxed.length
+          ? `${taxed.length === pickedOpen.length ? "Every" : "Each"} selected wallet would pay the opening tax right now (${Number(quotes.find((q) => q.taxBps > 0n)?.taxBps ?? 0n) / 100}%): not named as an open buyer of this launch, or the opening is not over. Nothing is signed while that is so.`
+          : short.length ? "None of the selected wallets holds enough ETH for the amount and its gas." : "Nothing to buy with.");
+        return;
+      }
+      const leftOut = [
+        taxed.length ? `${taxed.length} selected wallet${taxed.length === 1 ? " is" : "s are"} left out because ${taxed.length === 1 ? "it" : "they"} would pay the opening tax right now.` : "",
+        short.length ? `${short.length} selected wallet${short.length === 1 ? " is" : "s are"} left out for want of ETH.` : "",
+      ].filter(Boolean).join(" ");
+      setReview({
+        kind: "buy", each, lines,
+        title: `Buy with ${lines.length} wallet${lines.length === 1 ? "" : "s"}, ${fmt(each, info.pairDecimals, 6)} ${info.pairSymbol} each`,
+        note: `Each wallet is quoted alone against the ${info.mode === "curve" ? "curve" : "pool"} as it is now and pays from its own balance. They buy one after another, so the later ones get less than shown. Each buy is re-quoted just before it is signed, refuses any opening tax, and refuses to go through more than 3% under that quote.${leftOut ? ` ${leftOut}` : ""}`,
+      });
+    } catch (e) {
+      setBatchError(reason(e));
+    } finally {
+      setReviewing(false);
+    }
+  }
 
   function withdrawAllOpen() {
     if (!locker) return;
@@ -311,6 +394,14 @@ export function WalletDesk({ n, accounts, info, team, label, onLock }: {
       }
     } else if (r.kind === "sweep" && r.to) {
       await Promise.all(r.lines.map(({ row }) => run(row, "sweep ETH", (rep) => sweepEth(row.account!, r.to!, rep))));
+    } else if (r.kind === "buy" && info && r.each) {
+      // One after another, like the sale: each buy moves the price the next one is quoted at.
+      const each = r.each;
+      for (const { row } of r.lines) {
+        await run(row, `buy ${fmt(each, info.pairDecimals, 6)} ${info.pairSymbol}`, (rep) => info.mode === "curve"
+          ? buyOnCurve(row.account!, info.curve!, info.pairToken, each, rep)
+          : buyInPool(row.account!, info.token, each, rep));
+      }
     }
   }
 
@@ -385,12 +476,12 @@ export function WalletDesk({ n, accounts, info, team, label, onLock }: {
   const openCount = accounts.length;
 
   return (
-    <Step n={n} title="Team wallets" purpose="Open wallets can act; declared team wallets that are not open here are shown read only. Balances are read from the chain every 15 seconds.">
+    <Step n={n} title="Team wallets" purpose="Open wallets can act; declared team wallets and open buyers that are not open here are shown read only. Balances are read from the chain every 15 seconds.">
       <div className="desk-toolbar">
         <span className="text-sm">
           {openCount > 0
             ? <><b>{openCount}</b> wallet{openCount === 1 ? "" : "s"} open{label ? <> from <b>{label}</b></> : null}. Locks itself after 15 minutes without input.</>
-            : "No wallets open. Make or open a wallet file above."}
+            : "No wallets open. Open a set on the Wallets page, or make or open a file above."}
         </span>
         <div className="desk-inline">
           {openCount > 0 && (
@@ -434,6 +525,7 @@ export function WalletDesk({ n, accounts, info, team, label, onLock }: {
                       <td>
                         <a className="mono" href={`${EXPLORER}/address/${r.address}`} target="_blank" rel="noreferrer">{shortAddress(r.address)}</a>
                         {r.team && <span className="desk-tag team">team #{r.team.idx}</span>}
+                        {r.buyer && <span className="desk-tag buyer">open buyer</span>}
                         {!r.account && <span className="desk-tag">read only</span>}
                       </td>
                       <td className={r.account && d?.eth === 0n ? "num bad" : "num"}>
@@ -495,6 +587,25 @@ export function WalletDesk({ n, accounts, info, team, label, onLock }: {
             <button type="button" className="btn btn-ghost desk-small" disabled={openLocks.length === 0} onClick={withdrawAllOpen}>
               Withdraw all that are open
             </button>
+          </div>
+
+          <div className="desk-batch-cell">
+            <span className="field-label">Buy with selected</span>
+            {!info ? <span className="field-note">Choose a token first.</span>
+              : !canBuy ? <span className="field-note">The curve is closed and the token is not in its pool yet.</span>
+              : (
+                <>
+                  <div className="desk-inline">
+                    <input className="input mono desk-pct" inputMode="decimal" value={buyEach} onChange={(e) => setBuyEach(e.target.value.replace(/[^0-9.]/g, ""))} aria-label={`${info.pairSymbol} to buy with`} />
+                    <button type="button" className={buyMode === "each" ? "btn desk-small" : "btn btn-ghost desk-small"} onClick={() => setBuyMode("each")}>each</button>
+                    <button type="button" className={buyMode === "total" ? "btn desk-small" : "btn btn-ghost desk-small"} onClick={() => setBuyMode("total")}>split</button>
+                  </div>
+                  <span className="field-note">{info.pairSymbol} {buyMode === "each" ? "per wallet" : "in total, split evenly"}. Each wallet pays from its own balance and signs its own buy.</span>
+                  <button type="button" className="btn btn-ghost desk-small" disabled={pickedOpen.length === 0 || reviewing} onClick={reviewBuy}>
+                    Review buy with {pickedOpen.length} selected
+                  </button>
+                </>
+              )}
           </div>
 
           <div className="desk-batch-cell">

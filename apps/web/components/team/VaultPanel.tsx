@@ -8,8 +8,13 @@ import {
   MAX_WALLETS, MIN_PASSPHRASE, decryptVault, encryptVault, generateTeamKeys, parseVaultFile,
   passphraseProblem, vaultFileName, type VaultFile, type VaultKey,
 } from "@/lib/teamVault";
+import { registerVault } from "./app/walletSets";
 
 /// Making and opening team wallet files.
+///
+/// A file that is made or opened here becomes a wallet set the whole console knows (addresses in
+/// this browser, keys in memory only), so the desk, the launch form and the funding step all see
+/// it without being handed anything.
 ///
 /// A generated set is not handed to the desk until it has been encrypted and offered as a download:
 /// wallets that can receive tokens before a copy of their keys exists anywhere are wallets that can
@@ -40,7 +45,7 @@ export async function copyLines(addresses: readonly string[]): Promise<boolean> 
 export function VaultPanel({ n, unlocked, onUnlock }: {
   n: number;
   unlocked: number;
-  onUnlock: (accounts: PrivateKeyAccount[], label: string) => void;
+  onUnlock?: (accounts: PrivateKeyAccount[], label: string) => void;
 }) {
   // ---- generate
   const [count, setCount] = useState("10");
@@ -56,6 +61,7 @@ export function VaultPanel({ n, unlocked, onUnlock }: {
 
   // ---- unlock
   const [loaded, setLoaded] = useState<VaultFile | null>(null);
+  const [loadedName, setLoadedName] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [openPass, setOpenPass] = useState("");
   const [opening, setOpening] = useState(false);
@@ -99,7 +105,9 @@ export function VaultPanel({ n, unlocked, onUnlock }: {
     try {
       const file = await encryptVault(keys, pass, label);
       download(file);
-      onUnlock(keys.map((k) => privateKeyToAccount(k.privateKey)), file.label);
+      const accounts = keys.map((k) => privateKeyToAccount(k.privateKey));
+      registerVault(file, accounts, vaultFileName(file));
+      onUnlock?.(accounts, file.label);
       pending.current = null;
       setFresh([]);
       setMade(file);
@@ -124,6 +132,7 @@ export function VaultPanel({ n, unlocked, onUnlock }: {
     if (file.size > 1_000_000) { setLoadError("That file is far too large to be a team wallet file."); return; }
     try {
       setLoaded(parseVaultFile(await file.text()));
+      setLoadedName(file.name);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "That file could not be read.");
     }
@@ -135,7 +144,9 @@ export function VaultPanel({ n, unlocked, onUnlock }: {
     setLoadError(null);
     try {
       const keys = await decryptVault(loaded, openPass);
-      onUnlock(keys.map((k) => privateKeyToAccount(k.privateKey)), loaded.label);
+      const accounts = keys.map((k) => privateKeyToAccount(k.privateKey));
+      registerVault(loaded, accounts, loadedName || undefined);
+      onUnlock?.(accounts, loaded.label);
       setOpenPass("");
       setLoaded(null);
       if (fileInput.current) fileInput.current.value = "";

@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { isAddress, parseUnits, type Address, type PrivateKeyAccount } from "viem";
 import { useReadContract } from "wagmi";
 import { hoodCurveAbi } from "@hood/sdk";
 import { fmt } from "@/lib/format";
-import { sellOnCurve, sendTokens, sweepEth, withdrawLock, type Report } from "./deskChain";
+import {
+  buyInPool, buyOnCurve, quoteCurveBuy, quotePoolBuy, sellOnCurve, sendTokens, sweepEth, withdrawLock, type Report,
+} from "./deskChain";
 
-/// The four things one team wallet can do from the desk, each signed by that wallet alone.
+/// The five things one team wallet can do from the desk, each signed by that wallet alone.
 
 export interface DeskToken {
   token: Address;
@@ -18,6 +21,8 @@ export interface DeskToken {
   curve: Address | null;
   /// HoodCurve.phase: 0 trading, 1 sold out, 2 graduated. Null for a direct token or before it is read.
   phase: number | null;
+  /// What the token is bought with: the zero address for the chain's own currency.
+  pairToken: Address;
   pairSymbol: string;
   pairDecimals: number;
 }
@@ -69,10 +74,23 @@ export function WalletActions({ account, info, balance, lock, lockAddress, now, 
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [sweepTo, setSweepTo] = useState("");
+  const [buyAmt, setBuyAmt] = useState("");
 
   const pctNum = Math.min(100, Math.max(0, Number(pct) || 0));
   const tokensIn = pctNum >= 100 ? balance : (balance * BigInt(Math.round(pctNum * 100))) / 10_000n;
   const curveOpen = info?.mode === "curve" && info.curve !== null && info.phase === 0;
+  const canBuy = Boolean(info) && (curveOpen || info?.mode === "direct");
+  const buyIn = info ? amountOf(buyAmt, info.pairDecimals) : null;
+  // Quoted for this wallet, so an open buyer sees no opening tax and anyone else sees theirs.
+  const buyQuote = useQuery({
+    queryKey: ["desk-buy-quote", info?.token ?? "", account.address, buyIn?.toString() ?? ""],
+    queryFn: () => info!.mode === "curve"
+      ? quoteCurveBuy(info!.curve!, account.address, buyIn!)
+      : quotePoolBuy(info!.token, account.address, buyIn!),
+    enabled: canBuy && buyIn !== null && buyIn > 0n,
+    refetchInterval: 10_000,
+    retry: false,
+  });
   const { data: quote } = useReadContract({
     address: info?.curve ?? undefined, abi: hoodCurveAbi, functionName: "quoteSell", args: [tokensIn],
     query: { enabled: curveOpen && tokensIn > 0n, refetchInterval: 10_000 },
@@ -85,6 +103,32 @@ export function WalletActions({ account, info, balance, lock, lockAddress, now, 
 
   return (
     <div className="desk-manage">
+      <div className="desk-manage-cell">
+        <span className="field-label">Buy</span>
+        {!info ? <span className="dim text-sm">Choose a token first.</span>
+          : !canBuy ? <span className="dim text-sm">The curve is closed and the token is not in its pool yet.</span>
+          : (
+            <>
+              <input className="input mono" inputMode="decimal" value={buyAmt} onChange={(e) => setBuyAmt(e.target.value.replace(/[^0-9.]/g, ""))}
+                placeholder={`amount ${info.pairSymbol}`} aria-label={`${info.pairSymbol} to buy with`} />
+              <span className={buyQuote.data && buyQuote.data.taxBps > 0n ? "field-note bad" : "field-note"}>
+                {!buyIn || buyIn === 0n ? `Paid from this wallet's own ${info.pairSymbol}.`
+                  : buyQuote.data
+                    ? buyQuote.data.taxBps > 0n
+                      ? `Would pay ${Number(buyQuote.data.taxBps) / 100}% opening tax right now, so the desk will not sign it: this wallet is not an open buyer of this launch, or the opening is not over. Wait, or buy from a named wallet.`
+                      : `About ${fmt(buyQuote.data.tokensOut, info.decimals, 2)} ${info.symbol}, no opening tax. Re-quoted before signing; at least 3% under that or it does not go through.`
+                    : buyQuote.isError ? "No quote for that amount right now." : "Quoting…"}
+              </span>
+              <button type="button" className="btn btn-ghost desk-small" disabled={busy || !buyIn || buyIn === 0n || (buyQuote.data?.taxBps ?? 0n) > 0n}
+                onClick={() => buyIn && run(`buy ${buyAmt} ${info.pairSymbol}`, (r) => info.mode === "curve"
+                  ? buyOnCurve(account, info.curve!, info.pairToken, buyIn, r)
+                  : buyInPool(account, info.token, buyIn, r))}>
+                Buy
+              </button>
+            </>
+          )}
+      </div>
+
       <div className="desk-manage-cell">
         <span className="field-label">Lock</span>
         {!lock || lock.amount === 0n ? <span className="dim text-sm">{lock ? "Already withdrawn." : "No lock for this wallet."}</span> : (

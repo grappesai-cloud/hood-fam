@@ -25,6 +25,8 @@ interface Holder {
   balance: string;
   /// Bought in the launch transaction as one of the team's declared wallets (HoodBlockZero).
   team?: boolean;
+  /// Named at launch as an open buyer: no opening tax in the launch's first seconds.
+  exempt?: boolean;
 }
 
 interface Entry {
@@ -36,8 +38,8 @@ interface Entry {
   label: string | null;
   ours: boolean;
   creator: boolean;
-  /// One of the wallets the launch declared as the team's. Still a wallet, so still counted in the
-  /// wallet figures, but named, and summed on its own line.
+  /// One of the wallets the launch declared as the team's, or named as an open buyer. Still a
+  /// wallet, so still counted in the wallet figures, but named, and summed on its own line.
   team: boolean;
 }
 
@@ -130,7 +132,7 @@ export function HolderMap({
 
   const entries = useMemo<Entry[]>(() => {
     const rows = book.data?.holders ?? [];
-    const balances = rows.map((h) => ({ address: h.address.toLowerCase(), balance: big(h.balance), team: Boolean(h.team) }));
+    const balances = rows.map((h) => ({ address: h.address.toLowerCase(), balance: big(h.balance), team: Boolean(h.team), buyer: Boolean(h.exempt) }));
     // The supply the shares are read against is the supply after burns, which is what the page's
     // market cap is read against too. A launch the indexer has no supply for falls back to what its
     // holders add up to, so the picture is still in proportion even if the caption is about a
@@ -148,10 +150,10 @@ export function HolderMap({
           // Parts per million in integer arithmetic: a balance is far past what a double holds
           // exactly, and dividing two of them as numbers is how a 4% holder becomes a 0% one.
           share: whole > 0n ? Number((b.balance * 1_000_000n) / whole) / 1_000_000 : 0,
-          label: label ?? (isCreator ? "the creator" : b.team ? "team wallet" : null),
+          label: label ?? (isCreator ? "the creator" : b.team ? "team wallet" : b.buyer ? "open buyer" : null),
           ours: Boolean(label),
           creator: isCreator && !label,
-          team: b.team && !label,
+          team: (b.team || b.buyer) && !label,
         };
       });
   }, [book.data, known, creator, totalSupply]);

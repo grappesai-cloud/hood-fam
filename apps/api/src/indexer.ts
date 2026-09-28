@@ -72,6 +72,9 @@ const events = {
     "event TeamLaunched(address indexed token, address indexed market, address indexed launcher, uint256 legs, uint256 pairSpent, uint256 tokens)",
   ),
   teamGas: parseAbiItem("event TeamGas(address indexed token, address indexed wallet, uint256 amount)"),
+  // The wallets a launch named as exempt from the opening tax, said by the curve or the direct
+  // hook as it is set up, one log index before the factory names the token that market belongs to.
+  snipeExempt: parseAbiItem("event SnipeExempt(address[] wallets)"),
   // The curve's opening rules (v4 factory) and the surcharge a buy paid under them.
   launchGuard: parseAbiItem(
     "event LaunchGuard(address indexed token, (uint16 snipeTaxBps, uint32 snipeDecaySeconds, uint32 restrictionBlocks, uint16 maxBuyBps) guard)",
@@ -588,6 +591,22 @@ async function onTeamGas(log: Log & { args: Record<string, unknown> }) {
 /// Closes a block-zero launch. On the curve the factory registered the periphery as creator, so
 /// the launcher replaces it and the fee recipient is read back from the factory, where the
 /// periphery wrote it; on the direct machine the portal already registered the launcher.
+/// Open buyers: the launch named these wallets as paying no opening tax. Filed under the market
+/// (the curve or the hook) that said so, and resolved to a token when read; any contract can emit
+/// the same signature, and a row no launch points at is a row nobody reads.
+async function onSnipeExempt(log: Log & { args: Record<string, unknown> }) {
+  const wallets = (log.args.wallets as readonly string[] | undefined) ?? [];
+  const market = log.address.toLowerCase();
+  for (const w of wallets) {
+    const wallet = lower(w);
+    if (wallet === zeroAddress) continue;
+    await pool.query(
+      `insert into exempt_wallets (market, wallet, block, tx) values ($1,$2,$3,$4) on conflict (market, wallet) do nothing`,
+      [market, wallet, log.blockNumber!.toString(), log.transactionHash],
+    );
+  }
+}
+
 async function onTeamLaunched(log: Log & { args: Record<string, unknown> }, machine: string) {
   const a = log.args;
   const token = lower(a.token);
@@ -1779,6 +1798,7 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
       if ((BLOCK_ZERO && address === BLOCK_ZERO) || address === PORTAL) await onTeamLaunched(l, address);
       break;
     case "TeamGas": if ((BLOCK_ZERO && address === BLOCK_ZERO) || address === PORTAL) await onTeamGas(l); break;
+    case "SnipeExempt": await onSnipeExempt(l); break;
     case "LaunchGuard": if (address === FACTORY) await onLaunchGuard(l); break;
     case "Sniped": {
       const curve = curves.get(address);

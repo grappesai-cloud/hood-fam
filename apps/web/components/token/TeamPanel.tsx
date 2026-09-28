@@ -10,6 +10,8 @@ import { fmt, shortAddress } from "@/lib/format";
 /// Every row here was written on chain by HoodBlockZero in the launch transaction itself: the
 /// wallet, what it paid, what it got, and when its lock opens. The page adds only what each wallet
 /// still holds in hand, from the indexer's balances, so a reader can see whether the team has sold.
+/// Under it, the launch's open buyers: the wallets it named as paying no opening tax in its first
+/// seconds, from the market's own event. Both lists are on chain from the launch transaction on.
 
 interface TeamRow {
   wallet: string;
@@ -44,11 +46,12 @@ export function TeamPanel({ token, totalSupply, pairSymbol, pairDecimals }: {
 }) {
   const query = useQuery({
     queryKey: ["team", token],
-    queryFn: () => api<{ team: TeamRow[] }>(`/tokens/${token}/team`),
+    queryFn: () => api<{ team: TeamRow[]; exempt?: string[] }>(`/tokens/${token}/team`),
     refetchInterval: 30_000,
   });
   const team = query.data?.team ?? [];
-  if (!query.isLoading && team.length === 0) return null;
+  const open = query.data?.exempt ?? [];
+  if (!query.isLoading && team.length === 0 && open.length === 0) return null;
 
   const bought = team.reduce((sum, t) => sum + big(t.tokens), 0n);
   const spent = team.reduce((sum, t) => sum + big(t.pair_spent), 0n);
@@ -110,6 +113,26 @@ export function TeamPanel({ token, totalSupply, pairSymbol, pairDecimals }: {
             <a className="hover:text-[var(--color-lime)]" href={`${EXPLORER}/tx/${team[0]!.tx}`} target="_blank" rel="noreferrer">launch transaction</a>.
           </p>
         </>
+      )}
+
+      {open.length > 0 && (
+        <div className="team-open mt-3">
+          <p className="holder-note">
+            <b>{open.length} open buyer{open.length === 1 ? "" : "s"}</b>: wallets the launch named as paying no opening tax in
+            its first seconds. Everyone else pays 99% in the launch's own second, 6% the next, under 1% the one after, then nothing. Named on chain in the
+            launch itself; the holder map labels them.
+          </p>
+          <div className="team-rows space-y-1 text-xs mt-2">
+            {open.map((w) => (
+              <div key={w} className="team-row">
+                <a className="mono hover:text-[var(--color-lime)]" href={`${EXPLORER}/address/${w}`} target="_blank" rel="noreferrer">
+                  {shortAddress(w)}
+                </a>
+                <span className="mono dim">open buyer</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </section>
   );

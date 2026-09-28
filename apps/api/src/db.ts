@@ -610,6 +610,20 @@ create table if not exists team_wallets (
 );
 create index if not exists team_wallets_wallet on team_wallets (wallet);
 alter table team_wallets add column if not exists gas numeric(78,0) not null default 0;
+
+-- Open buyers: the wallets a launch named as exempt from the opening tax, from the SnipeExempt
+-- event the curve or the direct hook emits as it is set up. Filed under the market that emitted
+-- it, because that log lands one index before the factory's Launched maps the market to its
+-- token; readers join it to launches on curve or hook, which also drops anything a stranger's
+-- contract emitted under the same signature.
+create table if not exists exempt_wallets (
+  market text not null,
+  wallet text not null,
+  block  bigint not null,
+  tx     text not null,
+  primary key (market, wallet)
+);
+create index if not exists exempt_wallets_wallet on exempt_wallets (wallet);
 alter table launches add column if not exists launched_by text;
 alter table launches add column if not exists team_tokens numeric(78,0) not null default 0;
 alter table launches add column if not exists team_legs int not null default 0;

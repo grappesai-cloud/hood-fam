@@ -400,8 +400,11 @@ export async function buildServer() {
     const limit = clampInt(q.limit, 100, 100, 1);
     const offset = clampInt(q.offset, 0, 10_000_000);
     const { rows } = await pool.query(
-      `select b.address, b.balance, (tw.wallet is not null) as team
-         from balances b left join team_wallets tw on tw.token = b.token and tw.wallet = b.address
+      `select b.address, b.balance, (tw.wallet is not null) as team, (ew.wallet is not null) as exempt
+         from balances b
+         left join launches l on l.token = b.token
+         left join team_wallets tw on tw.token = b.token and tw.wallet = b.address
+         left join exempt_wallets ew on ew.wallet = b.address and ew.market in (l.curve, l.hook)
         where b.token = $1 and b.balance > 0
         order by b.balance desc, b.address limit $2 offset $3`,
       [token.toLowerCase(), limit, offset],
@@ -411,11 +414,12 @@ export async function buildServer() {
 
   /// Every wallet that bought in a block-zero launch transaction, in the order they bought, with
   /// what each paid, what each got, what each still holds in hand and when a locked leg opens.
-  /// Empty for a launch that did not go through the periphery.
+  /// Empty for a launch that did not go through the periphery. `exempt` is the launch's open
+  /// buyers: the wallets it named as paying no opening tax, from the market's own event.
   app.get("/tokens/:token/team", async (req) => {
     const { token } = req.params as { token: string };
     const t = token.toLowerCase();
-    const [{ rows: team }, { rows: head }] = await Promise.all([
+    const [{ rows: team }, { rows: head }, { rows: open }] = await Promise.all([
       pool.query(
         `select tw.wallet, tw.idx, tw.pair_spent, tw.tokens, tw.lock_id, tw.unlock_at, tw.tx, tw.gas,
                 coalesce(b.balance, 0) as balance
@@ -424,8 +428,13 @@ export async function buildServer() {
         [t],
       ),
       pool.query(`select launched_by, team_tokens, team_legs, total_supply, creator from launches where token = $1`, [t]),
+      pool.query(
+        `select ew.wallet from exempt_wallets ew join launches l on ew.market in (l.curve, l.hook)
+          where l.token = $1 order by ew.block, ew.wallet`,
+        [t],
+      ),
     ]);
-    return { team, launch: head[0] ?? null };
+    return { team, launch: head[0] ?? null, exempt: open.map((r: { wallet: string }) => r.wallet) };
   });
 
   /// The global FOMO tape: newest human trades with enough launch metadata to render without a
