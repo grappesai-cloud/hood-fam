@@ -11,7 +11,7 @@ Four roles, four addresses, all generated for this project and used for nothing 
 | deployer | sends the deployment, then hands ownership over | a fresh key, used once |
 | owner | presets, launch fee, pair list, routes | **a Safe** (section 0a) |
 | treasury | receives the protocol fee and the graduation fee | **the same Safe** |
-| keeper | finalizes, collects, and executes price-sensitive buybacks | a hot key on the server, holding gas and nothing else |
+| keeper | finalizes, collects, pushes pots, pays Payday, runs the burn, executes price-sensitive buybacks | a hot key on the server, holding gas and nothing else |
 
 ```bash
 cast wallet new              # four times, or
@@ -72,18 +72,21 @@ no API key anywhere. `npm run safe -- info` says who owns what and what is still
 the same way. With `SAFE_SIGNER_KEYS` (or `--keystore`) it can also sign and send, which is how the
 rehearsal drives it; on mainnet the signers sign in Safe{Wallet}, on their own devices.
 
-**Appoint the buyback keeper before opening launch.** Anyone may flush a split with no buyback,
-but only the factory owner or its appointed keeper may pick a buyback's slippage floor. Without
-this step, autonomous buybacks stay paused; the Safe can still execute them itself.
+**Appoint the keeper before opening launch.** Anyone may flush a split with no buyback, but only
+the factory owner or its appointed keeper may pick a buyback's slippage floor, pay a Payday hour or
+run the burn. Deploying with `KEEPER=0x...` appoints it on the fee router, Payday and the burn clock
+in the same run (section 1c); the v4 mainnet deploy did. Without that, autonomous buybacks, Payday
+and the burn stay paused until the Safe does it; the Safe can still execute each of them itself.
 
 ```bash
-export HOOD_FEE_ROUTER=0x... KEEPER_ADDRESS=0x...
-npm run safe -- call router "setKeeper(address)" "$KEEPER_ADDRESS"
+export HOOD_FEE_ROUTER=0x... HOOD_PAYDAY=0x... HOOD_BURN_CLOCK=0x... KEEPER_ADDRESS=0x...
+npm run safe -- keeper "$KEEPER_ADDRESS"     # feeRouter, payday and burnClock .setKeeper, one batch
 ```
 
-Confirm the call executed, then check `keeper()` on `HOOD_FEE_ROUTER` equals the keeper wallet.
-The wiring-only rehearsal checks that a keeper is set, and compares it with `KEEPER_ADDRESS` when
-provided. Rotating the hot wallet is the same Safe call with a new address; zero disables it.
+Confirm the call executed, then check `keeper()` on all three equals the keeper wallet
+(`npm run safe -- info` prints them). The wiring-only rehearsal checks that a keeper is set, and
+compares it with `KEEPER_ADDRESS` when provided. Rotating the hot wallet is the same Safe call with a
+new address; zero disables it.
 
 **The app from inside the Safe.** Safe{Wallet} opens hood.fam as a Safe App (Apps, add custom app,
 paste the site's URL; the manifest is at `/manifest.json`). Connected that way the wallet is the Safe
@@ -115,13 +118,16 @@ forge test --match-path 'test/Fork*.t.sol' --fork-url robinhood  # against the r
 forge build --sizes                                              # nothing over 24,576 bytes
 
 export PRIVATE_KEY=0x...   # deployer
-export OWNER=0x...         # where ownership lands
-export TREASURY=0x...
+export OWNER=0x...         # where ownership lands: the Safe
+export TREASURY=0x...      # the Bag's house: the same Safe
+export KEEPER=0x...        # optional: the keeper wallet, appointed in the same run
 forge script script/Deploy.s.sol --rpc-url robinhood --broadcast
 ```
 
-It prints every address as it is made, then the `HOOD_*=` block to paste into `.env`. Keep both;
-everything else is configured from them.
+On 4663 the script refuses an `OWNER` or a `TREASURY` that is not a Safe of at least two signers
+(`ALLOW_EOA_OWNER=true` lifts that for a rehearsal on a fork, never for the real thing). It prints
+every address as it is made, then the `HOOD_*=` block to paste into `.env`. Keep both; everything
+else is configured from them.
 
 ```
 deployer    0x...   # the bytecode holder, not a wallet
@@ -133,20 +139,63 @@ firstBuyLock 0x...  # where creators' locked first buys sit
 graduator   0x...
 curveRouter 0x...
 bridge      0x...
-payday      0x...   # v3, section 1c
+payday      0x...   # section 1c
 burnClock   0x...
 bag         0x...
 boosts      0x...
 gradHook    0x...   # the graduation hook, at a mined address ending in 0xCC
+blockZero   0x...   # the team launch periphery (section 1d)
 directDeployer 0x...  (section 3e)
 tokenImpl   0x...
 portal      0x...
 buyback     0x...
-auction     0x...   # the opening auction
 keeper      0x...   # only when KEEPER was set
 start block N       # the indexer starts here and never before
 HOOD_FACTORY=0x...  # and the rest of the env block, one key per line
 ```
+
+**The testnet.** The same script deploys to Robinhood Chain's testnet, chain 46630. There it reads
+the dollar from `TESTNET_USDG` (there is no USDG we can mint on the testnet, so the run deploys its
+own) and uses the testnet's LayerZero endpoint (`0x3aCAAf60502791D199a5a5F0B173D78229eBFe32`) for
+the bridge factory; Uniswap v4, Permit2 and Safe are at the same addresses as on 4663.
+`scripts/testnet/run.sh` drives a whole testnet run step by step: `fund` (the deployer hands each
+test wallet its ETH), `safe` (a 2-of-2 Safe of the two signer wallets), `dollar` (tUSDG, six
+decimals), `deploy` (this script with `OWNER=TREASURY=` the Safe and `KEEPER=` the keeper wallet),
+`accept` (the Safe accepts every contract), `scenario` (`scripts/testnet/scenario.mjs`) and `stack`
+(a local api, indexer, keeper and web against the testnet); `all` runs them in order, `status`
+prints the wallets and their balances. Keys stay in `.deploy/testnet/wallets.json`; what the steps
+learn goes to `.deploy/testnet/testnet.env`.
+
+**The mainnet deployment, 29 September 2026.** The first receipt is in block 75134585;
+`HOOD_START_BLOCK` is 75134360. `OWNER` and `TREASURY` are the Safe
+`0x1f22d71cab5ce344B711C4090fd0f8A0aa5bac2E`; `KEEPER` was set, so the keeper is appointed on the
+fee router, Payday and the burn clock. Ownership of the factory, the portal, the bridge factory and
+the referral registry waits for the Safe's `npm run safe -- accept`.
+
+```
+HOOD_FACTORY=0x14226252c5C5526c76Ec1370246c77d108dBfb4B
+HOOD_FEE_ROUTER=0xd2c0c656d7395248eD7B4F08d64D247Fe0bb63aa
+HOOD_STAKING=0xdC5af0613e5f2B5fBcFC2131dc93E6FF4cbB118D
+HOOD_GRADUATOR=0x057180612d111E36075893a9dD816E028662069D
+HOOD_CURVE_ROUTER=0xb88dB2C54f8087E521F06321429389B02ba152eD
+HOOD_BRIDGE_FACTORY=0xdB1Caff9854973959f38bB7096EE1b8Ed6f25902
+HOOD_REFERRALS=0x91F7766c60c621940ce8360999Debec8ddA9078b
+HOOD_PORTAL=0x8f9F4221b211549bE2F06a2bAFa05DE089182c77
+HOOD_DIRECT_DEPLOYER=0xd49EF209d1C1c5AdDD8065A884a7037e3A4fA340
+HOOD_TOKEN_IMPLEMENTATION=0xc2E2d993A45b398981DBfa1064BEC78F74D48F7F
+HOOD_BUYBACK_MODULE=0x4ea89c4c8bD249d9958586602Cde6ebc4EA2D94F
+HOOD_BAG=0x471EE5dA3fD9B9C8B186B7e9DAD72270463e36d3
+HOOD_PAYDAY=0xA76759C5818cAFa348071027Fc6cD903adA81195
+HOOD_BURN_CLOCK=0xA542876A28d9954e88922785bE70D79B18a8Fc4F
+HOOD_BOOSTS=0xADE405A64379C5A2A00cE84A4af61bB0b0ec42D0
+HOOD_GRADUATION_HOOK=0x4ff4F5175c9057E40413068bBE6F4c55D45000cC
+HOOD_BLOCK_ZERO=0xeD04C668C53de1EEa4cB5361014C90C731739c0E
+HOOD_START_BLOCK=75134360
+```
+
+The first-buy locker (`HoodTokenLock`) is `0xDb249D05570B60CF2C923938Ba5def9048AA65E5`; it has no
+env key in the printed block; the factory names it (`firstBuyLocker()`), and the portal reads it
+from there.
 
 **Order matters here:** `HoodDeployer.initialize` and `HoodDirectDeployer.initialize` may only be
 called by the account that created them, once. A deployment that stops halfway is resumed with the
@@ -191,9 +240,10 @@ and never will be able to, because its split was fixed before the room existed.
 
 `HoodReferrals` is one registry for both machines, owned by the Safe and written by hand: per
 launch, who is paid and how many bps of the **protocol's** share they take, at most 5,000. Nothing
-here touches a creator's leg or a holder's dividends. The cut is paid on chain when the protocol's
-share is claimed (`claimProtocol()` on a curve or a splitter), as a `ReferralPaid` event next to
-the `ProtocolClaimed` one, and the treasury takes the rest.
+here touches a creator's leg or a holder's dividends. On a curve the cut is paid on chain when the
+protocol's share is claimed (`claimProtocol()` on the curve), as a `ReferralPaid` event next to the
+`ProtocolClaimed` one, and the Bag takes the rest. On a direct launch the hook pays it as it routes
+the Bag's share (below).
 
 ```bash
 export HOOD_REFERRALS=0x...
@@ -206,26 +256,25 @@ Two things to know. The factory and the portal each hold a pointer to the regist
 Bag in full and nothing is blocked. On a curve, a referrer that cannot take a transfer (a contract
 with no `receive`, a blacklisted stablecoin address) does block that one launch's protocol claim,
 and only that: clear the referral and the claim goes through. On the direct machine the leg is
-paid inside the swap, off the Bag's 70 bps, so a referrer that refuses it forfeits the cut to the
+paid inside the swap, off the Bag's 30 bps, so a referrer that refuses it forfeits the cut to the
 Bag instead (section 1c).
 
-## 1c. v3: the Bag
+## 1c. The Bag, and how the script wires everything
 
 One router every platform fee passes through, with no owner and no withdrawal function, and the
 things that hang off it. `script/Deploy.s.sol` deploys all of it in the same run as the rest; this
-section is what that run does, what the Safe has to do afterwards, and what changes for the
-server.
+section is what that run does, what the Safe has to do afterwards, and what the server needs.
 
 ### What is deployed
 
 | contract | constructor | what it is |
 |---|---|---|
-| HoodPayday | (factory) | the hourly distributor: the Bag funds the hour, the keeper pays it out by points and sends a slice to the last ten launches' pots |
-| HoodBurnClock | (factory, poolManager) | holds the burn share of every asset; once an hour, once the house coin is named, buys the coin and burns it, impact-capped |
-| HoodBag | (house = TREASURY, vault = staking, payday, burnClock) | the router. Trades, 70 bps: 30 Vault, 10 Payday, 10 burn, 20 house. Graduation fee: 50 house, 25 Confetti into that launch's pot, 25 Vault. Penalty cut: 10 house, 5 Payday, 5 burn. Launch fees and boosts: all house. House coin leg: half Vault, half burn |
-| HoodBoosts | (factory, bag) | hourly board slots, paid in ETH, all of it to the house through the Bag |
-| HoodGraduationHook | (poolManager, factory, bag, feeRouter, staking) | the one hook every graduated pool runs: the 1% platform fee and the sell-side penalties. Its address is mined; it has to end in the permission bits 0xCC |
-| HoodOpeningAuction | (portal) | the sniper auction for launches that chose it over the fair open |
+| HoodPayday | (factory) | the hourly distributor: the Bag funds the hour, the keeper pays it out by points and sends up to a tenth to the last ten launches' pots |
+| HoodBurnClock | (factory, poolManager) | takes the burn share of every graduation fee; once an hour, once the house coin is named, spends its spend asset (the other currency of the house coin's pool, ETH on mainnet) on the coin and burns it, impact-capped. Any other asset funded to it stays there: no owner, no withdrawal |
+| HoodBag | (house = TREASURY, vault = staking, payday, burnClock) | the router. Trades, 30 bps: 3,333 Vault, 3,333 Payday, the rest (3,334) house; a trade of the house coin itself sends all of it to the Vault. Graduation fee: 2,300 to the dev (the creator fee recipient, read off the factory at `finalize`; refused pushes wait in `devClaimable` for `claimDev`), the rest to the burn clock, or all of it there when there is no dev. Boosts: all to Payday, for the hour the boost runs. Launch fees: all house. House coin leg: half Vault, half house |
+| HoodBoosts | (factory, bag) | hourly board slots, 4 an hour at 0.005 ETH, the whole price through the Bag to that hour's Payday (`fundEpoch`) |
+| HoodGraduationHook | (poolManager, factory, bag, feeRouter) | the one hook every graduated pool runs: the 1% platform fee, 70 bps to the fee router and 30 into the Bag, and nothing else. Its address is mined; it has to end in the permission bits 0xCC |
+| HoodBlockZero | (factory) | the team launch periphery (section 1d); no owner, nothing to wire |
 | HoodPot | (factory, token, asset), one per curve launch | deployed by the factory at launch through HoodDeployer; a direct launch uses its splitter as the pot |
 
 The house is the Bag's `house`, fixed at deploy: TREASURY, the Safe. It cannot be moved, which
@@ -233,45 +282,52 @@ is why TREASURY has to be the Safe from the first deploy and not an EOA to be sw
 
 ### The order the script wires it in
 
-1. Curve machine: HoodDeployer, HoodFactory, HoodReferrals (`factory.setReferrals`), HoodStaking,
-   HoodFeeRouter, HoodTokenLock, UniswapV4Graduator, HoodCurveRouter, HoodBridgeFactory.
-2. The Bag: HoodPayday, HoodBurnClock, HoodBag, HoodBoosts, then the graduation hook. The hook's
-   salt is mined inside the script (`script/lib/GraduationHookDeploy.sol`) against the
-   deterministic-deployment proxy at `0x4e59b44847b379578588920cA78FbF26c0B4956C`, which is on
-   4663 and which anvil carries at genesis; on a chain without it the script deploys a
-   one-function `HoodGraduationHookDeployer` and mines against that instead, the way the direct
-   machine deploys its launch hooks.
-3. Wiring: `factory.setModules(feeRouter, staking, graduator)`, then `factory.setBag(bag)` (once;
-   no launch is accepted before it), then `graduator.setHook(hook)` (factory owner only, and
-   before ownership moves: `prepare` refuses to open a pool without it), `setFirstBuyLocker`,
-   `setLaunchFee(0.002 ether)`, the two pairs, the three presets at 70 / 30.
-4. Direct machine: HoodDirectDeployer, the HoodLaunchToken implementation, HoodPortal,
-   HoodBuybackModule, HoodOpeningAuction; `portal.setBuybackModule`, `setRegistry`, `setReferrals`,
-   `setQuote(USDG)`, `setBag(bag)`, `setAuction(auction)`, `setLaunchFee(0.002 ether)`;
-   `factory.setPortal`.
-5. Keeper: with `KEEPER=0x...` in the environment the deployer appoints it on the fee router,
+`run()` calls these in order, all from the deployer key:
+
+1. `_curveMachine`: HoodDeployer, HoodFactory (owner = the deployer for now, treasury = TREASURY),
+   `HoodDeployer.initialize(factory)`, HoodReferrals and `factory.setReferrals`, HoodStaking,
+   HoodFeeRouter, HoodTokenLock (the first-buy locker), UniswapV4Graduator, HoodCurveRouter,
+   HoodBridgeFactory on the chain's LayerZero endpoint.
+2. `_bagMachine`: HoodPayday, HoodBurnClock, HoodBag (house = TREASURY), HoodBoosts, then the
+   graduation hook. The hook's salt is mined inside the script
+   (`script/lib/GraduationHookDeploy.sol`) against the deterministic-deployment proxy at
+   `0x4e59b44847b379578588920cA78FbF26c0B4956C`, which is on 4663 and which anvil carries at
+   genesis; on a chain without it the script deploys a one-function `HoodGraduationHookDeployer`
+   and mines against that instead, the way the direct machine deploys its launch hooks.
+3. `_wireCurve`: `factory.setModules(feeRouter, staking, graduator)`, then `factory.setBag(bag)`
+   (once; no launch is accepted before it), then `graduator.setHook(hook)` (factory owner only,
+   and before ownership moves: `prepare` refuses to open a pool without it),
+   `setFirstBuyLocker`, HoodBlockZero, `setLaunchFee(0.002 ether)`, and the two pairs: ETH with a
+   ticker lock at 25 ETH of 24 hour volume, USDG at 100,000 USDG.
+4. `_presets`: the three presets of section 2, every one at `protocolFeeBps` 30 and
+   `creatorFeeBps` 70, `liquidityBps` 9000.
+5. `_directMachine`: HoodDirectDeployer, the HoodLaunchToken implementation, HoodPortal (owner =
+   the deployer for now, treasury = TREASURY), `directDeployer.initialize(portal)`,
+   HoodBuybackModule; then `portal.setBuybackModule`, `setRegistry(factory)`, `setReferrals`,
+   `setQuote(USDG, true)`, `setBag(bag)`, `setLaunchFee(0.002 ether)`; `factory.setPortal`.
+6. `_keeper`: with `KEEPER=0x...` in the environment the deployer appoints it on the fee router,
    Payday and the burn clock while it still owns the factory. Without it the three calls are
    left for the Safe (below) and the script says so.
-6. Ownership of the factory, the bridge factory, the portal and the registry moves to OWNER
-   (two-step, as before). Nothing new is Ownable: the Bag, the pots, the hook and the auction have
-   no owner; Payday, the burn clock and the boosts board ask the factory's owner, so they follow
-   the factory wherever it goes.
+7. `_handOver`: `transferOwnership(OWNER)` on the factory, the bridge factory, the portal and the
+   registry. All four are `Ownable2Step`, so OWNER is only pending until it accepts. Nothing else
+   is Ownable: the Bag, the pots, the hook and HoodBlockZero have no owner; Payday, the burn clock
+   and the boosts board ask the factory's owner, so they follow the factory wherever it goes.
 
 `script/DeployLocal.s.sol` does the same on a chain without Uniswap: the curve machine on a mock
-graduator, the Bag, the two clocks, the board and a mined hook; no direct machine and no
-auction, and it says which keys stay empty. `AddStockPairs.s.sol` and `AllowQuotes.s.sol` write
-their presets at 70 / 30 as well.
+graduator, the Bag, the two clocks, the board and a mined hook; no direct machine, and it says
+which keys stay empty. `AddStockPairs.s.sol` and `AllowQuotes.s.sol` write their presets at the
+same 30 / 70.
 
 ### After the deploy, from the Safe
 
 ```bash
-npm run safe -- accept                          # factory, bridge, portal, referrals: unchanged
-npm run safe -- keeper $KEEPER_ADDRESS          # feeRouter, payday and burnClock .setKeeper, one batch
+npm run safe -- accept                          # factory, bridge, portal, referrals
+npm run safe -- keeper $KEEPER_ADDRESS          # only if the deploy ran without KEEPER
 npm run safe -- call boosts "setSlotPrice(uint256)" 10000000000000000   # optional: 0.01 ETH a slot
 ```
 
-`keeper` replaces the single `call router "setKeeper(address)"` of v2; the three contracts take
-the same wallet, and zero disables. `npm run safe -- info` prints `router.keeper()`,
+`keeper` is feeRouter, payday and burnClock `.setKeeper` in one batch; the three contracts take the
+same wallet, and zero disables. `npm run safe -- info` prints `router.keeper()`,
 `payday.keeper()`, `burnClock.keeper()`, `burnClock.houseCoin()`, `staking.houseToken()`,
 `factory.bag()`, `portal.bag()`, `graduator.hook()` and `boosts.slotPrice()` under the ownership
 lines, so the wiring is one command to check.
@@ -285,8 +341,10 @@ npm run safe -- housecoin $COIN $CURRENCY0 $CURRENCY1 $FEE $TICK_SPACING $HOOKS
 That is `burnClock.setHouseCoin(coin, PoolKey)` with the pool the clock buys from (the coin has
 to be one of the two currencies, the other becomes the spend asset, and the pool has to be
 initialized) and, while the Vault holds no coin, `staking.setHouseToken(coin)` in the same batch.
-Both are once-only on chain. Until then the Vault and burn shares are held inside the Bag, not
-lost: once the coin is set, `releaseHeld(asset)` on the Bag is permissionless.
+Both are once-only on chain. Until then the Vault's share is held inside the Bag, not lost: once
+the coin is set, `releaseHeld(asset)` on the Bag is permissionless. The burn share is already in
+the burn clock, where it waits for the first burn. Only the spend asset ever leaves the clock; a
+graduation's burn share in USDG or in a tokenised share stays there for good.
 
 ### The env keys
 
@@ -296,63 +354,70 @@ HOOD_PAYDAY=
 HOOD_BURN_CLOCK=
 HOOD_BOOSTS=
 HOOD_GRADUATION_HOOK=
-HOOD_OPENING_AUCTION=
-HOOD_CURVE_PROTOCOL_FEE_BPS=70   # was 30 on v2 presets
-HOOD_CURVE_CREATOR_FEE_BPS=30    # was 70
+HOOD_BLOCK_ZERO=
+HOOD_CURVE_PROTOCOL_FEE_BPS=30   # the presets' legs, for the season take; 30 and 70 are the defaults
+HOOD_CURVE_CREATOR_FEE_BPS=70
 ```
 
 plus everything a redeploy changes anyway: `HOOD_FACTORY`, `HOOD_FEE_ROUTER`, `HOOD_STAKING`,
 `HOOD_GRADUATOR`, `HOOD_CURVE_ROUTER`, `HOOD_PORTAL`, `HOOD_DIRECT_DEPLOYER`,
 `HOOD_TOKEN_IMPLEMENTATION`, `HOOD_BUYBACK_MODULE`, `HOOD_REFERRALS`, `HOOD_START_BLOCK`. The
-script prints the whole block. The api, the keeper, the MCP server and the web read the six new
-ones through `addressesFromEnv` in the SDK; each is optional, and a page or a job that needs a
-missing one says so rather than guessing.
+script prints the whole block. The api, the keeper, the MCP server and the web read the Bag's
+addresses through `addressesFromEnv` in the SDK; each is optional, and a page or a job that needs a
+missing one says so rather than guessing. `HOOD_OPENING_AUCTION` is v3 only: v4 has no opening
+auction, and the api keeps the v3 address only so it stays out of the old launches' holder lists.
 
-### The keeper's new jobs and knobs
+### The keeper's jobs and knobs
 
-Seven loops on one wallet and one write queue (`apps/keeper`): `tick` (finalize, collect, claim,
-flush, direct sweeps, as before), `payday` (every 60 s: pays the closed hour by points and the
-last ten launches' slice), `burn` (every 60 s: buys the house coin with the burn share and burns
-it, once the coin is named), `push` (every `KEEPER_PUSH_EVERY_MS`: pushes every pot's dividends
-to wallets above `KEEPER_PUSH_FLOOR_WEI`), `king` (settles king-of-the-hill rounds whose timer ran
-out), `auction` (settles opening auctions whose end block passed), `buyback` (runs the buyback
-module for tokens that asked). Knobs, all with defaults: `KEEPER_PAYDAY_DUST_WEI` (1e13),
+Four loops on one wallet and one write queue (`apps/keeper`): `tick` (every `KEEPER_INTERVAL_MS`,
+20 s: finalize, collect, claim the protocol's legs, flush, direct sweeps, direct buybacks and
+liquidity pushes), `payday` (every 60 s: pays the closed hour by points and the last ten launches'
+slice), `burn` (every 60 s: buys the house coin with the burn clock's spend asset and burns it,
+once the coin is named), `push` (every `KEEPER_PUSH_EVERY_MS`: pushes every pot's dividends to
+wallets above `KEEPER_PUSH_FLOOR_WEI`). Knobs, all with defaults: `KEEPER_PAYDAY_DUST_WEI` (1e13),
 `KEEPER_PUSH_EVERY_MS` (300000), `KEEPER_PUSH_FLOOR_WEI` (1e14), `KEEPER_BURN_SLIPPAGE_BPS` (100),
-plus the old `KEEPER_INTERVAL_MS` and `KEEPER_MIN_FLUSH_WEI`; `KEEPER_DRY_RUN=1` simulates every
-write and sends nothing. Payday, the burn clock and curve-fee buybacks need the Safe to have
-appointed the wallet (`keeper` above); until then those loops log and wait, they never crash the
-process.
+`KEEPER_INTERVAL_MS` (20000) and `KEEPER_MIN_FLUSH_WEI` (1e15); `KEEPER_DRY_RUN=1` simulates every
+write and sends nothing. Payday, the burn clock and curve-fee buybacks need the wallet to be
+appointed (`keeper` above, or `KEEPER` at deploy); until then those loops log and wait, they never
+crash the process.
 
 ### Referrals on the direct machine
 
 The protocol's tenth of a direct launch's tax is gone (`PROTOCOL_BPS` is zero: the platform's
-share is the 1% fee, 70 bps of it into the Bag from the hook). A referral set on a direct token
-takes its bps of those 70 bps as the hook routes them, inline on a sell and at the flush for
+share is the 1% fee, 30 bps of it into the Bag from the hook). A referral set on a direct token
+takes its bps of those 30 bps as the hook routes them, inline on a sell and at the flush for
 buys, with a `ReferralPaid` event on the hook. Unlike the curve's claim, a referrer that cannot
 take the transfer never blocks a trade: the cut it refuses stays in the Bag and nothing is
 announced. A portal or registry that cannot answer pays no referral and blocks nothing.
 
 ### Rollback
 
-v2 launches keep working on the old contracts untouched: nothing in v3 redeploys or migrates a
-live curve, splitter or pool, and the old addresses answer as before. What does NOT carry over
-is the index: the api indexes ONE factory (`HOOD_FACTORY` in `apps/api/src/indexer.ts`; there is
-no second-factory support today), so pointing the env at the v3 factory drops the v2 launches
-out of the tables the site reads, and pointing it back drops the v3 ones. Keeping both visible
-needs a second api container with the old env and its own database under another hostname, or
-an indexer that takes two factories, which would have to be written. Plan the cut-over with that
-in mind: run the old api beside the new one until the v2 launches have gone quiet, or accept that
-the old launches are reachable on chain and through the old contracts only.
+v3 launches keep working on the v3 contracts untouched and keep the v3 rules (their penalties,
+auction and snipe settings included): nothing in v4 redeploys or migrates a live curve, splitter
+or pool, and the old addresses answer as before. What does NOT carry over is the index: the api
+indexes ONE factory (`HOOD_FACTORY` in `apps/api/src/indexer.ts`; there is no second-factory
+support today), so pointing the env at the v4 factory drops the v3 launches out of the tables the
+site reads, and pointing it back drops the v4 ones. Keeping both visible needs a second api
+container with the old env and its own database under another hostname, or an indexer that takes
+two factories, which would have to be written. Plan the cut-over with that in mind: run the old api
+beside the new one until the v3 launches have gone quiet, or accept that the old launches are
+reachable on chain and through the old contracts only.
 
 ## 1d. Block zero: the team launch
 
 `HoodBlockZero` launches a curve token and buys for every team wallet in the same transaction, then
 writes each wallet, what it paid, what it got and its lock on chain; `followUp` sends a second wave
 only while outside buys are under the launcher's line. The direct machine does the same in
-`HoodPortal.createTeamLaunch`. Both need the v4 series (the curve's opening rules changed
-`LaunchParams`, `launch` selector `0x313f39fb`), which `script/Deploy.s.sol` deploys whole,
-`HoodBlockZero` included, and prints as `HOOD_BLOCK_ZERO`. `script/DeployBlockZero.s.sol` is only
-for a second periphery against an existing v4 factory.
+`HoodPortal.createTeamLaunch`. Both need the v4 contracts (the opening tax's exemption list is the
+last field of `LaunchParams` and of `DirectConfig`; the deployed factory's `launch` selector is
+`0x2c649a35`, the portal's `createLaunch` `0xc2d44c33` and `createTeamLaunch` `0x50b0e91b`), which
+`script/Deploy.s.sol` deploys whole, `HoodBlockZero` included, and prints as `HOOD_BLOCK_ZERO`.
+`script/DeployBlockZero.s.sol` is only for a second periphery against an existing v4 factory.
+
+The team's legs are bought inside the launch transaction, so they never pay the opening tax. The
+factory sees `HoodBlockZero` as its caller and exempts it and the fee recipient; when the fee
+recipient is not the wallet that launched, `HoodBlockZero` adds that wallet to the exempt list, so
+a follow-up from the launcher skips the tax too. It counts against the 32.
 
 Set `HOOD_BLOCK_ZERO` in the box `.env` (compose passes it to the api, the keeper and, as
 `NEXT_PUBLIC_BLOCK_ZERO`, to the web build) and rebuild the api and web. For the team's alerts,
@@ -376,14 +441,20 @@ E2E_PG=postgres://$USER@127.0.0.1:5432/postgres node scripts/e2e/block-zero.mjs
 `script/Deploy.s.sol` seeds three presets and two pairs. Change them there before deploying, not
 after: a preset is append only, and a live token can never be moved onto a different one.
 
-- preset 0, the standard launch: a billion tokens, 80% on the curve, start cap 1 ETH, graduation cap
-  10 ETH, which is a raise of about 4.4 ETH, 90% of it into the pool
-- preset 1, the wide launch: start cap 2 ETH, graduation cap 40 ETH, 95% into the pool
-- preset 2, priced in USDG so the chart does not move with ETH
+- preset 0, the standard launch: a billion tokens, 80% on the curve, start cap 1.1 ETH, graduation
+  cap 11.025 ETH, which is a raise of about 4.85 ETH: 4.365 into the pool, 0.485 the graduation fee
+- preset 1, the wide launch: start cap 2 ETH, graduation cap 40 ETH, a raise of about 16.8 ETH
+- preset 2, priced in USDG so the chart does not move with ETH: start cap 5,500 USDG, graduation
+  cap 55,125 USDG, the same shape as preset 0
+
+Every preset keeps 90% of the raise for the pool (`liquidityBps` 9000), so the graduation fee is a
+flat tenth: 23% of it to the dev, the rest to the burn clock. Every preset charges the 1% fee as
+`protocolFeeBps` 30 (the Bag) and `creatorFeeBps` 70 (the creator's split). The launch fee is 0.002
+ETH on both machines.
 
 The copycat lock threshold is set per pair (`setPair`) and is denominated in that pair, because
 there is no oracle inside the trade path. 25 ETH of volume inside 24 hours locks a ticker and its
-artwork for 48 hours.
+artwork for 48 hours; for USDG it is 100,000 USDG.
 
 ## 2a. Pairs: what a launch can trade against
 
@@ -747,19 +818,26 @@ re-reads the file, checks every proof against the root, and checks the amounts s
 
 ## 3e. The direct machine
 
-`script/Deploy.s.sol` deploys it alongside the curve machine and prints five more addresses:
+`script/Deploy.s.sol` deploys it alongside the curve machine and prints four more addresses:
 
 ```
-portal         0x...   # createLaunch lives here
+portal         0x...   # createLaunch and createTeamLaunch live here
 directDeployer 0x...   # holds the hook, splitter and locker bytecode; the hook miner needs it
 tokenImpl      0x...   # the EIP-1167 implementation every direct token clones
 buyback        0x...   # permissionless swap-and-burn module, shared by every launch
-auction        0x...   # the opening auction, for launches that choose it (section 1c)
 ```
 
-It also wires them: the portal points at the registry, the Bag and the auction, the registry
-accepts the portal, the launch fee is 0.002 ETH, and USDG is allowed as a quote asset beside the
-chain's own currency. The portal refuses every launch until the Bag is named.
+It also wires them: the portal points at the registry, the referral registry and the Bag, the
+registry accepts the portal, the launch fee is 0.002 ETH, and USDG is allowed as a quote asset beside
+the chain's own currency. The portal refuses every launch until the Bag and the buyback module are
+named.
+
+**The opening tax.** Every direct launch runs the same schedule the curve does
+(`src/libraries/SnipeSchedule.sol`): 9,900 bps of a buy in the launch's own second, 618 in the next,
+19 in the third, nothing after. There is nothing to configure. `DirectConfig.exempt`, the last
+field, names up to 32 wallets that skip it (more reverts with `ExemptionListTooLong`); the launcher
+and the creator fee recipient always do. The hook keys the exemption on `tx.origin`
+(`currentSnipeTaxBps(origin)`), and the portal's own buys in the launch transaction never pay it.
 
 **The hook address has to be mined.** Uniswap v4 stores a hook's permissions in the low bits of its
 address, so every launch mines a CREATE2 salt whose address ends in `0xCC`. The app does it in the
@@ -794,8 +872,8 @@ launches only; `canLaunch(address)` is what the app reads before it mines a salt
 by default. For a staged open: `setLaunchGate(true, true)` plus a whitelist, then `setLaunchGate(true, false)`.
 
 **There is no protocol tenth any more.** Since v3 the creator's tax is all the creator's, and the
-platform's share is the 1% fee the hook takes on every swap: 30 bps down the creator's
-allocations, 70 bps into the Bag (section 1c). `claimProtocol()` on a splitter only pays out a
+platform's share is the 1% fee the hook takes on every swap: 70 bps down the creator's
+allocations, 30 bps into the Bag (section 1c). `claimProtocol()` on a splitter only pays out a
 legacy balance booked before the upgrade; nothing new lands there.
 
 **Ticks.** A direct launch is described by two valuations, not two ticks. Against the chain's own
@@ -1175,8 +1253,12 @@ Buy-side tax sits in the hook as an ERC-6909 claim until the next swap or a `flu
 after that it sits in the splitter until `sweep()` divides it. The keeper does both every tick, and
 anybody can.
 
-**Nobody can trade a direct launch in its first block.** That is the window doing its job: the
-launch block belongs to the creator. It ends by itself.
+**A buy in a launch's first seconds lost almost everything to fees.** That is the opening tax
+doing its job, on both machines: 99% of a buy in the launch's own second, 6.18% in the next, 0.19%
+in the third. The receipt carries a `Sniped` event with the amount. A wallet that should have been
+exempt was not on the list: on the curve the list is keyed on the wallet that receives the tokens,
+on a direct pool on the wallet that sent the transaction, and a smart-account relayer is seen as
+the relayer. The list is fixed at launch (`SnipeExempt` in the launch receipt).
 
 **A bridge quote reverts.** The route is not configured. Peer alone is not enough on 4663; see
 step 4.

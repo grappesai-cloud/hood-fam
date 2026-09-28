@@ -157,7 +157,7 @@ export function TeamWatch({ token }: { token: Address }) {
           </Step>
 
           {onCurve ? (
-            <Step n={2} title="Second wave" purpose="More team buys, sent only while the outside has bought less than your line. Past it the transaction reverts and nothing is spent. It is a normal buy one transaction later, so it pays the opening tax and meets the wallet cap like anyone.">
+            <Step n={2} title="Second wave" purpose="More team buys, sent only while the outside has bought less than your line. Past it the transaction reverts and nothing is spent. It is a normal buy one transaction later, so a wallet that is not named at launch pays the opening tax like anyone.">
               <TeamLegsEditor legs={legs} onChange={setLegs} symbol={sym} decimals={dec} />
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Stand down if the outside has bought more than, % of supply" help={supply > 0n ? `${fmt(line, 18, 0)} tokens.` : undefined}>

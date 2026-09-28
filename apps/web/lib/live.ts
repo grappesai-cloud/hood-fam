@@ -71,16 +71,6 @@ export interface LiveBag {
   extra: Record<string, unknown> | null;
 }
 
-/// King of the hill on one launch: a new king took the crown, or the timer ran out and `won` says
-/// who the pot went to.
-export interface LiveKing {
-  token: string;
-  king: string | null;
-  pot: string;
-  ends_at: string | null;
-  won?: { king: string; amount: string };
-}
-
 export interface LiveOptions {
   /// Which launches this listener cares about. Empty means the whole market, which is what a board
   /// wants and what a token page never does.
@@ -91,10 +81,9 @@ export interface LiveOptions {
   onMessage?: (message: ChatMessage) => void;
   onFee?: (fee: LiveFee) => void;
   onBag?: (event: LiveBag) => void;
-  onKing?: (event: LiveKing) => void;
 }
 
-const EVENTS = ["trade", "launch", "graduated", "message", "fee", "bag", "king"] as const;
+const EVENTS = ["trade", "launch", "graduated", "message", "fee", "bag"] as const;
 type EventName = (typeof EVENTS)[number];
 
 interface Listener {
@@ -208,10 +197,10 @@ function schedule() {
 /// leave the old ones to their timers and refresh nothing anybody is looking at.
 ///
 /// The Bag page reads ["bag"], ["bag-tape", token, kinds], ["shame"], ["boosts", hour] and
-/// ["vault"] (lib/bag.ts names them); a token page adds ["pot"], ["king"], ["penalties"] and
-/// ["auction"], all keyed by address like the rest of the token keys.
+/// ["vault"] (lib/bag.ts names them); a token page adds ["pot"] and ["penalties"], keyed by
+/// address like the rest of the token keys.
 const BOARD_QUERIES = new Set(["tokens", "stats", "tape", "pit-tape", "activity", "top-traders", "ledger", "bag", "bag-tape", "shame", "boosts", "vault"]);
-const TOKEN_QUERIES = new Set(["token", "trades", "holders", "candles", "pot", "king", "penalties", "auction"]);
+const TOKEN_QUERIES = new Set(["token", "trades", "holders", "candles", "pot", "penalties"]);
 
 /// A busy launch trades several times a second. Refetching on each one would redraw the board under
 /// the reader's cursor and reorder the rows they were halfway through, so events are collected and
@@ -267,7 +256,7 @@ function receive(name: EventName, event: MessageEvent) {
   // Once per event, not once per component listening to it. Three subscribers on a token page
   // asking for the same refresh is three requests for one trade, because invalidating a query that
   // is already in flight cancels it and starts it again.
-  if (name === "trade" || name === "graduated" || name === "fee" || name === "bag" || name === "king") queue(typeof token === "string" ? token : undefined);
+  if (name === "trade" || name === "graduated" || name === "fee" || name === "bag") queue(typeof token === "string" ? token : undefined);
   else if (name === "launch") queue();
   for (const listener of listeners) {
     if (listener.tokens.length) {
@@ -381,7 +370,6 @@ export function useLive(options: LiveOptions = {}): boolean {
         else if (name === "message") handlers.onMessage?.(payload as ChatMessage);
         else if (name === "fee") handlers.onFee?.(payload as LiveFee);
         else if (name === "bag") handlers.onBag?.(payload as LiveBag);
-        else if (name === "king") handlers.onKing?.(payload as LiveKing);
       },
     });
     return unsubscribe;

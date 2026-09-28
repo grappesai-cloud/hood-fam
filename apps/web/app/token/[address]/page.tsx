@@ -133,8 +133,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
   // What the fee machinery has actually paid on this launch. A curve pays on a flush; a direct
   // launch pays on a sweep, which the API files under what came in.
   const paidOut = BigInt((isDirect ? data.fees?.accrued : data.fees?.flushed) ?? "0");
-  // The pot's receipts, under the payout line on either machine. King of the hill is a splitter
-  // option, so it only ever has a panel on a launch whose penalties turned it on.
+  // The pot's receipts, under the payout line on either machine.
   const holdersPaid = (
     <HoldersPaid token={data.token} pot={data.pot} paidToHolders={data.paid_to_holders} decimals={dec} symbol={sym} />
   );

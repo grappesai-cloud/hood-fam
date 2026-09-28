@@ -9,12 +9,11 @@ import { hoodFactoryAbi, hoodStakingAbi, BPS, FEE_LEG_LABEL, LOCK_TIERS, curveBu
 import { addresses } from "@/lib/config";
 import { api, type PairRow, type ResolvedQuote, type RouteAvailability } from "@/lib/api";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
-import { detectFactoryGeneration, encodePenalties, factoryAbis, factoryTakesExempt, factoryTakesGuard, factoryTakesPenalties, penaltiesInUse, penaltyProblem, penaltyReviewRows, PENALTY_FORM_DEFAULTS, type PenaltyForm } from "@/lib/launchAbi";
+import { detectFactoryGeneration, factoryAbis, factoryTakesExempt } from "@/lib/launchAbi";
 import { exemptAddresses, exemptProblem, OPENING_TAX_SUMMARY, OpeningTax, openingReviewRows, parseExempt } from "@/components/OpeningTax";
-import { CURVE_GUARD_DEFAULTS, CurveGuardOptions, encodeGuard, guardProblem, guardReviewRows, type CurveGuardForm } from "@/components/CurveGuardOptions";
 import { DirectLaunchForm } from "@/components/DirectLaunchForm";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
-import { Choice, Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, PenaltyOptions, Slider, Step, WhatHappens, WizardNav, WizardProgress } from "@/components/LaunchUI";
+import { Choice, Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, Slider, Step, WhatHappens, WizardNav, WizardProgress } from "@/components/LaunchUI";
 import { CurveSim } from "@/components/Sim";
 import { useBatch } from "@/lib/safe";
 import { brand } from "@/brands";
@@ -44,16 +43,16 @@ interface CurvePreset {
 }
 
 const CUSTOM_SUPPLY = 1_000_000_000n * 10n ** 18n;
-const STEPS = ["Token", "Market", "Economics", "Penalties", "Review"] as const;
-/// From the v5 factory on the fourth step is the opening tax: there are no creator penalties.
-const STEPS_V5 = ["Token", "Market", "Economics", "Opening", "Review"] as const;
+/// The fourth step is the opening tax: every launch runs the same schedule, and the creator only
+/// names who skips it.
+const STEPS = ["Token", "Market", "Economics", "Opening", "Review"] as const;
 const REVIEW = STEPS.length - 1;
 
-/// The platform fee on a curve trade: 1%. From the v5 factory on, 0.30% goes into the Bag and 0.70%
-/// to the creator's split; before it, the other way round. A preset carries its own two numbers and
-/// they are what the form shows for it; these are what a custom config is written with, and the
-/// fallback while the presets are still loading.
-const legsFor = (v5: boolean) => (v5 ? { bag: 30, creator: 70 } : { bag: 70, creator: 30 });
+/// The platform fee on a curve trade: 1%, 0.30% into the Bag and 0.70% to the creator's split. A
+/// preset carries its own two numbers and they are what the form shows for it; these are what a
+/// custom config is written with, and the fallback while the presets are still loading.
+const BAG_LEG_BPS = 30;
+const CREATOR_LEG_BPS = 70;
 
 function units(value: string, decimals: number): bigint {
   try { return parseUnits(value || "0", decimals); } catch { return 0n; }
@@ -139,12 +138,11 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const [hash, setHash] = useState<`0x${string}` | undefined>();
   const [reviewedFingerprint, setReviewedFingerprint] = useState("");
   const receipt = useWaitForTransactionReceipt({ hash });
-  const [penalties, setPenalties] = useState<PenaltyForm>(PENALTY_FORM_DEFAULTS);
-  const [guard, setGuard] = useState<CurveGuardForm>(CURVE_GUARD_DEFAULTS);
   const [exemptText, setExemptText] = useState("");
 
-  // Which LaunchParams the deployed factory reads, off its bytecode: the Bag release appends
-  // `penalties` at the end, the one before it does not know the field. See lib/launchAbi.ts.
+  // Which LaunchParams the deployed factory reads, off its bytecode. This form writes the one with
+  // the opening tax's `exempt` list and nothing older: a build pointed at an earlier factory says
+  // so instead of launching on rules the page no longer describes. See lib/launchAbi.ts.
   const factoryGeneration = useQuery({
     queryKey: ["factory-generation", addresses.factory],
     queryFn: async () => {
@@ -155,16 +153,9 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     staleTime: Infinity,
   });
   const generation = factoryGeneration.data ?? undefined;
-  const supportsPenalties = factoryTakesPenalties(generation);
-  const supportsGuard = factoryTakesGuard(generation);
   const supportsExempt = factoryTakesExempt(generation);
   const exemptList = parseExempt(exemptText);
-  const penaltyError = supportsExempt
-    ? exemptProblem(exemptList)
-    : penaltyProblem(penalties) ?? (supportsGuard ? guardProblem(guard) : undefined);
-  const penaltiesUnsupported = !supportsExempt && penaltiesInUse(penalties) && generation !== undefined && !supportsPenalties;
-  const { bag: BAG_LEG_BPS, creator: CREATOR_LEG_BPS } = legsFor(supportsExempt);
-  const stepLabels = supportsExempt ? STEPS_V5 : STEPS;
+  const openingError = exemptProblem(exemptList);
 
   const [form, setForm] = useState({
     name: "", symbol: "", description: "", image: "", website: "", twitter: "", telegram: "",
@@ -373,7 +364,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const recipient = form.feeRecipient.trim() || address || "";
   const recipientOk = !form.feeRecipient.trim() || isAddress(form.feeRecipient.trim());
   const reviewedTerms = JSON.stringify({
-    form, penalties, guard, exemptText, generation, pair, recipient, totalFeeBps,
+    form, exemptText, generation, pair, recipient, totalFeeBps,
     opening: String(form.customPair ? customStartCap : chosen?.startCap ?? ""),
     graduation: String(form.customPair ? customGraduationCap : chosen?.graduationCap ?? ""),
     econ: String(econ ?? ""),
@@ -412,11 +403,11 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : useCustomConfig && !launchConfig ? "No preset is available for this custom fee."
     : form.firstBuyLock > 0 && firstBuyWei === 0n ? "Enter a first buy before locking it."
     : erc20FirstBuyExcess > 0n ? `This first buy exceeds curve capacity. Reduce it by at least ${fmt(erc20FirstBuyExcess, pairDec, 6)} ${pair}.`
-    : penaltyError ? penaltyError
+    : openingError ? openingError
     : launchFee === undefined ? "Reading the launch fee from chain."
     : factoryGeneration.isLoading ? "Checking the factory contract version."
     : factoryGeneration.isSuccess && !generation ? "The factory at this address answers to no launch this app knows."
-    : penaltiesUnsupported ? "The live factory does not take creator penalties yet. Turn them off to launch on it, or wait for the upgrade."
+    : !supportsExempt ? "This factory is an older version than this app launches on."
     : !reviewed ? "Review the permanent terms before creating the token."
     : undefined;
 
@@ -437,7 +428,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const nextBlocked = activeStep === 0 ? (!form.name ? "Enter a token name." : !form.symbol ? "Enter a ticker." : symbolFree === false ? "This ticker is taken." : undefined)
     : activeStep === 1 ? marketBlocked
     : activeStep === 2 ? economicsBlocked
-    : penaltyError;
+    : openingError;
   const moveTo = (step: number) => {
     setActiveStep(step);
     requestAnimationFrame(() => document.getElementById("launch-flow")?.scrollIntoView({ block: "start", behavior: "auto" }));
@@ -475,11 +466,9 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     }
   }
 
-  /// LaunchParams in the contract's order. The v3 factory reads `penalties` as the last field;
-  /// the one before it gets the struct it knows and the penalties stay off, which `blocked` above
-  /// only allows when none of them was turned on.
+  /// LaunchParams in the contract's order, `exempt` last.
   function launchArgs(salt: `0x${string}`) {
-    const base = {
+    return {
       name: form.name, symbol: form.symbol, image: form.image, description: form.description,
       website: form.website, twitter: form.twitter, telegram: form.telegram,
       pairToken: form.pairToken, configId: BigInt(form.customPair ? 0 : form.configId),
@@ -492,10 +481,8 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
       salt, econ: useCustomConfig
         ? (`0x${"0".repeat(64)}` as `0x${string}`)
         : ((econ as `0x${string}`) ?? (`0x${"0".repeat(64)}` as `0x${string}`)),
+      exempt: exemptAddresses(exemptText),
     } as const;
-    if (supportsExempt) return { ...base, exempt: exemptAddresses(exemptText) };
-    if (supportsGuard) return { ...base, penalties: encodePenalties(penalties), guard: encodeGuard(guard) };
-    return supportsPenalties ? { ...base, penalties: encodePenalties(penalties) } : base;
   }
 
   // No factory address means this build is not wired to the chain: a preview, or a box whose
@@ -510,7 +497,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
       <div className="launch-guide">
         <div className="launch-form-stack">
           {chooser}
-          <WizardProgress labels={stepLabels} current={activeStep} />
+          <WizardProgress labels={STEPS} current={activeStep} />
 
           {activeStep === 0 && (
           <Step n={1} title="The token" purpose="Name it and choose how it appears on the board. You cannot edit these details after launch." done={tokenDone}>
@@ -728,24 +715,9 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           </Step>
           )}
 
-          {activeStep === 3 && supportsExempt && (
-          <Step n={4} title="The opening tax" purpose="The same on every launch: what a buy pays in your token's first three seconds, and who does not pay it." done={!penaltyError}>
+          {activeStep === 3 && (
+          <Step n={4} title="The opening tax" purpose="The same on every launch: what a buy pays in your token's first three seconds, and who does not pay it." done={!openingError}>
             <OpeningTax value={exemptText} onChange={setExemptText} machine="curve" />
-          </Step>
-          )}
-
-          {activeStep === 3 && !supportsExempt && (
-          <Step n={4} title={supportsGuard ? "Sniper protection and penalties" : "Penalties after graduation"} purpose={supportsGuard ? "Who pays extra at the open and after graduation, how much, and who gets it. Fixed at launch." : "These run on the graduated pool, through the hook every pool shares. Who pays extra, how much, and who gets it. Fixed at launch."} done={!penaltyError}>
-            {supportsGuard && (
-              <>
-                <h3 className="option-heading">At the open, on the curve</h3>
-                <CurveGuardOptions value={guard} onChange={setGuard} />
-                <h3 className="option-heading">After graduation, on the pool</h3>
-              </>
-            )}
-            <PenaltyOptions value={penalties} onChange={setPenalties} postGraduation />
-            {penaltyError && <p className="field-note bad">{penaltyError}</p>}
-            {penaltiesUnsupported && <p className="field-note bad">The factory on this deployment is the version before creator penalties. What you turned on here cannot reach it yet.</p>}
           </Step>
           )}
 
@@ -760,10 +732,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 { label: "Your split goes to", value: `Creator ${form.creator}% · burn ${form.buyback}% · liquidity ${form.liquidity}%${form.stakers > 0 ? ` · Vault lockers ${form.stakers}%` : ""}` },
                 { label: "Creator fee wallet", value: form.creator > 0 ? (recipient || "Connect a wallet") : "No creator share" },
                 { label: "First buy", value: firstBuyWei > 0n ? `${form.firstBuy} ${pair}${form.firstBuyLock > 0 ? ` · locked ${LOCKS.find((lock) => lock.seconds === form.firstBuyLock)?.label ?? ""}` : ""}` : "None" },
-                ...(supportsExempt ? openingReviewRows(exemptList) : [
-                  ...(supportsGuard ? guardReviewRows(guard) : []),
-                  ...penaltyReviewRows(penalties, { postGraduation: true }),
-                ]),
+                ...openingReviewRows(exemptList),
                 { label: "Launch cost", value: `${feeDisplay} plus gas${firstBuyWei > 0n ? ` and your ${form.firstBuy} ${pair} first buy` : ""}` },
               ]}
               note="The curve may never fill. The preview above explains fee routing, not returns or a guaranteed token sale. Your wallet will show the transaction before it is sent."
@@ -803,9 +772,7 @@ function CurveLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           <Row label="Paired with" value={pair} />
           <Row label="Trading fee" value={`${(totalFeeBps / 100).toFixed(2)}%`} />
           {form.creator > 0 && <Row label="Creator share pays" value={recipient ? `${recipient.slice(0, 6)}…${recipient.slice(-4)}` : "nobody yet"} />}
-          {supportsExempt
-            ? <Row label="Opening tax" value={OPENING_TAX_SUMMARY} />
-            : <Row label="Penalties on" value={String(penaltyReviewRows(penalties).filter((r) => r.label !== "Creator penalties").length)} />}
+          <Row label="Opening tax" value={OPENING_TAX_SUMMARY} />
         </div>
         {activeStep === REVIEW && <WhatHappens items={[
           "Your wallet sends one transaction and pays the launch fee.",

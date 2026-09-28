@@ -121,7 +121,7 @@ contract DeployLocal is Script {
         console.log("HOOD_GRADUATION_HOOK=%s", book.graduationHook);
         console.log("HOOD_BLOCK_ZERO=%s", book.blockZero);
         console.log("HOOD_START_BLOCK=%s", block.number);
-        console.log("# no Uniswap v4 here: HOOD_PORTAL, HOOD_DIRECT_DEPLOYER, HOOD_BUYBACK_MODULE, HOOD_OPENING_AUCTION stay empty");
+        console.log("# no Uniswap v4 here: HOOD_PORTAL, HOOD_DIRECT_DEPLOYER, HOOD_BUYBACK_MODULE stay empty");
         if (keeper == address(0)) console.log("# no KEEPER given: feeRouter, payday and burnClock have no keeper yet");
     }
 }

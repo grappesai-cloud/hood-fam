@@ -200,15 +200,17 @@ export function TradeBox({ token, curve, pairToken, pairDecimals, pairSymbol, sy
       }
       return setHash(await writeContractAsync({ address: approving, abi: erc20, functionName: "approve", args: [curve, maxUint256] }));
     }
+    // Padded like the pool's trade box: in a launch's first seconds a buy estimated in one second
+    // and mined in the next takes the opening tax's other branch, and an exact estimate runs out of
+    // gas (measured on a fork of 46630: 316,511 used against 304,365 estimated).
     if (side === "buy") {
-      setHash(await writeContractAsync({
-        address: curve, abi: hoodCurveAbi, functionName: "buy",
-        args: [amountWei, minOut, address], value: isNative ? amountWei : 0n,
-      }));
+      const call = { address: curve, abi: hoodCurveAbi, functionName: "buy", args: [amountWei, minOut, address], value: isNative ? amountWei : 0n } as const;
+      const estimate = await publicClient!.estimateContractGas({ ...call, account: address });
+      setHash(await writeContractAsync({ ...call, gas: (estimate * 13n) / 10n }));
     } else {
-      setHash(await writeContractAsync({
-        address: curve, abi: hoodCurveAbi, functionName: "sell", args: [amountWei, minOut, address],
-      }));
+      const call = { address: curve, abi: hoodCurveAbi, functionName: "sell", args: [amountWei, minOut, address] } as const;
+      const estimate = await publicClient!.estimateContractGas({ ...call, account: address });
+      setHash(await writeContractAsync({ ...call, gas: (estimate * 13n) / 10n }));
     }
   }
 

@@ -1112,8 +1112,6 @@ a.race-lead:hover .race-go { color: var(--color-lime); }
 .team-toggle > span { display: grid; gap: 2px; }
 .team-toggle input { margin-top: 3px; }
 @media (max-width: 640px) { .team-leg-row { grid-template-columns: 1fr 1fr; } .team-leg-row > :first-child { grid-column: 1 / -1; } }
-.option-heading { margin: 6px 0 10px; font-size: 13px; font-weight: 600; color: var(--color-text); }
-.option-heading ~ .option-heading { margin-top: 22px; }
 @media (max-width: 640px) { .team-row { grid-template-columns: 1fr 1fr; } }
 .team-row:last-child { border-bottom: 0; }
 /* Three numbers, as many to a row as the column can hold without squeezing a label into a stack of
@@ -1601,31 +1599,8 @@ a.race-lead:hover .race-go { color: var(--color-lime); }
   .shame-paid, .shame-kinds, .shame-usd { grid-column: 1 / -1; text-align: left; }
 }
 
-/* ---------------------------------------------------------------- the wizard's penalties step */
-/* One switch, two states, and the word next to the knob so a colour is never the only clue. */
-.toggle { display: inline-flex; flex: none; align-items: center; gap: 8px; height: 26px; border: 1px solid var(--glass-line); border-radius: 100px; padding: 0 9px 0 3px; background: #ffffff0a; color: #8f958a; font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; transition: border-color .18s, background .18s, color .18s; }
-.toggle:disabled { opacity: .5; cursor: not-allowed; }
-.toggle-knob { display: block; width: 18px; height: 18px; border-radius: 50%; background: #5d6357; transition: transform .18s, background .18s; }
-.toggle.on { border-color: #ccff0073; background: #ccff0014; color: var(--color-lime); }
-.toggle.on .toggle-knob { background: var(--color-lime); box-shadow: 0 0 12px -2px #ccff00b3; }
-.toggle-word { min-width: 2ch; }
+/* ---------------------------------------------------------------- the wizard's opening step */
 .option-stack { display: grid; gap: 10px; }
-.option-card { position: relative; overflow: hidden; border: 1px solid var(--glass-line); border-radius: 16px; padding: 14px 15px; background: var(--glass); box-shadow: var(--glass-shadow); transition: border-color .18s, background .18s; }
-.option-card.on { border-color: #ccff0059; background: linear-gradient(158deg, #ccff0010, #ffffff04 46%), #0c0e09; }
-.option-card.fixed { background: #ffffff05; }
-.option-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
-.option-card-text { min-width: 0; flex: 1; }
-.option-card-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; color: #fff; font-size: 14px; font-weight: 700; letter-spacing: -.02em; }
-.option-card-tag { border: 1px solid #ccff0033; border-radius: 6px; padding: 1px 6px; color: #b7d84a; font-family: var(--font-mono); font-size: 9px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; }
-.option-card-body { margin: 5px 0 0; color: #8f958a; font-size: 12.5px; line-height: 1.5; }
-.option-card.on .option-card-body { color: #a9b09e; }
-.option-card-fixed { flex: none; color: #7f8579; font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
-.option-card-controls { margin-top: 12px; border-top: 1px solid var(--glass-line); padding-top: 12px; }
-.option-facts { display: grid; gap: 8px; margin-top: 4px; border: 1px solid var(--glass-line); border-radius: 14px; padding: 14px 16px; background: #ffffff05; }
-.option-facts-title { margin: 0 0 2px; color: #7f8579; font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
-.option-facts > div { display: grid; gap: 2px; }
-.option-facts strong { color: #d5dbc9; font-size: 12.5px; }
-.option-facts span { color: #8f958a; font-size: 12px; line-height: 1.45; }
 .launch-mode-note { grid-column: 1 / -1; margin: 2px 0 0; color: #8f958a; font-size: 11.5px; line-height: 1.45; }
 /* In the compact switch the note takes the rest of the row, to the right of the two buttons. */
 .launch-mode-switch:has(+ .wizard-progress) { grid-template-columns: repeat(2, minmax(0, 170px)) minmax(0, 1fr); align-items: center; }

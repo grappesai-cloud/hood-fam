@@ -38,23 +38,24 @@ const SECTIONS = [
 ] as const;
 
 const ADDRESSES: [string, string][] = [
-  ["Factory (HoodFactory)", "0x2b9c1f6667e05b68a5d1ab697710afc97a1949b5"],
-  ["The Bag (HoodBag)", "0xf4ed44190cbf3ea597d6fa03855d402df42bd628"],
-  ["Payday (HoodPayday)", "0x2ea48bbb382bfbe42088dfd1fcdaf4a0b8cff643"],
-  ["Burn clock (HoodBurnClock)", "0x5603461f0b0264571d03a07fb32d70d95e4b9b96"],
-  ["Boosts (HoodBoosts)", "0x8ed549aa479221ece612ce26d0f5b5d724114efb"],
-  ["Graduation hook", "0x06f9fe8109867a22dd98d063ed43ea19b3d880cc"],
-  ["Portal (direct launches)", "0xf3541ace9098775b812df2ff7acebaeecb5aef9e"],
-  ["The Vault (HoodStaking)", "0xb24f6ee86438df7ac5d28fe04c7b77e04e2b4415"],
-  ["Fee router (HoodFeeRouter)", "0x9208de8d02bf8b1d9a7c8c24668fc89320d4a677"],
-  ["Referrals (HoodReferrals)", "0x64c006bb7f86a1d11f0b84b84b1d823bd6ce3f9a"],
-  ["Graduator (UniswapV4Graduator)", "0x35e7982fd3511296a649598361f8707d63534b55"],
-  ["Curve router (HoodCurveRouter)", "0x901d9591fae99e10e4754a86bc3006f835347619"],
-  ["First-buy locker (HoodTokenLock)", "0x194a2bc75bdd337a92278e3b11279b2d25b11d35"],
-  ["Bridge factory (HoodBridgeFactory)", "0x2b90021cf4ad2306c9f21f4ba4914cc55329634e"],
-  ["Direct deployer (HoodDirectDeployer)", "0xc8cdd635bd6c524d57e12918bee0c754555f6523"],
-  ["Launch token implementation (HoodLaunchToken)", "0x69e83e0bfae1967f6267f65d1f9dee61df2da7e5"],
-  ["Buyback module (HoodBuybackModule)", "0x1f2db6dc21d9c643d8406da1d2c3d7ef125cb047"],
+  ["Factory (HoodFactory)", "0x14226252c5C5526c76Ec1370246c77d108dBfb4B"],
+  ["The Bag (HoodBag)", "0x471EE5dA3fD9B9C8B186B7e9DAD72270463e36d3"],
+  ["Payday (HoodPayday)", "0xA76759C5818cAFa348071027Fc6cD903adA81195"],
+  ["Burn clock (HoodBurnClock)", "0xA542876A28d9954e88922785bE70D79B18a8Fc4F"],
+  ["Boosts (HoodBoosts)", "0xADE405A64379C5A2A00cE84A4af61bB0b0ec42D0"],
+  ["Graduation hook", "0x4ff4F5175c9057E40413068bBE6F4c55D45000cC"],
+  ["Portal (direct launches)", "0x8f9F4221b211549bE2F06a2bAFa05DE089182c77"],
+  ["Block zero (HoodBlockZero)", "0xeD04C668C53de1EEa4cB5361014C90C731739c0E"],
+  ["The Vault (HoodStaking)", "0xdC5af0613e5f2B5fBcFC2131dc93E6FF4cbB118D"],
+  ["Fee router (HoodFeeRouter)", "0xd2c0c656d7395248eD7B4F08d64D247Fe0bb63aa"],
+  ["Referrals (HoodReferrals)", "0x91F7766c60c621940ce8360999Debec8ddA9078b"],
+  ["Graduator (UniswapV4Graduator)", "0x057180612d111E36075893a9dD816E028662069D"],
+  ["Curve router (HoodCurveRouter)", "0xb88dB2C54f8087E521F06321429389B02ba152eD"],
+  ["First-buy locker (HoodTokenLock)", "0xDb249D05570B60CF2C923938Ba5def9048AA65E5"],
+  ["Bridge factory (HoodBridgeFactory)", "0xdB1Caff9854973959f38bB7096EE1b8Ed6f25902"],
+  ["Direct deployer (HoodDirectDeployer)", "0xd49EF209d1C1c5AdDD8065A884a7037e3A4fA340"],
+  ["Launch token implementation (HoodLaunchToken)", "0xc2E2d993A45b398981DBfa1064BEC78F74D48F7F"],
+  ["Buyback module (HoodBuybackModule)", "0x4ea89c4c8bD249d9958586602Cde6ebc4EA2D94F"],
   ["Season drop (HoodSeasonDrop)", "0x44a085d3a3e79d132f7468cc7d53308c8cb715b0"],
 ];
 
@@ -76,7 +77,7 @@ export default function Whitepaper() {
           number the contracts apply.
         </p>
         <p className="doc-meta">
-          Version 3. Contracts deployed on Robinhood Chain (chain id 4663) on 25 September 2026.
+          Version 4. Contracts deployed on Robinhood Chain (chain id 4663) on 29 September 2026.
           The practical guide is at <Link href="/docs">/docs</Link>.
         </p>
       </header>
@@ -701,8 +702,8 @@ export default function Whitepaper() {
       <section className="panel doc-addresses" id="addresses">
         <h2>Contract addresses</h2>
         <p>
-          Robinhood Chain, chain id 4663. Deployed on 25 September 2026; the first receipt is in
-          block 72198515. Source is verified on the chain&apos;s Blockscout explorer.
+          Robinhood Chain, chain id 4663. Deployed on 29 September 2026; the first receipt is in
+          block 75134585. Launches made before that keep the rules of the contracts that printed them. Source is verified on the chain&apos;s Blockscout explorer.
         </p>
         <div className="doc-table-wrap">
           <table>

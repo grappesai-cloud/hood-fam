@@ -23,10 +23,10 @@ import { ProvenanceKey } from "@/components/Provenance";
 
 /// What the Bag sends the Vault. Fixed at deploy; these are the splits in BagTypes.sol, said plainly.
 const FEEDS = [
-  { what: "30 bps of every trade", how: "The platform takes 1% of every trade on every machine. 70 bps of it enter the Bag, and 30 of those 70 come here, every block." },
-  { what: "A quarter of every graduation fee", how: "A curve that fills pays 10% of its raise into the Bag. A quarter of that is the Vault's." },
-  { what: "Half the house coin's own leg", how: "The house coin's creator leg goes entirely to the Bag: half here, half to the burn clock. The house keeps nothing from its own coin." },
-  { what: "Jeet and whale taxes, when a creator routes them here", how: "A launch with \"lockers eat the jeets\" on sends its jeet and whale dump taxes to the Vault instead of to its holders." },
+  { what: "10 bps of every trade", how: "The platform takes 1% of every trade on both machines: 70 bps to the creator's split, 30 into the Bag. A third of those 30 come here, every block." },
+  { what: "All 30 bps of every trade in the house coin", how: "On the house coin's own trades the Bag sends its whole share here, not a third." },
+  { what: "Half the house coin's own leg", how: "What the house coin's split sends the Bag goes half here and half to the house." },
+  { what: "What a creator chooses to share", how: "A launch can point part of its own split at the Vault's lockers. The coins doing that right now are listed below." },
 ] as const;
 
 export default function LockPage() {

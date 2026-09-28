@@ -53,7 +53,7 @@ export const contracts = () => ({
   burnClock: process.env.HOOD_BURN_CLOCK ?? null,
   boosts: process.env.HOOD_BOOSTS ?? null,
   graduationHook: process.env.HOOD_GRADUATION_HOOK ?? null,
-  openingAuction: process.env.HOOD_OPENING_AUCTION ?? null,
+  openingAuction: process.env.HOOD_OPENING_AUCTION ?? null, // v3 only
   houseCoin: process.env.HOOD_HOUSE_COIN ?? null,
 });
 

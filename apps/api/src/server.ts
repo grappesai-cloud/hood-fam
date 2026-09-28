@@ -65,8 +65,8 @@ const PROGRESS = `case when mode = 'direct' then
 const SYSTEM_TRADERS = [
   process.env.HOOD_FACTORY, process.env.HOOD_FEE_ROUTER, process.env.HOOD_STAKING, process.env.HOOD_GRADUATOR,
   process.env.HOOD_PORTAL, process.env.HOOD_BUYBACK_MODULE,
-  // The Bag's machines: the burn clock buys the house coin, the graduation hook and the opening
-  // auction sit inside swaps, and the rest hold money that moves through the tape.
+  // The Bag's machines: the burn clock buys the house coin, the graduation hook sits inside swaps
+  // (as v3's opening auction did for old launches), and the rest hold money that moves through the tape.
   process.env.HOOD_BAG, process.env.HOOD_PAYDAY, process.env.HOOD_BURN_CLOCK, process.env.HOOD_BOOSTS,
   process.env.HOOD_GRADUATION_HOOK, process.env.HOOD_OPENING_AUCTION,
   // HOOD_BLOCK_ZERO is deliberately not here: a team leg stays on the public tape, where it is
@@ -142,14 +142,13 @@ export async function buildServer() {
     [/^\/leaderboard$/, "public, s-maxage=5, stale-while-revalidate=30"],
     [/^\/seasons$/, "public, s-maxage=10, stale-while-revalidate=60"],
     [/^\/stats$/, "public, s-maxage=10, stale-while-revalidate=60"],
-    // The Bag. The keeper's two routes (/payday/:epoch, /auctions/open) are deliberately absent:
+    // The Bag. The keeper's route (/payday/:epoch) is deliberately absent:
     // what the keeper signs must never come out of a cache.
     [/^\/bag$/, "public, s-maxage=10, stale-while-revalidate=30"],
     [/^\/bag\/tape$/, "public, s-maxage=3, stale-while-revalidate=10"],
     [/^\/shame$/, "public, s-maxage=30, stale-while-revalidate=60"],
     [/^\/tokens\/:token\/pot$/, "public, s-maxage=5, stale-while-revalidate=20"],
     [/^\/tokens\/:token\/king$/, "public, s-maxage=2, stale-while-revalidate=4"],
-    [/^\/tokens\/:token\/auction$/, "public, s-maxage=2, stale-while-revalidate=10"],
     [/^\/tokens\/:token\/penalties$/, "public, s-maxage=3, stale-while-revalidate=15"],
     [/^\/boosts$/, "public, s-maxage=5, stale-while-revalidate=20"],
     [/^\/vault$/, "public, s-maxage=10, stale-while-revalidate=30"],
@@ -343,7 +342,7 @@ export async function buildServer() {
     // The dollar price of one unit of the pair, with its source, so the page can print a market
     // cap in dollars and say it is derived, or print a dash and say why. Never a zero.
     const [usd, bag] = await Promise.all([pairUsdQuote(rows[0].pair_token), tokenBag(rows[0])]);
-    // `pot`, `penalties`, `paid_to_holders` and `boosted` come from the Bag's tables; `pot` is
+    // `pot`, `opening_tax_bps`, `paid_to_holders` and `boosted` come from the Bag's tables; `pot` is
     // the effective one (a direct launch's splitter when the row carries none).
     return { ...rows[0], holders: Number(holders[0].holders), fees: fees[0], staking: stakes[0], usd, ...bag };
   });

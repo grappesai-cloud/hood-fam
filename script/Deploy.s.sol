@@ -186,7 +186,7 @@ contract Deploy is Script {
         factory.setPair(USDG, true, 100_000e6);
     }
 
-    /// @dev The 1% platform fee on every curve trade: 70 bps into the Bag (protocol), 30 bps down
+    /// @dev The 1% platform fee on every curve trade: 30 bps into the Bag (protocol), 70 bps down
     ///      the creator's split. Presets are append-only, so this is the place to change them.
     function _presets() internal {
         HoodFactory factory = HoodFactory(payable(book.factory));

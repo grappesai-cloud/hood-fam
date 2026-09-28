@@ -10,8 +10,8 @@ export const SYSTEM = new Set(
   [
     process.env.HOOD_FACTORY, process.env.HOOD_STAKING, process.env.HOOD_FEE_ROUTER,
     process.env.HOOD_GRADUATOR, process.env.HOOD_PORTAL, process.env.HOOD_BUYBACK_MODULE,
-    // The Bag and its outlets: the burn clock buys the house coin, Payday and the pots pay wallets,
-    // the auction takes bids. None of them is a person.
+    // The Bag and its outlets: the burn clock buys the house coin, Payday and the pots pay wallets.
+    // The opening auction is v3's, still holding bids for old launches. None of them is a person.
     process.env.HOOD_BAG, process.env.HOOD_PAYDAY, process.env.HOOD_BURN_CLOCK, process.env.HOOD_BOOSTS,
     process.env.HOOD_GRADUATION_HOOK, process.env.HOOD_OPENING_AUCTION,
     // The block-zero periphery buys for team wallets inside a launch; the wallets are people, it is not.

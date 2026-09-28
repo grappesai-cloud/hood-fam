@@ -3,6 +3,9 @@
 Five moving parts. Three of them are on chain and cannot be changed after a launch; two of them run
 on a server and can be replaced at any time without anybody's money noticing.
 
+This describes the v4 contracts, deployed on Robinhood Chain on 29 September 2026. Launches printed
+on the v3 contracts before that day keep running on them, under the rules they were launched with.
+
 ```
         creator                     trader                      agent
            │                          │                           │
@@ -17,15 +20,18 @@ on a server and can be replaced at any time without anybody's money noticing.
                ▲                                │
                └──────────── logs ──────────────┘
                                                 │
-   HoodFactory ─ deploys ─► HoodToken + HoodCurve ─ graduates ─► UniswapV4Graduator ─► v4 pool
-        │                          │                                     │
-        │                          └── fees ──► HoodFeeRouter ──► split across four roads
-        │                                                │
-        └── registry, presets, copycat lock              ├─► HoodStaking (lock, 1x to 2.5x)
-                                                         ├─► buy back and burn
+   HoodFactory ─ deploys ─► HoodToken + HoodCurve + HoodPot ─ graduates ─► UniswapV4Graduator ─► v4 pool
+        │                          │                                              (HoodGraduationHook)
+        │                          ├── 70 bps ──► HoodFeeRouter ──► split across four roads
+        │                          │                                 ├─► HoodStaking (lock, 1x to 2.5x)
+        │                          │                                 ├─► buy back and burn
+        │                          │                                 ├─► deepen the liquidity
+        │                          │                                 └─► pay the creator
+        │                          └── 30 bps ──► HoodBag ──► Vault · Payday · house
+        │                                           └── graduation fee ──► dev · HoodBurnClock
+        └── registry, presets, copycat lock
+
    HoodBridgeFactory ─► HoodOFTAdapter (lock box) ─► LayerZero ─► other chains
-                                                         ├─► deepen the liquidity
-                                                         └─► pay the creator
 ```
 
 ## The chain half
@@ -33,7 +39,9 @@ on a server and can be replaced at any time without anybody's money noticing.
 **HoodFactory** prints a token and opens its curve in one transaction. It holds the presets
 (append only, never edited), the registry, and the copycat lock. It can also spend the creator's
 own money on the first buy inside the same transaction, so a launch cannot be sniped in the gap
-between the token appearing and the creator buying.
+between the token appearing and the creator buying. It also prints the launch's pot and writes
+the list of wallets that pay no opening tax (`LaunchParams.exempt`, at most 32, plus the launcher
+and the creator fee recipient).
 
 **A creator can lock their own first buy.** `LaunchParams.firstBuyLock` is a duration in seconds
 and must be one of `HoodTokenLock`'s lengths (7, 30, 90 or 180 days) or the launch reverts, so an
@@ -44,10 +52,11 @@ coin's job; this lock exists to say one thing, which is that the one parcel nobo
 bought yet cannot be sold into the people who buy next. Only the creator can take it out, and only
 once the time has passed. A lock with no first buy behind it reverts rather than doing nothing.
 
-**HoodDeployer** holds the bytecode of the token and of the curve and nothing else. It exists
-because a factory that inlines `new Token()` and `new Curve()` carries both creation codes in its
-own runtime code: ours came out 27,037 bytes against a 24,576 limit, so it could not be deployed at
-all. Measured with `forge build --sizes`, and there is a test that keeps it measured.
+**HoodDeployer** holds the bytecode of the token and the curve, and a child (`HoodPotDeployer`)
+that holds the pot's, and nothing else. It exists because a factory that inlines `new Token()` and
+`new Curve()` carries both creation codes in its own runtime code: ours came out 27,037 bytes
+against a 24,576 limit, so it could not be deployed at all. The pot sits one hop further for the
+same reason. Measured with `forge build --sizes`, and there is a test that keeps it measured.
 
 **HoodToken** is fixed supply, has no owner and has no mint function. That is not an omission. A
 bridge that can mint is a supply backdoor, so the token travels through a lock box instead.
@@ -56,8 +65,19 @@ bridge that can mint is a supply backdoor, so the token travels through a lock b
 the graduation cap. Every parameter is an immutable set at launch: no owner, no pause, no setter,
 and no path to the reserve other than selling back into the curve or graduating into the pool.
 When the curve sells out it stops trading and anyone may call `finalize`, which hands the pool
-supply and the raise to the graduation handler. Graduation is deliberately a separate call: a pool
-deployment that reverts must never be able to hold the last buy of a curve hostage.
+supply and the raise to the graduation handler and pays the graduation fee into the Bag.
+Graduation is deliberately a separate call: a pool deployment that reverts must never be able to
+hold the last buy of a curve hostage. Of the 1% fee, the creator's 70 bps go to the fee router on
+every trade, and the protocol's 30 bps are booked in the curve and pulled into the Bag by the
+permissionless `claimProtocol`, so a Bag that cannot take a transfer never stops a trade.
+
+**The opening tax.** Every curve opens on the one schedule every launch runs
+(`SnipeSchedule`): 99% of a buy in the launch's own second, 6.18% in the next, 0.19% in the one
+after, then nothing. Buys only. It is trading fee, split between the protocol and the creator the
+way the fee is. The exemption is keyed on the wallet that receives the tokens, and every buy made
+inside the launch transaction, by the factory or by the account that called it, is free: the
+curve's constructor marks a transient storage slot that lives exactly as long as the launch
+transaction.
 
 **UniswapV4Graduator** opens the pool, keeps the position forever and hands its fees back to the
 fee split. It has no owner, no transfer and no way to decrease liquidity. The lock is the absence
@@ -66,37 +86,83 @@ is heading for, because anybody can open a v4 pool for any pair at any price and
 one transaction could otherwise brick or drain every launch on the platform. Opening it is not the
 whole defence, because an open pool with no liquidity in it still has a price anybody can walk
 anywhere for the cost of gas: at graduation the handler pins the price back to the ratio the raise
-actually came out at, so the position is minted where the money says it belongs.
+actually came out at, so the position is minted where the money says it belongs. Every pool it
+opens names **HoodGraduationHook**, one hook for all of them, which takes the 1% fee on every swap
+(70 bps to the fee router, 30 into the Bag) and nothing else.
 
 **HoodFeeRouter** books the creator leg of every trading fee and spends it across the four
 destinations the creator chose at launch. It has no owner and no withdrawal. Flushing is
 permissionless.
 
-**HoodStaking** is one vault holding one coin: the pad's own, named once by the owner through
-`setHouseToken` and never changeable. The `stakersBps` leg of every launch pays into it, so holding
-the house coin is a claim on the whole board rather than on a single token, and no launch can build
-a staking economy of its own. Lock length sets the weight, from 1x flexible to 2.5x for half a
-year. `stakeFor` locks the coin in somebody else's name: they earn from minute one and cannot sell
-before the lock ends. `claim` is permissionless and always pays the position's owner, so a keeper
-can push everybody's rewards and, when the keeper dies, anybody else can.
+**HoodStaking** is the Vault: one vault holding one coin, the pad's own, named once by the owner
+through `setHouseToken` and never changeable. The `stakersBps` leg of every launch pays into it, and
+so do the Bag's Vault legs, so holding the house coin is a claim on the whole board rather than on
+a single token, and no launch can build a staking economy of its own. Lock length sets the weight,
+from 1x flexible to 2.5x for half a year. `stakeFor` locks the coin in somebody else's name: they
+earn from minute one and cannot sell before the lock ends. `claim` is permissionless and always pays
+the position's owner, so a keeper can push everybody's rewards and, when the keeper dies, anybody
+else can.
 
 Because launches pair against different assets, the vault keeps an accumulator per asset and every
 position carries a debt per asset, fixed when it opens so it can never reach back into what was
 paid before it existed. The asset list is capped, and only a pair the owner allowed can reach it.
 
-**HoodTokenLock** holds creators' first buys and nothing else: no owner, no rewards, no rescue, no
-way to shorten a lock. It is a separate contract precisely because the vault stopped accepting
-launched tokens.
+**HoodTokenLock** holds creators' first buys and team legs and nothing else: no owner, no rewards,
+no rescue, no way to shorten a lock. It is a separate contract precisely because the vault stopped
+accepting launched tokens.
+
+**HoodBlockZero** is a periphery over the factory for a team launch: the token is printed and every
+team wallet buys in the same transaction, before anyone else can trade, and each leg is written on
+chain. The factory sees it as the caller, so its buys inside the launch transaction pay no opening
+tax; it adds the real launcher to the exempt list when the fee recipient is somebody else.
 
 **HoodBridgeFactory** deploys the one lock box per token and owns it, so routes are opened through
 one contract with one owner instead of a loose key per token.
 
+## The Bag
+
+**HoodBag** receives the protocol's share of every fee, from both machines and from every
+graduated pool, and splits it by constants nobody can edit. It has no owner and no withdrawal
+function; its outlets (the house, which is the treasury Safe, the Vault, Payday and the burn clock)
+are immutables.
+
+| money in | where it goes |
+|---|---|
+| the Bag's 30 bps of a trade | 3,333 bps to the Vault, 3,333 to Payday, the rest to the house; all of it to the Vault when the house coin itself trades |
+| the graduation fee, a tenth of the raise | 2,300 bps to the dev (the launch's creator fee recipient, read from the factory at `finalize`), the rest to the burn clock; all of it to the burn clock when there is no dev |
+| a boost | all of it to Payday, for the hour the boost runs |
+| a launch fee | all of it to the house |
+| the house coin's creator leg | half to the Vault, half to the house |
+
+Nothing here may stop a trade. The house and the dev are pushed with a gas cap, and a refused push
+is booked (`houseClaimable`, `devClaimable`) for anyone to send again. The Vault's share waits in
+the Bag (`heldForVault`) until the house coin exists, then anyone can release it.
+
+**HoodPayday** is the hourly distributor. The Bag funds the current hour; once the hour has closed,
+the keeper pays it to the hour's wallets by points and sends up to a tenth into the pots of the ten
+newest launches. The keeper chooses who is paid, never how much in total.
+
+**HoodBurnClock** takes the burn share of every graduation fee. Once the owner names the house
+coin and its pool, the pool's other currency becomes the clock's spend asset (ETH on mainnet), and
+once an hour the keeper spends it on the coin, moving the price at most 296 ticks, and burns what it
+bought. Any other asset funded to it, the burn share of a USDG or tokenised-share graduation for
+example, accumulates and stays: the clock has no owner and no withdrawal.
+
+**HoodBoosts** sells four board slots an hour, 0.005 ETH each by default, and the whole price goes
+through the Bag to that hour's Payday.
+
+**HoodPot** is a curve launch's pot: a per-share accumulator that pays the token's holders in the
+quote. The token reports every balance move to it; the machine's own addresses are excluded. It is
+filled by Payday's launch slice and by anyone who deposits for the holders. A direct launch's
+splitter plays the same part.
+
 ## Where the money goes
 
-On every trade the curve splits the fee in two: the protocol leg goes to the treasury, the creator
-leg goes to the fee router. The router holds it until somebody flushes, and the flush spends it
-across four legs the creator fixed at launch. They are bps and they add up to 10,000, so one launch
-can pay its stakers, buy itself back, deepen its pool and keep a slice, all at once:
+On every curve trade the curve splits the 1% fee in two: the protocol's 30 bps are booked for the
+Bag, the creator's 70 bps go to the fee router. The router holds them until somebody flushes, and
+the flush spends them across four legs the creator fixed at launch. They are bps and they add up to
+10,000, so one launch can pay its stakers, buy itself back, deepen its pool and keep a slice, all
+at once:
 
 | leg | before graduation | after graduation |
 |---|---|---|
@@ -114,8 +180,9 @@ fee is belongs to the preset, so a launch that wants traders to pay the protocol
 picks a preset whose `creatorFeeBps` is zero, and then nothing is ever booked to split.
 
 At graduation the pool gets `liquidityBps` of the raise (at least 80%, enforced when a preset is
-created) plus every donation; the remainder is the protocol's graduation fee. The position is locked
-forever, and its trading fees are collected by anyone and routed straight back into the split above.
+created; 90% on every preset today) plus every donation; the remainder is the graduation fee, which
+goes into the Bag in the same call. The position is locked forever, and its trading fees are
+collected by anyone and routed straight back into the split above.
 
 ## The direct machine
 
@@ -126,62 +193,67 @@ it is already locked, and there is no moment where a contract holds the raise an
 to hand it over.
 
 ```
-HoodPortal ─ one transaction ─┬─► HoodLaunchToken (EIP-1167 clone, opening window in _update)
-                              ├─► HoodRevenueSplitter (10% protocol, 90% across four roads)
-                              ├─► HoodLaunchHook (mined address, taxes both sides in the quote)
+HoodPortal ─ one transaction ─┬─► HoodLaunchToken (EIP-1167 clone, creator slash and dividend sync in _update)
+                              ├─► HoodRevenueSplitter (the creator's tax and 70 bps, across four roads; the pot)
+                              ├─► HoodLaunchHook (mined address, taxes both sides in the quote, 30 bps to the Bag)
                               ├─► v4 pool, initialized at tickStart, hook attached
                               ├─► the whole supply as one position [tickStart → tickBond]
                               └─► HoodLocker (holds the position, cannot let go)
 ```
 
 **The tax.** Fixed per side at launch, between 1% and 10%, always taken in the quote asset so the
-splitter downstream only ever handles one currency. When the quote is the specified side of the
-swap (an exact-input buy, an exact-output sell) it is taken in `beforeSwap`; when the quote is the
-unspecified side (an exact-input sell, an exact-output buy) it is taken in `afterSwap`. All four
-shapes pay, and the hook refuses to serve any pool but the one the portal opened for it.
+splitter downstream only ever handles one currency. On top of it the hook takes the 1% platform
+fee: 70 bps ride with the creator's tax to the splitter, 30 bps go to the Bag. When the quote is the
+specified side of the swap (an exact-input buy, an exact-output sell) it is taken in `beforeSwap`;
+when the quote is the unspecified side (an exact-input sell, an exact-output buy) it is taken in
+`afterSwap`. All four shapes pay, and the hook refuses to serve any pool but the one the portal
+opened for it. The buyback module's own buys are the launch's money coming back and pay the
+creator's tax only.
 
-**The opening surcharge.** An extra rate at the open, decaying quadratically to nothing over a few
-seconds, capped so launch tax plus surcharge never exceeds 99%. A bot in the first block pays most
-of its edge to the people it is racing. The launch's own transaction is exempt.
-
-**The opening window**, from Pons: the launch block belongs to the creator, and for a configurable
-number of blocks after it no wallet may end up holding more than `maxHoldBps` of supply or buy more
-than `maxBuyBps` of it out of the pool. The hold cap applies to plain transfers too, or a bot would
-buy from ten wallets and consolidate; selling is never restricted, every limit expires by itself,
-and setting the window to zero blocks disables all of it including the launch block rule. It lives
-in the token's `_update`, which is the only place that sees every movement.
+**The opening tax.** The same schedule as the curve: 99% of a buy in the launch's own second,
+6.18% in the next, 0.19% in the one after, then nothing, split 70 to the creator's side and 30 to
+the Bag. The hook caps the creator's tax, the fee and the opening tax together at 99%. A hook only
+sees the router as its caller, so the exemption is keyed on `tx.origin`: the launcher, the creator
+fee recipient and up to 32 wallets named in `DirectConfig.exempt`. The portal's own buys inside the
+launch transaction pay none of it. A bot in the first second pays nearly all of its edge to the
+people it is racing.
 
 **The latch.** When the price first crosses `tickBond` the launch is bonded, and that never unsets.
 It is a status, not an event that moves money, because there is nothing left to move.
 
-**The four roads.** Every unit of tax lands in the splitter, which books a tenth for the protocol
-(hard coded, not a setter; pulled by `claimProtocol`, never pushed, so no treasury can freeze a
-holder) and splits the rest between four destinations the creator fixed at launch: their own
-claimable balance, a buyback pot, a dividend accumulator for holders, and the locked liquidity.
-Nothing has to call in to announce money: `sweep` looks at what the contract holds, subtracts what
-is already spoken for, and splits the difference, so a swap tax, a fee harvest and a stranger's
-donation all behave identically. The buyback road is spent by a shared module that may move the
-price by about three percent per run, once per block, and carries the rest, which is what makes
-running it permissionless. The liquidity road is pushed into the locked position by a donation, and
-that only goes out while the locked position is the only liquidity in range, because v4 pays a
-donation to whoever is standing there.
+**The four roads.** Every unit of the creator's tax and fee lands in the splitter, which splits it
+between four destinations the creator fixed at launch: their own claimable balance, a buyback pot,
+a dividend accumulator for holders, and the locked liquidity. There is no protocol cut here
+(`PROTOCOL_BPS` is zero): the platform's share is the 30 bps the hook sends to the Bag. Nothing has
+to call in to announce money: `sweep` looks at what the contract holds, subtracts what is already
+spoken for, and splits the difference, so a swap tax, a fee harvest and a stranger's donation all
+behave identically. The buyback road is spent by a shared module that may move the price by about
+three percent per run, once per block, and carries the rest, which is what makes running it
+permissionless. The liquidity road is pushed into the locked position by a donation, and that only
+goes out while the locked position is the only liquidity in range, because v4 pays a donation to
+whoever is standing there.
 
 **Dividends** are pull based, on a per-share accumulator. The token tells the splitter when a
 balance moves; the pool, the locker, the hook and the splitter itself hold no share. Claiming is
-permissionless and always pays the holder.
+permissionless and always pays the holder. The splitter is also the launch's pot, so Payday's slice
+for the newest launches lands in the same accumulator.
+
+**The creator slash.** A transfer from the creator, or from whoever currently receives the
+creator's fees, into the pool is a sell, and the token moves everything they had not claimed to the
+holders before the transfer goes through. The call cannot revert the transfer.
 
 **How the tax physically leaves.** A tax on the quote as a trade's *input* is owed before that
 input has been settled, so it cannot be transferred out in the same breath: the hook mints it to
-itself as an ERC-6909 claim and flushes it to the splitter at the next swap, or when anyone calls
-`flushClaims`. A tax on the quote as a trade's *output* is a slice of what the pool is paying out,
-which exists, so it is taken directly. This was measured, not designed: the naive `take` in
-`beforeSwap` works for ETH only because the PoolManager pools every pool's ETH, and reverts the
-moment the quote is an ERC-20 no other pool happens to hold.
+itself as an ERC-6909 claim and flushes it to the splitter and the Bag at the next swap, or when
+anyone calls `flushClaims`. A tax on the quote as a trade's *output* is a slice of what the pool is
+paying out, which exists, so it is taken directly. This was measured, not designed: the naive
+`take` in `beforeSwap` works for ETH only because the PoolManager pools every pool's ETH, and
+reverts the moment the quote is an ERC-20 no other pool happens to hold.
 
 **The creator's first buy** happens inside the launch transaction when they ask for one, swapped
-straight against the PoolManager so the hook sees the portal (exempt from the surcharge) and the
-token sees the creator (whom the launch block belongs to). The window's buy cap applies to it all
-the same: first dibs, not the whole open. A first buy the cap cannot allow reverts the launch.
+straight against the PoolManager so the hook sees the portal as the caller, and the portal is never
+charged the opening tax. `createTeamLaunch` does the same for a declared list of team wallets, each
+leg handed to its wallet or locked in its name.
 
 **The hook's address is mined.** Uniswap v4 keeps a hook's permissions in the low fourteen bits of
 its address, so the salt is searched for until the CREATE2 address lands on them: about sixteen
@@ -205,19 +277,20 @@ batching, so the naive loop fails on all three counts. It starts at the deployme
 before it.
 
 It keeps: launches, trades, balances (from Transfer, so holder counts are exact), stakes, fee
-events, and points. Volume is priced in dollars through the Chainlink ETH/USD feed on 4663, with
-the last good answer cached and `HOOD_ETH_USD` as a floor, because a feed that hiccups for a minute
-must not quietly price a day of trading at zero.
+events, the Bag's tape, pots, Payday, boosts, every opening tax paid, and points. Volume is priced
+in dollars through the Chainlink ETH/USD feed on 4663, with the last good answer cached and
+`HOOD_ETH_USD` as a floor, because a feed that hiccups for a minute must not quietly price a day of
+trading at zero.
 
-**Points** follow the rules in `apps/api/src/points.ts`: 500 for printing a token, 2 per dollar
-bought, 1 per dollar sold, and 10 per dollar locked for every 30 days it stays locked times the lock
-multiplier, all multiplied by the trader's rank. Locking is the one that pays for time rather than
-for an event, credited by `stake-accrual.ts` on the indexer's loop and settled when a position
-closes, because paying at the moment of locking was farmable: the flexible tier unlocks in the block
-it locks. Rank comes from rolling 30 day volume, Wood 1.5x to Degen 5x, so it is re-earned
-rather than kept. Our own contracts trade too (the factory buys for a creator, the router buys on a
-buyback) and they are excluded by address: a buy is credited to whoever ends up holding the tokens,
-a sell to whoever gave them up.
+**Points** follow the rules in `apps/api/src/points.ts`: 500 for printing a token, once it has done
+1,000 dollars of volume, 2 per dollar bought, 1 per dollar sold, and 10 per dollar locked for every
+30 days it stays locked times the lock multiplier, all multiplied by the trader's rank. Locking is
+the one that pays for time rather than for an event, credited by `stake-accrual.ts` on the
+indexer's loop and settled when a position closes, because paying at the moment of locking was
+farmable: the flexible tier unlocks in the block it locks. Rank comes from rolling 30 day volume,
+Wood 1.5x to Degen 5x, so it is re-earned rather than kept. Our own contracts trade too (the factory
+buys for a creator, the router buys on a buyback) and they are excluded by address: a buy is
+credited to whoever ends up holding the tokens, a sell to whoever gave them up.
 
 **apps/web** is the app. Every list, chart and holder count comes from our own indexer; every quote
 and every write goes straight to the chain from the user's wallet. The chart draws market cap, not
@@ -226,8 +299,9 @@ price per token, because a token priced at 0.0000000053 ETH is a chart of zeroes
 Selling on a pool goes through the UniversalRouter, and the router never pulls an ERC-20 itself:
 it asks Permit2 to. So the first sell of a token is three signatures, once each: approve the token
 to Permit2, tell Permit2 the router may spend it, then the swap. A graduated curve token trades its
-pool through the same box, with no hook and no tax. After any receipt lands the page refetches
-everything at once rather than waiting for a poll, and polling continues in background tabs.
+pool through the same box, through the graduation hook, paying the 1% fee and nothing else. After
+any receipt lands the page refetches everything at once rather than waiting for a poll, and polling
+continues in background tabs.
 
 **Support** lives in the same API process (`apps/api/src/support.ts`). The help button in the app
 talks to an assistant that reads the public documents in this repository, plus five tools: look a
@@ -237,9 +311,13 @@ model never holds a key, and the ticket path works with the assistant switched o
 never down because a third party is. Tickets land in Postgres; `docs/SUPPORT.md` is the FAQ the
 assistant answers from, and it is written to be read by people too.
 
-**apps/keeper** does only what is permissionless anyway: opening a pool for a curve that sold out,
-pushing booked fees, collecting what a locked position earned. If it dies, anybody can do its work
-from a wallet. It just would not be instant.
+**apps/keeper** runs four loops on one wallet: `tick` (opening a pool for a curve that sold out,
+pulling the protocol's legs into the Bag, flushing booked fees, collecting what a locked position
+earned, sweeping and buying back on direct launches), `push` (pushing every pot's payouts to its
+holders), `payday` (paying the closed hour) and `burn` (the hourly burn). Most of it is
+permissionless, and if the keeper dies anybody can do it from a wallet; it just would not be
+instant. Payday, the burn and curve-fee buybacks need the wallet to be appointed by the factory
+owner; without it they wait, and the owner can run them itself.
 
 **packages/sdk** is the one place that knows the ABIs, the addresses and the call shapes. The app,
 the MCP server and the keeper all sit on it, so they cannot drift apart. ABIs are generated from the
@@ -274,11 +352,13 @@ the user a hosted Relay link, which is the honest fallback rather than a broken 
 
 | thing | who can change it |
 |---|---|
-| a live token's curve, fees, supply, fee split | nobody, ever |
+| a live token's curve, fees, supply, fee split, opening tax exemptions | nobody, ever |
+| the Bag's splits and outlets | nobody, ever; the Bag has no owner |
 | a locked first buy | nobody; the locker releases it to the creator when the time is over |
-| a direct launch's taxes, allocations, ticks, window | nobody, ever |
+| a direct launch's taxes, allocations, ticks, opening tax exemptions | nobody, ever |
 | graduated liquidity | nobody; there is no withdrawal function |
 | a launch's fee recipient | only the current recipient, in one step |
 | presets, launch fee, pair allow list, graduation handler for NEW launches | the factory owner |
+| boost price (up to 0.05 ETH), the keeper, the house coin (once) | the factory owner |
 | which chains a token may travel to | the bridge factory owner |
 | the indexer, the API, the app, the keeper | anybody with the server, and none of it can move money |

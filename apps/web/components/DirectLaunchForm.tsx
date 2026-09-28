@@ -9,10 +9,10 @@ import { directTicks, hoodPortalAbi, hoodDirectDeployerAbi, mineFreeHookSalt, pr
 import { directAddresses } from "@/lib/config";
 import { api, type PairRow } from "@/lib/api";
 import { pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
-import { detectPortalGeneration, portalTakesExempt, portalTakesTeam, encodeAuctionBlocks, encodePenalties, penaltiesInUse, penaltyProblem, penaltyReviewRows, portalAbis, PENALTY_FORM_DEFAULTS, type PenaltyForm } from "@/lib/launchAbi";
+import { detectPortalGeneration, portalTakesExempt, portalTakesTeam, portalAbis } from "@/lib/launchAbi";
 import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
-import { DEFAULT_SNIPE_PCT, Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, PenaltyOptions, Slider, Step, WhatHappens, WizardNav, WizardProgress } from "@/components/LaunchUI";
+import { Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, Slider, Step, WhatHappens, WizardNav, WizardProgress } from "@/components/LaunchUI";
 import { DirectSim } from "@/components/Sim";
 import { exemptAddresses, exemptProblem, OPENING_TAX_SUMMARY, OpeningTax, openingReviewRows, parseExempt } from "@/components/OpeningTax";
 import { EMPTY_LEG, legsProblem, TeamLegsEditor, units, type LegForm } from "@/components/TeamLegsEditor";
@@ -20,18 +20,13 @@ import { brand } from "@/brands";
 
 const SUPPLY = 1_000_000_000;
 const SPACING = 200;
-/// The hook refuses a buy or sell tax that, with the snipe surcharge on top, would take more than
-/// 99% of a trade. The snipe slider's ceiling is whatever that leaves.
-const MAX_COMBINED_PCT = 99;
 function safeUnits(value: string, decimals: number) {
   try { return parseUnits(value || "0", decimals); } catch { return 0n; }
 }
-const STEPS = ["Token", "Market", "Economics", "Penalties", "Review"] as const;
-/// From the v4 portal on the fourth step is the opening tax: there are no creator penalties.
-const STEPS_V4 = ["Token", "Market", "Economics", "Opening", "Review"] as const;
+/// The fourth step is the opening tax: the same schedule on every launch, and the creator only names
+/// who skips it. A fee preset sets what a trade costs, which is the same from the first trade.
+const STEPS = ["Token", "Market", "Economics", "Opening", "Review"] as const;
 const REVIEW = STEPS.length - 1;
-/// The opening surcharge is no longer part of a fee preset: it has a card of its own on the
-/// penalties step, on by default, and a preset here only sets what a trade costs after the open.
 const FEE_PRESETS = [
   { id: "low", title: "Low tax", detail: "1% buy · 1% sell", values: { buyTax: 1, sellTax: 1 } },
   { id: "standard", title: "Standard", detail: "5% buy · 5% sell", values: { buyTax: 5, sellTax: 5 } },
@@ -43,15 +38,10 @@ const SPLIT_PRESETS = [
   { id: "holders", title: "Reward holders", detail: "65% to eligible holders", values: { creatorBps: 10, buybackBps: 15, dividendsBps: 65, liquidityBps: 10 } },
   { id: "burn", title: "Buy back the token", detail: "60% to buyback & burn", values: { creatorBps: 10, buybackBps: 60, dividendsBps: 20, liquidityBps: 10 } },
 ] as const;
-const OPENING_PRESETS = [
-  { id: "open", title: "Open from block one", detail: "No temporary wallet limits", values: { restrictionBlocks: 0, maxHold: 20, maxBuy: 20 } },
-  { id: "guarded", title: "Short guardrail", detail: "For 30 blocks: 5% per wallet, 5.5% per buy", values: { restrictionBlocks: 30, maxHold: 5, maxBuy: 5.5 } },
-] as const;
 
-// Three generations of portal are live or pending: one from before creatorFeeRecipient existed, the
-// current one, and the Bag release that appends penalties and the auction to the config. Which one
-// the deployed bytecode answers to decides the struct this form sends (lib/launchAbi.ts), so
-// publishing the web app never bricks launch while an on-chain upgrade is pending.
+// The deployed portal's generation is read off its bytecode (lib/launchAbi.ts). This form writes the
+// DirectConfig with the opening tax's `exempt` list and nothing older: a build pointed at an earlier
+// portal says so instead of launching on rules the page no longer describes.
 
 /// The other machine. A creator here is not choosing a curve, they are choosing a price to open at,
 /// a price to bond at, what the trade costs, and who that cost pays.
@@ -72,23 +62,13 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     twitter: "", telegram: "", discord: "", website: "", farcaster: "",
     quote: zeroAddress as Address,
     openFdv: "10", bondFdv: "100",
-    // The snipe tax is on by default: with the 1% buy tax it makes 99% at the open, which is the
-    // hook's ceiling, gone after three seconds.
-    buyTax: 1, sellTax: 1, snipeTax: DEFAULT_SNIPE_PCT, snipeSeconds: 3,
-    restrictionBlocks: 0, maxHold: 20, maxBuy: 20,
+    buyTax: 1, sellTax: 1,
     creatorBps: 25, buybackBps: 25, dividendsBps: 40, liquidityBps: 10,
     feeRecipient: "",
     firstBuy: "",
   });
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
-  const [penalties, setPenalties] = useState<PenaltyForm>(PENALTY_FORM_DEFAULTS);
-  /// A change to the trade tax may leave the snipe surcharge over the hook's ceiling; the
-  /// surcharge gives way, because the tax is what the creator just chose.
-  const setTaxes = (values: { buyTax: number; sellTax: number }) => setForm((current) => {
-    const room = MAX_COMBINED_PCT - Math.max(values.buyTax, values.sellTax);
-    return { ...current, ...values, snipeTax: Math.min(current.snipeTax, room) };
-  });
-  const snipeMaxPct = MAX_COMBINED_PCT - Math.max(form.buyTax, form.sellTax);
+  const setTaxes = (values: { buyTax: number; sellTax: number }) => setForm((current) => ({ ...current, ...values }));
 
   const { data: launchFee } = useReadContract({
     address: directAddresses.portal, abi: hoodPortalAbi, functionName: "launchFee",
@@ -115,8 +95,6 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const [teamOn, setTeamOn] = useState(false);
   const [teamLegs, setTeamLegs] = useState<LegForm[]>([{ ...EMPTY_LEG }]);
   const [teamGas, setTeamGas] = useState("0.0005");
-  const supportsFeeRecipient = generation === "v2" || generation === "v3" || generation === "v4";
-  const supportsPenalties = generation === "v3";
   /// The v4 portal: the one opening-tax schedule on every launch, no wallet caps, no creator
   /// snipe settings, and a list of wallets that do not pay it.
   const supportsExempt = portalTakesExempt(generation);
@@ -171,20 +149,14 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   const allocationSum = form.creatorBps + form.buybackBps + form.dividendsBps + form.liquidityBps;
   const feePreset = FEE_PRESETS.find((preset) => Object.entries(preset.values).every(([key, value]) => form[key as keyof typeof form] === value))?.id;
   const splitPreset = SPLIT_PRESETS.find((preset) => Object.entries(preset.values).every(([key, value]) => form[key as keyof typeof form] === value))?.id;
-  const openingPreset = OPENING_PRESETS.find((preset) => Object.entries(preset.values).every(([key, value]) => form[key as keyof typeof form] === value))?.id;
-  const taxValid = supportsExempt ? form.buyTax <= 10 && form.sellTax <= 10 : form.buyTax + form.snipeTax <= MAX_COMBINED_PCT && form.sellTax + form.snipeTax <= MAX_COMBINED_PCT && (form.snipeTax === 0 || form.snipeSeconds > 0);
-  const snipeError = !taxValid ? `Buy tax plus the opening surcharge cannot pass ${MAX_COMBINED_PCT}%, and a surcharge needs a duration.` : undefined;
-  const windowValid = supportsExempt || form.restrictionBlocks === 0 || (form.maxBuy <= form.maxHold * 1.1 && form.maxHold > 0 && form.maxBuy > 0);
+  const taxValid = form.buyTax <= 10 && form.sellTax <= 10;
   const firstBuyValid = !form.firstBuy || /^\d+(?:\.\d*)?$/.test(form.firstBuy)
     && (!form.firstBuy.includes(".") || (form.firstBuy.split(".")[1]?.length ?? 0) <= quoteDec);
-  const penaltyError = supportsExempt ? exemptProblem(exemptList) : penaltyProblem(penalties);
-  // A creator who turned a penalty on is owed that penalty. On a portal that cannot take it, the
-  // launch waits rather than silently going out without it.
-  const penaltiesUnsupported = !supportsExempt && penaltiesInUse(penalties) && generation !== undefined && !supportsPenalties;
+  const openingError = exemptProblem(exemptList);
   const teamTotal = teamOn ? teamLegs.reduce((s, l) => s + units(l.amount, quoteDec), 0n) : 0n;
   const teamGasEach = teamOn ? units(teamGas, 18) : 0n;
   const teamError = teamOn ? (!supportsTeam ? "The launch contract on this deployment does not take team wallets yet." : legsProblem(teamLegs, quoteDec)) : undefined;
-  const reviewedTerms = JSON.stringify({ form, penalties, exemptText, launchFee: String(launchFee ?? 0n), generation, teamOn, teamLegs, teamGas });
+  const reviewedTerms = JSON.stringify({ form, exemptText, launchFee: String(launchFee ?? 0n), generation, teamOn, teamLegs, teamGas });
   const reviewed = reviewedFingerprint === reviewedTerms;
 
   useEffect(() => {
@@ -207,16 +179,14 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
       const { salt: hookSalt } = await mineFreeHookSalt(publicClient as never, directAddresses.deployer!, initCodeHash as `0x${string}`, address);
       setMining(false);
 
-      // DirectConfig in the contract's order. The v4 portal takes the taxes, the ticks, the split
-      // and the exempt wallets; the v3 portal reads the opening window and two more fields at the
-      // end, `penalties` (PenaltyConfig) and then `auctionBlocks`; an older one the struct it knows.
+      // DirectConfig in the contract's order: the taxes, the ticks, the split, the exempt wallets.
       const allocations = {
         creatorBps: form.creatorBps * 100,
         buybackBps: form.buybackBps * 100,
         dividendsBps: form.dividendsBps * 100,
         liquidityBps: form.liquidityBps * 100,
       };
-      const v4Config = {
+      const config = {
         buyTaxBps: Math.round(form.buyTax * 100),
         sellTaxBps: Math.round(form.sellTax * 100),
         tickStart: ticks.tickStart,
@@ -224,27 +194,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         allocations,
         exempt: exemptAddresses(exemptText),
       };
-      const baseConfig = {
-        buyTaxBps: Math.round(form.buyTax * 100),
-        sellTaxBps: Math.round(form.sellTax * 100),
-        snipeTaxBps: Math.round(form.snipeTax * 100),
-        snipeDecaySeconds: form.snipeSeconds,
-        restrictionBlocks: form.restrictionBlocks,
-        maxHoldBps: Math.round(form.maxHold * 100),
-        maxBuyBps: Math.round(form.maxBuy * 100),
-        tickStart: ticks.tickStart,
-        tickBond: ticks.tickBond,
-        allocations: {
-          creatorBps: form.creatorBps * 100,
-          buybackBps: form.buybackBps * 100,
-          dividendsBps: form.dividendsBps * 100,
-          liquidityBps: form.liquidityBps * 100,
-        },
-      };
-      const config = supportsExempt ? v4Config : supportsPenalties
-        ? { ...baseConfig, penalties: encodePenalties(penalties), auctionBlocks: encodeAuctionBlocks(penalties) }
-        : baseConfig;
-      const baseParams = {
+      const params = {
         name: form.name,
         symbol: form.symbol,
         logo: form.logo,
@@ -260,10 +210,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         config,
         salt,
         initialBuy: teamOn ? 0n : safeUnits(form.firstBuy, quoteDec),
+        creatorFeeRecipient: form.feeRecipient ? getAddress(form.feeRecipient) : address,
       };
-      const params = supportsFeeRecipient
-        ? { ...baseParams, creatorFeeRecipient: form.feeRecipient ? getAddress(form.feeRecipient) : address }
-        : baseParams;
 
       if (teamOn) {
         if (!isNative) {
@@ -281,7 +229,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           wallet: getAddress(l.wallet.trim()), pairIn: units(l.amount, quoteDec), minTokensOut: 0n, lock: BigInt(l.lock), gas: teamGasEach,
         }));
         const teamValue = ((launchFee as bigint | undefined) ?? 0n) + (isNative ? teamTotal : 0n) + teamGasEach * BigInt(legArgs.length);
-        // Simulated first: a team wallet over the launch's own hold cap reverts, and this says so.
+        // Simulated first, so a leg the portal refuses reads as its reason, not as a failed receipt.
         await publicClient!.simulateContract({
           account: address, address: directAddresses.portal, abi: portalAbis[generation] as never, functionName: "createTeamLaunch",
           args: [params, hookSalt, legArgs] as never, value: teamValue,
@@ -341,36 +289,33 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   // divided four ways by the splitter.
   const buyFee = form.buyTax / 100;
   const feeAmount = (part: number) => `${(buyFee * part / 100).toFixed(4)} ${quoteSym}`;
-  const recipient = supportsFeeRecipient ? (form.feeRecipient || address || "your connected wallet") : (address || "your connected wallet");
-  const penaltiesOn = penaltyReviewRows(penalties).filter((r) => r.label !== "Creator penalties").length + (form.snipeTax > 0 ? 1 : 0);
+  const recipient = form.feeRecipient || address || "your connected wallet";
 
   // One reason at a time, in the order somebody would hit them.
   const blocked = !address ? "Connect a wallet first. It pays the fee and becomes the creator."
     : !form.name ? "Enter a token name."
     : !form.symbol ? "Enter a ticker."
     : !priceDone ? "The bonding valuation must be above the opening one."
-    : !taxValid ? "Check the opening surcharge and trading taxes."
+    : !taxValid ? "Each trade tax is at most 10%."
     : !splitDone ? `The four fee shares add up to ${allocationSum}%; they must total 100%.`
-    : !windowValid ? "A single-buy cap cannot exceed 110% of the wallet holding cap."
     : !firstBuyValid ? `Enter a valid first-buy amount with at most ${quoteDec} decimal places.`
-    : supportsFeeRecipient && form.creatorBps > 0 && form.feeRecipient !== "" && !isAddress(form.feeRecipient) ? "Enter a valid creator-fee address."
-    : penaltyError ? penaltyError
+    : form.creatorBps > 0 && form.feeRecipient !== "" && !isAddress(form.feeRecipient) ? "Enter a valid creator-fee address."
+    : openingError ? openingError
     : teamError ? teamError
     : launchFee === undefined ? "Reading the launch fee from chain."
     : !reviewed ? "Review and acknowledge the permanent launch terms."
     : portalGeneration.isLoading ? "Checking the launch contract version."
     : portalGeneration.isSuccess && !generation ? "The launch contract at this address answers to no createLaunch this app knows."
-    : penaltiesUnsupported ? "The live launch contract does not take creator penalties yet. Turn them off to launch on it, or wait for the upgrade."
+    : !supportsExempt ? "This launch contract is an older version than this app launches on."
     : !initCodeHash ? "Still reading the deployer. One moment."
     : undefined;
 
   const nextBlocked = activeStep === 0 ? (!form.name ? "Enter a token name." : !form.symbol ? "Enter a ticker." : undefined)
-    : activeStep === 1 ? (!priceDone ? "Bonding valuation must be above opening valuation." : !windowValid ? "Check the opening wallet limits." : !firstBuyValid ? "Enter a valid first-buy amount." : undefined)
+    : activeStep === 1 ? (!priceDone ? "Bonding valuation must be above opening valuation." : !firstBuyValid ? "Enter a valid first-buy amount." : undefined)
     : activeStep === 2 ? (!splitDone ? `Fee shares total ${allocationSum}%; they must total 100%.`
-      : supportsFeeRecipient && form.creatorBps > 0 && form.feeRecipient !== "" && !isAddress(form.feeRecipient) ? "Enter a valid creator-fee address."
+      : form.creatorBps > 0 && form.feeRecipient !== "" && !isAddress(form.feeRecipient) ? "Enter a valid creator-fee address."
       : undefined)
-    : !taxValid ? "Check the opening surcharge against the trade tax."
-    : penaltyError;
+    : openingError;
   const moveTo = (step: number) => {
     setActiveStep(step);
     requestAnimationFrame(() => document.getElementById("launch-flow")?.scrollIntoView({ block: "start", behavior: "auto" }));
@@ -381,7 +326,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
       <div className="launch-guide">
         <div className="launch-form-stack">
           {chooser}
-          <WizardProgress labels={supportsExempt ? STEPS_V4 : STEPS} current={activeStep} />
+          <WizardProgress labels={STEPS} current={activeStep} />
 
           {activeStep === 0 && (
           <Step n={1} title="The token" purpose="Name it and choose how it appears on the board. You cannot edit these details after launch." done={tokenDone}>
@@ -431,29 +376,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               </Field>
             </div>
             <p className="field-note mono">Actual pool prices: {landedFdv(ticks.tickStart).toFixed(landedFdv(ticks.tickStart) < 100 ? 3 : 0)} → {landedFdv(ticks.tickBond).toFixed(landedFdv(ticks.tickBond) < 100 ? 3 : 0)} {quoteSym} after tick rounding.</p>
-            <details className="launch-advanced"><summary>{supportsExempt ? "First buy" : "Opening protection and first buy"} <span>Optional{form.firstBuy ? ` · ${form.firstBuy} ${quoteSym} first buy` : !supportsExempt && form.restrictionBlocks ? ` · ${form.restrictionBlocks} guarded blocks` : ""}</span></summary><div className="launch-advanced-body launch-optionals">
-            {supportsExempt ? (
-              <p className="field-note">No wallet limits: anyone may buy and hold any amount. The first seconds are priced instead, by the opening tax every launch runs ({OPENING_TAX_SUMMARY}).</p>
-            ) : (<>
-            <p className="field-note">Selling is never restricted. Any opening limits expire automatically.</p>
-            <div className="direct-preset-grid direct-preset-grid-two" role="group" aria-label="Opening limit preset">
-              {OPENING_PRESETS.map((preset) => (
-                <button key={preset.id} type="button" className={openingPreset === preset.id ? "direct-preset selected" : "direct-preset"}
-                  aria-pressed={openingPreset === preset.id} onClick={() => setForm((current) => ({ ...current, ...preset.values }))}>
-                  <strong>{preset.title}</strong><span>{preset.detail}</span>
-                </button>
-              ))}
-            </div>
-            <details className="direct-advanced">
-              <summary>Customize opening limits <span>Optional</span></summary>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Slider label={`Limits last ${form.restrictionBlocks} blocks`} hint="0 disables wallet caps." min={0} max={200} step={10} value={form.restrictionBlocks} onChange={(v) => set("restrictionBlocks", v)} />
-                <Slider label={`Wallet holds at most ${form.maxHold}%`} hint="Of supply, while limits last." min={0.5} max={20} step={0.5} value={Math.min(form.maxHold, 20)} onChange={(v) => set("maxHold", v)} />
-                <Slider label={`One buy at most ${form.maxBuy}%`} hint="Cannot exceed 110% of the wallet cap." min={0.5} max={20} step={0.5} value={Math.min(form.maxBuy, 20)} onChange={(v) => set("maxBuy", v)} />
-              </div>
-              {!windowValid && <p className="field-note bad">Lower the single-buy cap to at most 110% of the wallet cap.</p>}
-            </details>
-            </>)}
+            <details className="launch-advanced"><summary>First buy <span>Optional{form.firstBuy ? ` · ${form.firstBuy} ${quoteSym}` : ""}</span></summary><div className="launch-advanced-body launch-optionals">
+            <p className="field-note">No wallet limits: anyone may buy and hold any amount. The first seconds are priced instead, by the opening tax every launch runs ({OPENING_TAX_SUMMARY}).</p>
             {!teamOn && (
               <Field label={`Your first buy in ${quoteSym}`} help="Optional. Bought in the launch transaction, before anyone else can trade.">
                 <input className="input mono" inputMode="decimal" value={form.firstBuy}
@@ -465,7 +389,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               <span>
                 <b>Team wallets in the launch transaction</b>
                 <span className="field-note">{supportsTeam
-                  ? "Declared wallets buy before anyone else, each one published as the team on the token page. Each wallet still meets the hold cap above; a locked wallet's tokens wait in the token lock."
+                  ? "Declared wallets buy before anyone else, each one published as the team on the token page. A locked wallet's tokens wait in the token lock."
                   : "Not available on this launch contract yet."}</span>
               </span>
             </label>
@@ -483,8 +407,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           </>)}
 
           {activeStep === 2 && (<>
-          <Step n={3} title="Your tax, and who gets it" purpose={`The platform takes 1% of every trade: ${supportsExempt ? "0.70% to you, 0.30%" : "0.30% to you, 0.70%"} into the Bag. Your own tax on top is all yours. Set its rate, then split it four ways.`} done={taxValid && splitDone}>
-            <details className="launch-advanced"><summary>Trade tax: {form.buyTax}% buy · {form.sellTax}% sell <span>{supportsExempt ? "Change if needed" : form.snipeTax ? `+${form.snipeTax}% at open` : "Change if needed"}</span></summary><div className="launch-advanced-body launch-optionals">
+          <Step n={3} title="Your tax, and who gets it" purpose="The platform takes 1% of every trade: 0.70% to you, 0.30% into the Bag. Your own tax on top is all yours. Set its rate, then split it four ways." done={taxValid && splitDone}>
+            <details className="launch-advanced"><summary>Trade tax: {form.buyTax}% buy · {form.sellTax}% sell <span>Change if needed</span></summary><div className="launch-advanced-body launch-optionals">
             <div className="direct-preset-grid direct-preset-grid-three" role="group" aria-label="Trading fee preset">
               {FEE_PRESETS.map((preset) => (
                 <button key={preset.id} type="button" className={feePreset === preset.id ? "direct-preset selected" : "direct-preset"}
@@ -495,12 +419,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             </div>
             <div className={taxValid ? "direct-impact" : "direct-impact invalid"} role="status">
               <strong>{taxValid ? `${form.buyTax}% buy · ${form.sellTax}% sell, plus the platform's 1%` : "Check these fee rates"}</strong>
-              <span>{supportsExempt
-                ? `On top, in the launch's first three seconds, the opening tax every launch runs (${OPENING_TAX_SUMMARY}). It is on the next step.`
-                : form.snipeTax > 0
-                ? `At the open a buy pays ${form.buyTax + form.snipeTax}% in tax, falling to ${form.buyTax}% over ${form.snipeSeconds} seconds. The snipe tax lives on the next step.`
-                : "No snipe tax at the open. The same rates apply from the first trade."}</span>
-              {!taxValid && <span>Keep the opening total at or below {MAX_COMBINED_PCT}%, with a duration greater than zero.</span>}
+              <span>{`On top, in the launch's first three seconds, the opening tax every launch runs (${OPENING_TAX_SUMMARY}). It is on the next step.`}</span>
+              {!taxValid && <span>Each trade tax is at most 10%.</span>}
             </div>
             <details className="direct-advanced">
               <summary>Customize fee rates <span>Optional</span></summary>
@@ -508,7 +428,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 <Slider label={`Buy tax ${form.buyTax}%`} hint="1 to 10% on every buy." min={1} max={10} step={0.5} value={form.buyTax} onChange={(v) => setTaxes({ buyTax: v, sellTax: form.sellTax })} />
                 <Slider label={`Sell tax ${form.sellTax}%`} hint="1 to 10% on every sell." min={1} max={10} step={0.5} value={form.sellTax} onChange={(v) => setTaxes({ buyTax: form.buyTax, sellTax: v })} />
               </div>
-              <DirectSim fixed={supportsExempt} buyTax={form.buyTax} sellTax={form.sellTax} snipeTax={form.snipeTax} snipeSeconds={form.snipeSeconds}
+              <DirectSim buyTax={form.buyTax} sellTax={form.sellTax}
                 openFdv={Number(form.openFdv)} bondFdv={Number(form.bondFdv)} quoteSymbol={quoteSym} />
             </details>
             </div></details>
@@ -525,18 +445,18 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
             <p className={splitDone ? "field-note" : "field-note bad"} role="status">
               Creator {form.creatorBps}% · burn {form.buybackBps}% · holders {form.dividendsBps}% · liquidity {form.liquidityBps}%{splitDone ? "" : ` · total ${allocationSum}%, must be 100%`}
             </p>
-            <details className="launch-advanced"><summary>See where a fee goes <span>Optional</span></summary><div className="launch-advanced-body"><LaunchFeeExample title={`If someone buys with 1 ${quoteSym} after opening`} description={`The platform takes 1% of every trade: 0.30% to you, 0.70% into the Bag. Your ${form.buyTax}% buy tax is ${buyFee.toFixed(4)} ${quoteSym} on top, and here is where it goes:`}
+            <details className="launch-advanced"><summary>See where a fee goes <span>Optional</span></summary><div className="launch-advanced-body"><LaunchFeeExample title={`If someone buys with 1 ${quoteSym} after opening`} description={`The platform takes 1% of every trade: 0.70% to you, 0.30% into the Bag. Your ${form.buyTax}% buy tax is ${buyFee.toFixed(4)} ${quoteSym} on top, and here is where it goes:`}
               rows={[
                 { label: "Platform, 1% of the trade", value: `0.0100 ${quoteSym}` },
-                { label: "  of which to you, 0.30%", value: `0.0030 ${quoteSym}` },
-                { label: "  of which into the Bag, 0.70%", value: `0.0070 ${quoteSym}` },
+                { label: "  of which to you, 0.70%", value: `0.0070 ${quoteSym}` },
+                { label: "  of which into the Bag, 0.30%", value: `0.0030 ${quoteSym}` },
                 { label: `Your tax, ${form.buyTax}% of the trade`, value: `${buyFee.toFixed(4)} ${quoteSym}` },
                 { label: "  creator address", value: feeAmount(form.creatorBps) },
                 { label: "  buyback and burn", value: feeAmount(form.buybackBps) },
                 { label: "  holders", value: feeAmount(form.dividendsBps) },
                 { label: "  locked liquidity", value: feeAmount(form.liquidityBps) },
               ]}
-              note="Illustrative amounts before rounding. The snipe tax, a penalty, the pool fee and price movement can also change what a trade pays. A sell uses the sell-tax rate." /></div></details>
+              note="Illustrative amounts before rounding. The opening tax in the first three seconds, the pool fee and price movement can also change what a trade pays. A sell uses the sell-tax rate." /></div></details>
             <details className="direct-advanced">
               <summary>Make a custom split <span>Optional</span></summary>
               <p className="field-note">These four numbers must add up to 100%. They divide your tax, all of it. The platform's 1% is taken before it and is not yours to split.</p>
@@ -550,7 +470,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 {splitDone ? "Total: 100%. Ready to launch." : `Total: ${allocationSum}%. Adjust the shares until they total 100%.`}
               </p>
             </details>
-            {supportsFeeRecipient && form.creatorBps > 0 ? (
+            {form.creatorBps > 0 ? (
               <Field label="Creator fee recipient"
                 error={form.feeRecipient && !isAddress(form.feeRecipient) ? "Paste a valid 0x address." : undefined}
                 help="Optional. The creator share is claimable only by this address. Leave blank to use your connected wallet.">
@@ -562,19 +482,9 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           </Step>
           </>)}
 
-          {activeStep === 3 && supportsExempt && (
-          <Step n={4} title="The opening tax" purpose="The same on every launch: what a buy pays in your token's first three seconds, and who does not pay it." done={!penaltyError}>
+          {activeStep === 3 && (
+          <Step n={4} title="The opening tax" purpose="The same on every launch: what a buy pays in your token's first three seconds, and who does not pay it." done={!openingError}>
             <OpeningTax value={exemptText} onChange={setExemptText} machine="direct" />
-          </Step>
-          )}
-
-          {activeStep === 3 && !supportsExempt && (
-          <Step n={4} title="Penalties" purpose="Who pays extra, how much, and who gets it. Every one of these is fixed at launch and read by buyers on the token page." done={taxValid && !penaltyError}>
-            <PenaltyOptions value={penalties} onChange={setPenalties}
-              snipe={{ pct: form.snipeTax, seconds: form.snipeSeconds, maxPct: snipeMaxPct, error: snipeError,
-                onChange: (pct, seconds) => setForm((current) => ({ ...current, snipeTax: pct, snipeSeconds: seconds })) }} />
-            {penaltyError && <p className="field-note bad">{penaltyError}</p>}
-            {penaltiesUnsupported && <p className="field-note bad">The launch contract on this deployment is the version before creator penalties. What you turned on here cannot reach it yet.</p>}
           </Step>
           )}
 
@@ -585,13 +495,12 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 { label: "Token", value: `${form.name || "Unnamed"} ($${form.symbol || "no ticker"})` },
                 { label: "Launch", value: `Direct locked pool, quoted in ${quoteSym}` },
                 { label: "Price path", value: `${form.openFdv} to ${form.bondFdv} ${quoteSym} valuation` },
-                { label: "Platform fee", value: supportsExempt ? "1% of every trade: 0.70% to you, 0.30% into the Bag" : "1% of every trade: 0.30% to you, 0.70% into the Bag" },
+                { label: "Platform fee", value: "1% of every trade: 0.70% to you, 0.30% into the Bag" },
                 { label: "Your tax", value: `${form.buyTax}% buy · ${form.sellTax}% sell` },
                 { label: "Your tax goes to", value: `Creator ${form.creatorBps}% · burn ${form.buybackBps}% · holders ${form.dividendsBps}% · liquidity ${form.liquidityBps}%` },
                 { label: "Creator address", value: recipient },
-                ...(supportsExempt ? [] : [{ label: "Opening limits", value: form.restrictionBlocks ? `${form.restrictionBlocks} blocks · max hold ${form.maxHold}% · max buy ${form.maxBuy}%` : "None" }]),
                 ...(teamOn ? [{ label: "Team wallets", value: `${teamLegs.length} wallets, ${formatUnits(teamTotal, quoteDec)} ${quoteSym} in the launch transaction${teamGasEach > 0n ? `, ${teamGas} ETH gas each` : ""}; published as the team` }] : []),
-                ...(supportsExempt ? openingReviewRows(exemptList) : penaltyReviewRows(penalties, { snipe: { pct: form.snipeTax, seconds: form.snipeSeconds } })),
+                ...openingReviewRows(exemptList),
                 { label: "Launch cost", value: `${feeDisplay} plus gas${form.firstBuy ? ` · ${form.firstBuy} ${quoteSym} first buy` : ""}` },
               ]}
               note="This is not a profit estimate. The pool price can move in either direction; buyers may lose money. If you use a non-native quote token, the first buy may require a separate approval." />
@@ -624,10 +533,8 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
           <div className="flex justify-between"><span className="dim">Launch model</span><span className="mono">Direct pool</span></div>
           <div className="flex justify-between"><span className="dim">Opens at</span><span className="mono">{form.openFdv || "0"} {quoteSym}</span></div>
           <div className="flex justify-between"><span className="dim">Buy / sell tax</span><span className="mono">{form.buyTax}% / {form.sellTax}%</span></div>
-          <div className="flex justify-between"><span className="dim">Creator fees to</span><span className="mono">{shortAddress(supportsFeeRecipient ? (form.feeRecipient || address || zeroAddress) : (address || zeroAddress))}</span></div>
-          {supportsExempt
-            ? <div className="flex justify-between"><span className="dim">Opening tax</span><span className="mono">99% → 0 in 3s</span></div>
-            : <div className="flex justify-between"><span className="dim">Penalties on</span><span className="mono">{penaltiesOn}</span></div>}
+          <div className="flex justify-between"><span className="dim">Creator fees to</span><span className="mono">{shortAddress(form.feeRecipient || address || zeroAddress)}</span></div>
+          <div className="flex justify-between"><span className="dim">Opening tax</span><span className="mono">99% → 0 in 3s</span></div>
         </div>
         {activeStep === REVIEW && <WhatHappens items={[
           "We mine an address for your hook, which takes a few seconds and costs nothing.",

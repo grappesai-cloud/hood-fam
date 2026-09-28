@@ -105,7 +105,6 @@ below.
 | script | what it drives |
 |---|---|
 | `run.mjs` | three curve launches, traded and one graduated, through the SDK |
-| `direct.mjs` | both machines in one pass, the way the indexer has to see them |
 | `swap.mjs` | the 4663 UniversalRouter's swap encoding, imported by the others |
 | `grad-swap.mjs` | one swap on a graduated pool, for when an estimate is failing |
 | `quote-check.mjs` | the quoter against what a swap actually returns |

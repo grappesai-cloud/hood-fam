@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PENALTY_CAPS, type PenaltyForm } from "@/lib/launchAbi";
 
 /// The furniture both launch machines are built out of. It exists because the two forms had the
 /// same shape and neither of them said what it wanted: a stack of boxes with two word headings, no
@@ -315,115 +314,6 @@ export function PairChooser({ pairs, value, onPick, loading, error, compact = fa
           </div>
         </details>
       )}
-    </div>
-  );
-}
-
-/// An on/off switch that says which it is without a colour being the only clue: the knob sits on
-/// the right when it is on, and the control is a real switch for a screen reader.
-export function Toggle({ on, onChange, label, disabled }: {
-  on: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean;
-}) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled}
-      className={on ? "toggle on" : "toggle"} onClick={() => onChange(!on)}>
-      <span className="toggle-knob" aria-hidden="true" />
-      <span className="toggle-word" aria-hidden="true">{on ? "on" : "off"}</span>
-    </button>
-  );
-}
-
-/// One mechanic of the toolbox. The title names it, the body is one sentence saying what it does
-/// and who pays, the switch turns it on, and the children are the numbers it takes once it is on.
-/// A `fixed` card has no switch: it is a fact about every launch, shown so the creator knows it.
-export function OptionCard({ title, body, on, fixed, tag, onToggle, children }: {
-  title: string; body: string; on: boolean; fixed?: boolean; tag?: string;
-  onToggle?: (on: boolean) => void; children?: React.ReactNode;
-}) {
-  return (
-    <div className={`option-card${on ? " on" : ""}${fixed ? " fixed" : ""}`}>
-      <div className="option-card-head">
-        <div className="option-card-text">
-          <span className="option-card-title">{title}{tag && <span className="option-card-tag">{tag}</span>}</span>
-          <p className="option-card-body">{body}</p>
-        </div>
-        {fixed ? <span className="option-card-fixed">always on</span> : <Toggle on={on} onChange={(v) => onToggle?.(v)} label={title} />}
-      </div>
-      {on && children ? <div className="option-card-controls">{children}</div> : null}
-    </div>
-  );
-}
-
-/// The default opening surcharge: half the buy at second zero, gone within three seconds. The
-/// hook allows up to 99% on top of the buy tax; the founder chose the softer opening.
-export const DEFAULT_SNIPE_PCT = 50;
-
-/// The creator's penalty options, the same six cards on both machines. The snipe tax is the one
-/// with a home elsewhere (it is a field of the direct machine's own config), so the direct form
-/// passes it in and the curve form leaves it out. The three defaults that cannot be turned off are
-/// listed as facts under the cards, because a buyer reads them on the token page and the creator
-/// should not learn them there first.
-export function PenaltyOptions({ value, onChange, snipe, postGraduation }: {
-  value: PenaltyForm;
-  onChange: (next: PenaltyForm) => void;
-  snipe?: { pct: number; seconds: number; maxPct: number; onChange: (pct: number, seconds: number) => void; error?: string };
-  postGraduation?: boolean;
-}) {
-  const set = <K extends keyof PenaltyForm>(k: K, v: PenaltyForm[K]) => onChange({ ...value, [k]: v });
-  const to = value.lockersEat ? "the Vault's lockers" : "the holders";
-  const when = postGraduation ? " after graduation" : "";
-  return (
-    <div className="option-stack">
-      {snipe && (
-        <OptionCard title="Snipe tax" tag="on by default" on={snipe.pct > 0}
-          body={`A buyer in the first ${snipe.seconds || 3} seconds pays up to ${snipe.pct}% extra, falling to nothing by the end. The holders get it.`}
-          onToggle={(on) => snipe.onChange(on ? Math.min(DEFAULT_SNIPE_PCT, snipe.maxPct) : 0, on ? (snipe.seconds || 3) : 0)}>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Slider label={`Extra tax at the open ${snipe.pct}%`} hint={`Added to the buy tax at second zero. The hook allows at most ${snipe.maxPct}% on top of your buy tax.`}
-              min={1} max={snipe.maxPct} step={1} value={Math.min(snipe.pct, snipe.maxPct)} onChange={(v) => snipe.onChange(v, snipe.seconds || 3)} />
-            <Slider label={`Gone after ${snipe.seconds}s`} hint="It falls away by the square, so most of it is gone before a person has read the ticker."
-              min={1} max={30} step={1} value={Math.max(1, snipe.seconds)} onChange={(v) => snipe.onChange(snipe.pct, v)} />
-          </div>
-          {snipe.error && <p className="field-note bad">{snipe.error}</p>}
-        </OptionCard>
-      )}
-
-      <OptionCard title="Jeet tax" on={value.jeetOn} onToggle={(on) => set("jeetOn", on)}
-        body={`A seller who flips within ${value.jeetMinutes} minutes of buying pays ${value.jeetPct}% to ${to}${when}.`}>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Slider label={`Tax ${value.jeetPct}%`} hint={`1 to ${PENALTY_CAPS.jeetTaxBps / 100}% of the sell.`} min={1} max={PENALTY_CAPS.jeetTaxBps / 100} step={1} value={value.jeetPct} onChange={(v) => set("jeetPct", v)} />
-          <Slider label={`Window ${value.jeetMinutes} min`} hint="How long after a buy a sell still counts as a flip. 1 to 60 minutes." min={1} max={PENALTY_CAPS.jeetWindowSeconds / 60} step={1} value={value.jeetMinutes} onChange={(v) => set("jeetMinutes", v)} />
-        </div>
-      </OptionCard>
-
-      <OptionCard title="Whale dump tax" on={value.whaleOn} onToggle={(on) => set("whaleOn", on)}
-        body={`A sell that moves the pool more than ${value.whaleTicks} ticks pays ${value.whalePct}% to ${to}${when}.`}>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Slider label={`Tax ${value.whalePct}%`} hint={`1 to ${PENALTY_CAPS.whaleTaxBps / 100}% of the sell.`} min={1} max={PENALTY_CAPS.whaleTaxBps / 100} step={1} value={value.whalePct} onChange={(v) => set("whalePct", v)} />
-          <Slider label={`Tick limit ${value.whaleTicks}`} hint={`A tick is a hundredth of a percent of price. 300 ticks is about a 3% move. At most ${PENALTY_CAPS.whaleTickLimit}.`} min={10} max={PENALTY_CAPS.whaleTickLimit} step={10} value={value.whaleTicks} onChange={(v) => set("whaleTicks", v)} />
-        </div>
-      </OptionCard>
-
-      <OptionCard title="King of the hill" on={value.kingOn} onToggle={(on) => set("kingOn", on)}
-        body={`${value.kingPct}% of every sell tax fills a pot. Every buy resets a 60 second timer; when it runs out, the last buyer takes the pot.`}>
-        <Slider label={`Slice ${value.kingPct}%`} hint={`5 to ${PENALTY_CAPS.kingBps / 100}% of the holders' share of each penalty.`} min={5} max={PENALTY_CAPS.kingBps / 100} step={5} value={value.kingPct} onChange={(v) => set("kingPct", v)} />
-      </OptionCard>
-
-      <OptionCard title="Lockers eat the jeets" on={value.lockersEat} onToggle={(on) => set("lockersEat", on)}
-        body="Jeet and whale taxes go to whoever locked the house coin in the Vault, instead of to this token's holders." />
-
-      <OptionCard title="Sniper auction" on={value.auctionOn} onToggle={(on) => set("auctionOn", on)}
-        body={`Instead of a fair open, the first slot after your block goes to the highest bidder over ${value.auctionBlocks} blocks. Half the bid goes to the holders, half into locked liquidity.`}>
-        <Slider label={`Bidding lasts ${value.auctionBlocks} blocks`} hint={`10 to ${PENALTY_CAPS.auctionBlocks} blocks, about a second each.`} min={10} max={PENALTY_CAPS.auctionBlocks} step={5} value={value.auctionBlocks} onChange={(v) => set("auctionBlocks", v)} />
-      </OptionCard>
-
-      <div className="option-facts" role="list" aria-label="Rules every launch has">
-        <p className="option-facts-title">On for every launch, not a choice</p>
-        <div role="listitem"><strong>Creator cannot rug his fees</strong><span>You sell your own token, your unclaimed fees go to the holders in the same transaction.</span></div>
-        <div role="listitem"><strong>Bots buy the dip</strong><span>Every sell tax, as it is collected, buys the token back. The seller's own money buys the token.</span></div>
-        <div role="listitem"><strong>Wall of shame</strong><span>Every penalty is a line on the board with the payer's address. The holders present when a bot paid get season points.</span></div>
-        <div role="listitem"><strong>Where a penalty goes</strong><span>80% to this token's holders (or the Vault, above), 20% into the Bag.</span></div>
-      </div>
     </div>
   );
 }

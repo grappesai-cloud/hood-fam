@@ -31,7 +31,7 @@
 // Environment: RPC_URL (default: the public 4663 RPC), HOOD_SAFE (the protocol Safe), and the
 // deployment's HOOD_FACTORY / HOOD_FEE_ROUTER / HOOD_PORTAL / HOOD_BRIDGE_FACTORY / HOOD_SEASON_DROP /
 // HOOD_REFERRALS, plus, since the Bag: HOOD_PAYDAY / HOOD_BURN_CLOCK / HOOD_BOOSTS / HOOD_GRADUATOR /
-// HOOD_GRADUATION_HOOK / HOOD_OPENING_AUCTION / HOOD_STAKING.
+// HOOD_GRADUATION_HOOK / HOOD_STAKING.
 
 import { writeFileSync } from "node:fs";
 import { createPublicClient, createWalletClient, encodeFunctionData, getAddress, http, isAddress, parseAbi, parseAbiItem, zeroAddress } from "viem";
@@ -93,13 +93,12 @@ const TARGETS = {
   drop: env("HOOD_SEASON_DROP"),
   referrals: env("HOOD_REFERRALS"),
   // the Bag's side. None of these is Ownable: payday, burn and boosts ask the factory's owner,
-  // the graduator too, the hook and the auction take no owner call at all.
+  // the graduator too, and the hook takes no owner call at all.
   payday: env("HOOD_PAYDAY"),
   burn: env("HOOD_BURN_CLOCK"),
   boosts: env("HOOD_BOOSTS"),
   graduator: env("HOOD_GRADUATOR"),
   hook: env("HOOD_GRADUATION_HOOK"),
-  auction: env("HOOD_OPENING_AUCTION"),
   staking: env("HOOD_STAKING"),
 };
 

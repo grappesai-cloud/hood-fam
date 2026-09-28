@@ -75,28 +75,18 @@ export function CurveSim({ p0, p1, curveSupply, totalSupply, dec, sym, feeBps, t
   );
 }
 
-/// A creator's own surcharge on a v3 portal: quadratic over its window.
-function legacySnipeBps(snipeTaxBps: number, windowSeconds: number, t: number): number {
-  if (windowSeconds <= 0 || snipeTaxBps <= 0 || t >= windowSeconds) return 0;
-  const remaining = windowSeconds - Math.max(0, t);
-  return (snipeTaxBps * remaining * remaining) / (windowSeconds * windowSeconds);
-}
-
-/// The other machine's dials: a tax that never changes and a surcharge that is gone in seconds.
-/// With `fixed` the surcharge is the opening tax every v4 launch runs (SnipeSchedule), which the
-/// hook caps so that everything together is at most 99% (the platform's 1% included).
-export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds, openFdv, bondFdv, quoteSymbol, fixed }: {
-  buyTax: number; sellTax: number; snipeTax: number; snipeSeconds: number;
-  openFdv: number; bondFdv: number; quoteSymbol: string; fixed?: boolean;
+/// The other machine's dials: a tax that never changes and the opening tax every launch runs
+/// (SnipeSchedule), which the hook caps so that everything together is at most 99% (the platform's
+/// 1% included).
+export function DirectSim({ buyTax, sellTax, openFdv, bondFdv, quoteSymbol }: {
+  buyTax: number; sellTax: number; openFdv: number; bondFdv: number; quoteSymbol: string;
 }) {
   const [t, setT] = useState(0);
   const [poolProgress, setPoolProgress] = useState(25);
   const room = Math.max(0, 98 - buyTax);
-  const surchargeAt = (s: number) => fixed
-    ? Math.min(snipeBpsAt(s) / 100, room)
-    : legacySnipeBps(snipeTax * 100, snipeSeconds, s) / 100;
+  const surchargeAt = (s: number) => Math.min(snipeBpsAt(s) / 100, room);
   const peak = surchargeAt(0);
-  const window = fixed ? SNIPE_WINDOW_SECONDS : snipeSeconds;
+  const window = SNIPE_WINDOW_SECONDS;
   const span = Math.max(window, 10);
   const surcharge = surchargeAt(t);
   const onBuy = buyTax + surcharge;
@@ -110,7 +100,7 @@ export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds, openFdv, bo
   const y = (pct: number) => 104 - (pct / Math.max(1, peak + buyTax)) * 86;
   const line = Array.from({ length: 61 }, (_, i) => {
     const s = (i / 60) * span;
-    return `${i === 0 ? "M" : "L"}${x(s).toFixed(1)} ${y(buyTax + surchargeAt(fixed ? Math.floor(s) : s)).toFixed(1)}`;
+    return `${i === 0 ? "M" : "L"}${x(s).toFixed(1)} ${y(buyTax + surchargeAt(Math.floor(s))).toFixed(1)}`;
   }).join(" ");
 
   return (

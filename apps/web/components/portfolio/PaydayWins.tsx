@@ -43,7 +43,7 @@ export function PaydayWins({ payday, totals, bounties }: {
     <section className="panel portfolio-section p-5">
       <div className="panel-head"><span className="n">04 / PAYDAY</span><h2>Payday wins</h2><span className="hatch" aria-hidden="true" /></div>
       <p className="mb-4 text-sm dim">
-        Every hour the Bag pays the hour&apos;s pot to the wallets that earned points in that hour. You trade, you earn points; you hold a token when a bot pays a penalty, you earn a bounty point; the hour ends, you get paid.
+        Every hour the Bag pays the hour&apos;s pot to the wallets that earned points in that hour. You trade, you earn points; you hold a token when a bot pays the opening tax, you earn a bounty point; the hour ends, you get paid.
       </p>
       <div className="earn-grid">
         {totals === undefined ? (
