@@ -62,7 +62,7 @@ contract DirectAuctionTest is Test {
         s.initialize(creator, makeAddr("realLocker"), Allocations(2_500, 2_500, 4_000, 1_000));
         s.exclude(pool);
         l = new LockerStub();
-        t.setLaunchAddresses(pool, address(s), address(l), makeAddr("hook"), makeAddr("buybackModule"));
+        t.setLaunchAddresses(pool, address(s), address(l), makeAddr("hook"), makeAddr("buybackModule"), address(0));
         t.transfer(pool, SUPPLY);
         vm.prank(pool);
         t.transfer(holder, SUPPLY / 2); // somebody has to be eligible

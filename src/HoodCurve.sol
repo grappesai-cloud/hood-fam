@@ -12,6 +12,8 @@ import {PairTransfer} from "./libraries/PairTransfer.sol";
 import {IHoodBag} from "./interfaces/IHoodBag.sol";
 import {IHoodCurve} from "./interfaces/IHoodCurve.sol";
 import {IHoodFactory} from "./interfaces/IHoodFactory.sol";
+import {IHoodPot} from "./interfaces/IHoodPot.sol";
+import {BagReasons, BagSplits} from "./bag/BagTypes.sol";
 import {IHoodFeeRouter} from "./interfaces/IHoodFeeRouter.sol";
 import {IHoodReferrals} from "./interfaces/IHoodReferrals.sol";
 import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
@@ -26,6 +28,14 @@ import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
 ///      Every protocol leg leaves through the Bag, pinned at launch: the trade legs when somebody
 ///      claims them, the graduation fee inside `finalize`. The Bag has no owner and splits by rules
 ///      fixed at its deploy, so pinning it is pinning the rules this launch was sold under.
+///
+///      The open is guarded the way the direct machine's is: a surcharge on buys that decays to
+///      nothing over `snipeDecaySeconds`, and a per-wallet buy cap for `restrictionBlocks`. The
+///      surcharge is a penalty, not a fee: 80% to this launch's holders through the pot, 20% to
+///      the Bag. Exempt are buys made INSIDE the launch transaction by the factory (the creator's
+///      first buy) or by the account that called the factory (a block-zero periphery), and
+///      nothing else: the constructor marks this contract's transient storage, which lives for
+///      exactly the launch transaction, so a buy one transaction later is a buy like any other.
 contract HoodCurve is IHoodCurve, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -48,7 +58,17 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         uint16 creatorFeeBps;
         uint24 poolFee;
         int24 tickSpacing;
+        // The opening rules (v4), and who called the factory: its buys inside the launch
+        // transaction are the launch's own.
+        address opener;
+        uint16 snipeTaxBps;
+        uint32 snipeDecaySeconds;
+        uint32 restrictionBlocks;
+        uint256 maxBuy;
     }
+
+    /// @dev Transient slot set by the constructor: nonzero for the rest of the launch transaction.
+    bytes32 internal constant LAUNCH_TX_SLOT = keccak256("hood.curve.launch-tx");
 
     address public immutable factory;
     address public immutable token;
@@ -70,6 +90,15 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     uint16 public immutable creatorFeeBps;
     uint24 public immutable poolFee;
     int24 public immutable tickSpacing;
+    /// @notice The account that called the factory. Only inside the launch transaction does it matter.
+    address public immutable opener;
+    uint16 public immutable snipeTaxBps;
+    uint32 public immutable snipeDecaySeconds;
+    uint64 public immutable launchedAt;
+    /// @notice The last block of the per-wallet buy cap.
+    uint64 public immutable restrictionsEndBlock;
+    /// @notice Token wei one wallet may buy until `restrictionsEndBlock`. Zero = no cap.
+    uint256 public immutable maxBuy;
 
     Phase public phase;
     /// @notice Token wei sold off the curve.
@@ -80,6 +109,10 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     uint256 public bonus;
     /// @notice The protocol's fee legs, booked and waiting to be pulled by anyone.
     uint256 public protocolClaimable;
+    /// @notice The Bag's share of snipe penalties, booked like the fee legs and pulled with them.
+    uint256 public penaltyClaimable;
+    /// @notice Token wei each wallet bought while the buy cap held.
+    mapping(address => uint256) public boughtDuringWindow;
 
     event Bought(address indexed buyer, address indexed to, uint256 pairIn, uint256 tokensOut, uint256 fee);
     event Sold(address indexed seller, address indexed to, uint256 tokensIn, uint256 pairOut, uint256 fee);
@@ -88,6 +121,9 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     event Graduated(uint256 tokenAmount, uint256 pairAmount, uint256 graduationFee);
     event ProtocolClaimed(address indexed to, uint256 amount);
     event ReferralPaid(address indexed to, uint256 amount);
+    /// @notice A buy inside the decay window paid the surcharge. `buyer` is the caller, `to` the
+    ///         wallet that got the tokens; `toHolders` went into the pot in this same call.
+    event Sniped(address indexed buyer, address indexed to, uint256 penalty, uint256 toHolders, uint256 toBag);
 
     error NotTrading();
     error NotSoldOut();
@@ -98,6 +134,7 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     error ExceedsCurveSupply();
     error InsufficientValue();
     error NothingToClaim();
+    error BuysTooMuch();
 
     constructor(InitParams memory p) {
         factory = p.factory;
@@ -116,6 +153,16 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         creatorFeeBps = p.creatorFeeBps;
         poolFee = p.poolFee;
         tickSpacing = p.tickSpacing;
+        opener = p.opener;
+        snipeTaxBps = p.snipeTaxBps;
+        snipeDecaySeconds = p.snipeDecaySeconds;
+        launchedAt = uint64(block.timestamp);
+        restrictionsEndBlock = uint64(block.number) + p.restrictionBlocks;
+        maxBuy = p.maxBuy;
+        bytes32 slot = LAUNCH_TX_SLOT;
+        assembly ("memory-safe") {
+            tstore(slot, 1)
+        }
     }
 
     // ---------------------------------------------------------------- views
@@ -135,20 +182,48 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         return CurveMath.cost(p0, p1, curveSupply, 0, curveSupply, false);
     }
 
+    /// @notice What `pairIn` buys right now, for a caller who is not the launch itself. `fee`
+    ///         includes the snipe surcharge while it lasts, as `pairSpent` does.
     function quoteBuy(uint256 pairIn) public view returns (uint256 tokensOut, uint256 pairSpent, uint256 fee) {
         if (phase != Phase.Curve) return (0, 0, 0);
-        uint256 budget = pairIn - _feeOnGross(pairIn);
+        uint256 snipe = currentSnipeBps();
+        uint256 afterSnipe = pairIn - Math.mulDiv(pairIn, snipe, BPS, Math.Rounding.Ceil);
+        uint256 budget = afterSnipe - _feeOnGross(afterSnipe);
         tokensOut = CurveMath.tokensForPair(p0, p1, curveSupply, sold, budget, remaining());
         if (tokensOut == 0) return (0, 0, 0);
         uint256 net = CurveMath.cost(p0, p1, curveSupply, sold, tokensOut, true);
-        fee = _feeOnNet(net);
-        pairSpent = net + fee;
+        uint256 spent = net + _feeOnNet(net);
+        pairSpent = spent + _snipeOnNet(spent, snipe);
+        fee = pairSpent - net;
     }
 
     function quoteBuyExactOut(uint256 tokensOut) public view returns (uint256 pairIn, uint256 fee) {
         uint256 net = CurveMath.cost(p0, p1, curveSupply, sold, tokensOut, true);
-        fee = _feeOnNet(net);
-        pairIn = net + fee;
+        uint256 spent = net + _feeOnNet(net);
+        pairIn = spent + _snipeOnNet(spent, currentSnipeBps());
+        fee = pairIn - net;
+    }
+
+    /// @notice The surcharge on a buy right now, in bps of what the buyer hands in. Quadratic, so
+    ///         it is nearly gone half way through the window.
+    function currentSnipeBps() public view returns (uint256) {
+        uint256 window = snipeDecaySeconds;
+        if (window == 0 || snipeTaxBps == 0) return 0;
+        uint256 elapsed = block.timestamp - launchedAt;
+        if (elapsed >= window) return 0;
+        uint256 left = window - elapsed;
+        return (uint256(snipeTaxBps) * left * left) / (window * window);
+    }
+
+    /// @notice Whether the current call is the launch transaction's own buy.
+    function isLaunchBuy(address caller) public view returns (bool) {
+        if (caller != factory && caller != opener) return false;
+        bytes32 slot = LAUNCH_TX_SLOT;
+        uint256 marked;
+        assembly ("memory-safe") {
+            marked := tload(slot)
+        }
+        return marked != 0;
     }
 
     function quoteSell(uint256 tokensIn) public view returns (uint256 pairOut, uint256 fee) {
@@ -171,15 +246,25 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         if (to == address(0)) revert ZeroAddress();
         PairTransfer.pull(pairToken, msg.sender, pairIn, msg.value);
 
-        uint256 budget = pairIn - _feeOnGross(pairIn);
+        bool own = isLaunchBuy(msg.sender);
+        uint256 snipe = own ? 0 : currentSnipeBps();
+        uint256 afterSnipe = pairIn - Math.mulDiv(pairIn, snipe, BPS, Math.Rounding.Ceil);
+        uint256 budget = afterSnipe - _feeOnGross(afterSnipe);
         tokensOut = CurveMath.tokensForPair(p0, p1, curveSupply, sold, budget, remaining());
         if (tokensOut == 0) revert NothingBought();
         if (tokensOut < minTokensOut) revert Slippage();
+        if (!own) _checkWindow(to, tokensOut);
 
         uint256 net = CurveMath.cost(p0, p1, curveSupply, sold, tokensOut, true);
         uint256 spent = _settleBuy(net, tokensOut, to);
-        PairTransfer.push(pairToken, msg.sender, pairIn - spent);
-        emit Bought(msg.sender, to, spent, tokensOut, spent - net);
+        // Charged on what was actually bought, so a buy the curve could only partly fill pays the
+        // surcharge on the part it got and gets the rest back whole.
+        uint256 penalty = _snipeOnNet(spent, snipe);
+        // Rounding up can overshoot what the buyer handed in by a wei; never charge past it.
+        if (penalty > pairIn - spent) penalty = pairIn - spent;
+        if (penalty != 0) _takeSnipe(to, penalty);
+        PairTransfer.push(pairToken, msg.sender, pairIn - spent - penalty);
+        emit Bought(msg.sender, to, spent + penalty, tokensOut, spent + penalty - net);
     }
 
     /// @notice Buys exactly `tokensOut`, paying at most `maxPairIn`.
@@ -193,9 +278,13 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         if (to == address(0)) revert ZeroAddress();
         if (tokensOut == 0) revert NothingBought();
         if (tokensOut > remaining()) revert ExceedsCurveSupply();
+        bool own = isLaunchBuy(msg.sender);
+        if (!own) _checkWindow(to, tokensOut);
 
         uint256 net = CurveMath.cost(p0, p1, curveSupply, sold, tokensOut, true);
-        uint256 quoted = net + _feeOnNet(net);
+        uint256 spent = net + _feeOnNet(net);
+        uint256 penalty = own ? 0 : _snipeOnNet(spent, currentSnipeBps());
+        uint256 quoted = spent + penalty;
         if (quoted > maxPairIn) revert TooExpensive();
 
         if (pairToken == address(0)) {
@@ -204,7 +293,8 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
             PairTransfer.pull(pairToken, msg.sender, quoted, msg.value);
         }
 
-        pairSpent = _settleBuy(net, tokensOut, to);
+        pairSpent = _settleBuy(net, tokensOut, to) + penalty;
+        if (penalty != 0) _takeSnipe(to, penalty);
         if (pairToken == address(0)) PairTransfer.push(pairToken, msg.sender, msg.value - pairSpent);
         emit Bought(msg.sender, to, pairSpent, tokensOut, pairSpent - net);
     }
@@ -285,7 +375,13 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     ///      in the registry to unblock it.
     function claimProtocol() external nonReentrant returns (uint256 amount) {
         amount = protocolClaimable;
-        if (amount == 0) revert NothingToClaim();
+        uint256 penalties = penaltyClaimable;
+        if (amount == 0 && penalties == 0) revert NothingToClaim();
+        if (penalties != 0) {
+            penaltyClaimable = 0;
+            IHoodBag(bag).takePenaltyCut{value: _forBag(penalties)}(pairToken, penalties, token);
+        }
+        if (amount == 0) return 0;
         protocolClaimable = 0;
         (address referrer, uint256 cut) = _referral(amount);
         if (cut != 0) {
@@ -334,6 +430,39 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         uint256 bps = uint256(protocolFeeBps) + creatorFeeBps;
         if (bps == 0) return 0;
         return Math.mulDiv(net, bps, BPS - bps, Math.Rounding.Ceil);
+    }
+
+    /// @dev The surcharge that sits on top of `spent` so that it is `bps` of the whole.
+    function _snipeOnNet(uint256 spent, uint256 bps) internal pure returns (uint256) {
+        if (bps == 0 || spent == 0) return 0;
+        return Math.mulDiv(spent, bps, BPS - bps, Math.Rounding.Ceil);
+    }
+
+    /// @dev The per-wallet buy cap. Keyed on the receiving wallet, cumulative over the window.
+    function _checkWindow(address to, uint256 tokensOut) internal {
+        uint256 cap = maxBuy;
+        if (cap == 0 || block.number > restrictionsEndBlock) return;
+        uint256 bought = boughtDuringWindow[to] + tokensOut;
+        if (bought > cap) revert BuysTooMuch();
+        boughtDuringWindow[to] = bought;
+    }
+
+    /// @dev 80% of the surcharge to this launch's holders now, 20% booked for the Bag. The pot is
+    ///      this launch's own contract and books a deposit without calling out, so paying it inline
+    ///      cannot hold a trade hostage; the Bag's share waits for `claimProtocol` like the fees.
+    function _takeSnipe(address to, uint256 penalty) internal {
+        uint256 toBag = (penalty * BagSplits.PENALTY_BAG_BPS) / BPS;
+        uint256 toHolders = penalty - toBag;
+        penaltyClaimable += toBag;
+        if (toHolders != 0) {
+            if (pairToken == address(0)) {
+                IHoodPot(pot).depositForHolders{value: toHolders}(toHolders, BagReasons.SNIPE, to);
+            } else {
+                IERC20(pairToken).forceApprove(pot, toHolders);
+                IHoodPot(pot).depositForHolders(toHolders, BagReasons.SNIPE, to);
+            }
+        }
+        emit Sniped(msg.sender, to, penalty, toHolders, toBag);
     }
 
     /// @dev Splits one rounded total, so the two legs can never add up to more than it.

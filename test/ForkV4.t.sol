@@ -13,7 +13,7 @@ import {HoodDeployer} from "../src/HoodDeployer.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
-import {CurveConfig, FeeSplit, LaunchParams, Phase} from "../src/HoodTypes.sol";
+import {CurveConfig, CurveGuard, FeeSplit, LaunchParams, Phase} from "../src/HoodTypes.sol";
 import {PenaltyConfig} from "../src/bag/BagTypes.sol";
 import {IPoolManager, PoolKey, SwapParams} from "../src/interfaces/IExternal.sol";
 import {MockUSD} from "./mocks/Mocks.sol";
@@ -129,7 +129,8 @@ contract ForkV4Test is BagRig {
             firstBuyLock: 0,
             salt: keccak256(bytes(symbol)),
             econ: bytes32(0),
-            penalties: PenaltyConfig(0, 0, 0, 0, 0, false)
+            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
+            guard: CurveGuard(0, 0, 0, 0)
         });
         vm.prank(creator);
         (address t, address c,) = factory.launch{value: 0.002 ether}(p);
@@ -202,7 +203,8 @@ contract ForkV4Test is BagRig {
             name: "Dollar Curve", symbol: "USDC1", image: "ipfs://usd", description: "", website: "",
             twitter: "", telegram: "", pairToken: address(usd), configId: usdConfig,
             feeSplit: _toBuyback(), creatorFeeRecipient: creator, firstBuy: 0, firstBuyLock: 0,
-            salt: bytes32(uint256(77)), econ: bytes32(0), penalties: PenaltyConfig(0, 0, 0, 0, 0, false)
+            salt: bytes32(uint256(77)), econ: bytes32(0), penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
+            guard: CurveGuard(0, 0, 0, 0)
         });
         vm.prank(creator);
         (address token, address curveAddr,) = factory.launch{value: 0.002 ether}(p);

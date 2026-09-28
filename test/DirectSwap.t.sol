@@ -141,7 +141,7 @@ abstract contract DirectPoolBase is Test {
         splitter.initialize(creator, address(locker), Allocations(2_500, 2_500, 4_000, 1_000));
         splitter.setHook(address(hook));
         splitter.exclude(address(pm));
-        token.setLaunchAddresses(address(pm), address(splitter), address(locker), address(hook), address(module));
+        token.setLaunchAddresses(address(pm), address(splitter), address(locker), address(hook), address(module), address(0));
         portalStub.set(address(token), address(hook), address(splitter), address(locker));
         locker.setKey(key);
 

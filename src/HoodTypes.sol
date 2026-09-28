@@ -53,6 +53,17 @@ struct CurveConfig {
     bool enabled; // whether new launches may still pick this preset
 }
 
+/// @notice The curve's opening rules, picked per launch and fixed in the curve as immutables.
+/// @dev The same two tools the direct machine has: a surcharge on buys that decays to nothing, and
+///      a per-wallet buy cap for the first blocks. Buys made inside the launch transaction itself
+///      (the creator's first buy, a block-zero team) are exempt, and nothing else is.
+struct CurveGuard {
+    uint16 snipeTaxBps; // surcharge on buys at the open, decaying quadratically to zero; paid to holders
+    uint32 snipeDecaySeconds; // how long it takes to decay away
+    uint32 restrictionBlocks; // how many blocks after the launch the per-wallet buy cap holds
+    uint16 maxBuyBps; // per-wallet buy cap while restricted, in bps of the total supply
+}
+
 /// @notice Everything a creator picks for one launch.
 struct LaunchParams {
     string name;
@@ -75,6 +86,8 @@ struct LaunchParams {
     // the factory. All zero means none of them. Appended last so the call encodes the same way
     // for every field before it.
     PenaltyConfig penalties;
+    // The opening rules. All zero means an open curve, the way every launch before v4 opened.
+    CurveGuard guard;
 }
 
 /// @notice The registry row for a launched token.

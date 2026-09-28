@@ -69,6 +69,8 @@ const SYSTEM_TRADERS = [
   // auction sit inside swaps, and the rest hold money that moves through the tape.
   process.env.HOOD_BAG, process.env.HOOD_PAYDAY, process.env.HOOD_BURN_CLOCK, process.env.HOOD_BOOSTS,
   process.env.HOOD_GRADUATION_HOOK, process.env.HOOD_OPENING_AUCTION,
+  // HOOD_BLOCK_ZERO is deliberately not here: a team leg stays on the public tape, where it is
+  // labelled as the team, rather than being filtered out like the machine's own trades.
 ].filter(Boolean).map((a) => a!.toLowerCase());
 
 /// How much of X-Forwarded-For to believe. A count of hops, never the whole header.
@@ -133,6 +135,7 @@ export async function buildServer() {
     [/^\/tokens\/:token\/candles$/, "public, s-maxage=3, stale-while-revalidate=30"],
     [/^\/tokens\/:token\/trades$/, "public, s-maxage=2, stale-while-revalidate=10"],
     [/^\/tokens\/:token\/holders$/, "public, s-maxage=5, stale-while-revalidate=30"],
+    [/^\/tokens\/:token\/team$/, "public, s-maxage=5, stale-while-revalidate=30"],
     [/^\/activity$/, "public, s-maxage=2, stale-while-revalidate=8"],
     [/^\/top-traders$/, "public, s-maxage=5, stale-while-revalidate=20"],
     [/^\/stakes\/:owner$/, "public, s-maxage=5, stale-while-revalidate=30"],
@@ -397,11 +400,32 @@ export async function buildServer() {
     const limit = clampInt(q.limit, 100, 100, 1);
     const offset = clampInt(q.offset, 0, 10_000_000);
     const { rows } = await pool.query(
-      `select address, balance from balances where token = $1 and balance > 0
-       order by balance desc, address limit $2 offset $3`,
+      `select b.address, b.balance, (tw.wallet is not null) as team
+         from balances b left join team_wallets tw on tw.token = b.token and tw.wallet = b.address
+        where b.token = $1 and b.balance > 0
+        order by b.balance desc, b.address limit $2 offset $3`,
       [token.toLowerCase(), limit, offset],
     );
     return { holders: rows, limit, offset };
+  });
+
+  /// Every wallet that bought in a block-zero launch transaction, in the order they bought, with
+  /// what each paid, what each got, what each still holds in hand and when a locked leg opens.
+  /// Empty for a launch that did not go through the periphery.
+  app.get("/tokens/:token/team", async (req) => {
+    const { token } = req.params as { token: string };
+    const t = token.toLowerCase();
+    const [{ rows: team }, { rows: head }] = await Promise.all([
+      pool.query(
+        `select tw.wallet, tw.idx, tw.pair_spent, tw.tokens, tw.lock_id, tw.unlock_at, tw.tx, tw.gas,
+                coalesce(b.balance, 0) as balance
+           from team_wallets tw left join balances b on b.token = tw.token and b.address = tw.wallet
+          where tw.token = $1 order by tw.idx`,
+        [t],
+      ),
+      pool.query(`select launched_by, team_tokens, team_legs, total_supply, creator from launches where token = $1`, [t]),
+    ]);
+    return { team, launch: head[0] ?? null };
   });
 
   /// The global FOMO tape: newest human trades with enough launch metadata to render without a

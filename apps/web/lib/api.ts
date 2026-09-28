@@ -89,6 +89,9 @@ export interface TokenRow {
   /// Token units of the creator's own first buy locked in the staking vault at launch, and when it
   /// comes free. Zero and null when the creator kept their first buy liquid, which is also a fact.
   first_buy_locked: string; first_buy_unlock_at: string | null;
+  /// A block-zero launch: how many team wallets bought in the launch transaction and what they got
+  /// between them. Zero on every other launch. `launched_by` is the periphery that made it.
+  team_legs?: number; team_tokens?: string; launched_by?: string | null;
   sold: string; curve_supply: string; reserve: string; price: string;
   price_24h_ago?: string | null;
   volume_24h: string; volume_total: string; trades_total: number;

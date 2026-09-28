@@ -9,7 +9,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import {CurveConfig, FeeSplit, Launch, LaunchMode, LaunchParams} from "./HoodTypes.sol";
+import {CurveConfig, CurveGuard, FeeSplit, Launch, LaunchMode, LaunchParams} from "./HoodTypes.sol";
 import {PenaltyConfig} from "./bag/BagTypes.sol";
 import {HoodCurve} from "./HoodCurve.sol";
 import {HoodDeployer} from "./HoodDeployer.sol";
@@ -50,6 +50,13 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     bytes32 internal constant EMPTY_HASH = keccak256("");
     /// @notice The launch fee is owner-settable up to here and no further.
     uint256 public constant MAX_LAUNCH_FEE = 0.01 ether;
+    /// @notice The opening surcharge a creator may ask for, at most. Above it the curve is closed,
+    ///         not guarded.
+    uint16 public constant MAX_SNIPE_BPS = 9_000;
+    /// @notice How long the surcharge may take to decay, at most.
+    uint32 public constant MAX_SNIPE_DECAY_SECONDS = 600;
+    /// @notice How long the per-wallet buy cap may hold, at most (about two minutes of 100ms blocks).
+    uint32 public constant MAX_RESTRICTION_BLOCKS = 1_200;
 
     struct VolumeWindow {
         uint64 start;
@@ -125,6 +132,8 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     event PotDeployed(address indexed token, address indexed pot);
     /// @dev Fires after `PotDeployed`, all zero when the creator turned nothing on.
     event LaunchPenalties(address indexed token, PenaltyConfig penalties);
+    /// @dev Fires after `LaunchPenalties`, all zero for an open curve.
+    event LaunchGuard(address indexed token, CurveGuard guard);
     event CreatorFeeRecipientTransferred(address indexed token, address indexed from, address indexed to);
     event ConfigAdded(uint256 indexed configId);
     event ConfigEnabled(uint256 indexed configId, bool enabled);
@@ -163,6 +172,7 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
     error AlreadyRegistered();
     error NoBag();
     error BadPenalties();
+    error BadGuard();
 
     /// @dev Takes refunds from a creator's first buy on the way back out to them.
     receive() external payable {}
@@ -415,6 +425,7 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         if (p.feeSplit.creatorBps != 0 && p.creatorFeeRecipient == address(0)) revert ZeroAddress();
         _checkFirstBuyLock(p, msg.value - launchFee_);
         _validatePenalties(p.penalties);
+        _validateGuard(p.guard);
 
         bytes32 sHash = symbolHash(p.symbol);
         bytes32 iHash = keccak256(bytes(p.image));
@@ -439,6 +450,16 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         if (pc.jeetWindowSeconds > 1 hours) revert BadPenalties();
         if (pc.whaleTickLimit > 2_000) revert BadPenalties();
         if (pc.kingBps > 5_000) revert BadPenalties();
+    }
+
+    /// @dev A surcharge needs a window to decay over, a cap needs a window to hold in and a size,
+    ///      and none of them may be large enough to be a closed door rather than a guard.
+    function _validateGuard(CurveGuard calldata g) internal pure {
+        if (g.snipeTaxBps > MAX_SNIPE_BPS) revert BadGuard();
+        if (g.snipeTaxBps != 0 && g.snipeDecaySeconds == 0) revert BadGuard();
+        if (g.snipeDecaySeconds > MAX_SNIPE_DECAY_SECONDS) revert BadGuard();
+        if (g.restrictionBlocks > MAX_RESTRICTION_BLOCKS) revert BadGuard();
+        if (g.restrictionBlocks != 0 && (g.maxBuyBps == 0 || g.maxBuyBps > BPS)) revert BadGuard();
     }
 
     function _validateConfig(CurveConfig memory c) internal pure {
@@ -498,6 +519,11 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         ip.creatorFeeBps = c.creatorFeeBps;
         ip.poolFee = c.poolFee;
         ip.tickSpacing = c.tickSpacing;
+        ip.opener = msg.sender;
+        ip.snipeTaxBps = p.guard.snipeTaxBps;
+        ip.snipeDecaySeconds = p.guard.snipeDecaySeconds;
+        ip.restrictionBlocks = p.guard.restrictionBlocks;
+        ip.maxBuy = p.guard.restrictionBlocks == 0 ? 0 : Math.mulDiv(c.totalSupply, p.guard.maxBuyBps, BPS);
 
         curve = deployer.deployCurve(ip, salt);
         // Nobody who holds tokens for the machine's own sake earns from the pot: the curve and the
@@ -558,6 +584,7 @@ contract HoodFactory is IHoodFactory, Ownable2Step, ReentrancyGuard {
         emit LaunchMetadata(token, p.name, p.symbol, p.image, p.description, p.website, p.twitter, p.telegram);
         emit PotDeployed(token, pot);
         emit LaunchPenalties(token, p.penalties);
+        emit LaunchGuard(token, p.guard);
     }
 
     function _firstBuy(LaunchParams calldata p, address token, address curve, uint256 nativeLeft)

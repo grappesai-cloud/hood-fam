@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { uniswapV4 } from "@hood/sdk";
+import { useReadContract } from "wagmi";
+import { hoodFactoryAbi, uniswapV4 } from "@hood/sdk";
 import { api } from "@/lib/api";
 import { addresses, directAddresses } from "@/lib/config";
 import { shortAddress } from "@/lib/format";
@@ -22,6 +23,8 @@ import { shortAddress } from "@/lib/format";
 interface Holder {
   address: string;
   balance: string;
+  /// Bought in the launch transaction as one of the team's declared wallets (HoodBlockZero).
+  team?: boolean;
 }
 
 interface Entry {
@@ -33,6 +36,9 @@ interface Entry {
   label: string | null;
   ours: boolean;
   creator: boolean;
+  /// One of the wallets the launch declared as the team's. Still a wallet, so still counted in the
+  /// wallet figures, but named, and summed on its own line.
+  team: boolean;
 }
 
 /// The map is drawn to a fixed width in its own units and scaled to whatever the panel is wide, so
@@ -88,6 +94,13 @@ export function HolderMap({
     refetchInterval: 30_000,
   });
 
+  // The token lock holds every locked first buy and every locked team leg, for months, in the
+  // holder's name. Unlabelled it reads as a whale; it is the opposite of one.
+  const { data: tokenLock } = useReadContract({
+    address: addresses.factory, abi: hoodFactoryAbi, functionName: "firstBuyLocker",
+    query: { staleTime: Infinity },
+  });
+
   const known = useMemo(() => {
     const map = new Map<string, string>();
     const put = (address: string | null | undefined, label: string) => {
@@ -104,6 +117,7 @@ export function HolderMap({
     put(uniswapV4.poolManager, "the pool");
     put(uniswapV4.positionManager, "the pool's positions");
     put(addresses.staking, "staked here");
+    put(tokenLock as string | undefined, "locked in the token lock");
     put(addresses.feeRouter, "the fee router");
     put(addresses.graduator, "the graduator");
     put(addresses.factory, "the factory");
@@ -112,11 +126,11 @@ export function HolderMap({
     put(directAddresses.buybackModule, "the buyback module");
     put(BURN, "burned");
     return map;
-  }, [curve, locker, splitter, hook]);
+  }, [curve, locker, splitter, hook, tokenLock]);
 
   const entries = useMemo<Entry[]>(() => {
     const rows = book.data?.holders ?? [];
-    const balances = rows.map((h) => ({ address: h.address.toLowerCase(), balance: big(h.balance) }));
+    const balances = rows.map((h) => ({ address: h.address.toLowerCase(), balance: big(h.balance), team: Boolean(h.team) }));
     // The supply the shares are read against is the supply after burns, which is what the page's
     // market cap is read against too. A launch the indexer has no supply for falls back to what its
     // holders add up to, so the picture is still in proportion even if the caption is about a
@@ -134,9 +148,10 @@ export function HolderMap({
           // Parts per million in integer arithmetic: a balance is far past what a double holds
           // exactly, and dividing two of them as numbers is how a 4% holder becomes a 0% one.
           share: whole > 0n ? Number((b.balance * 1_000_000n) / whole) / 1_000_000 : 0,
-          label: label ?? (isCreator ? "the creator" : null),
+          label: label ?? (isCreator ? "the creator" : b.team ? "team wallet" : null),
           ours: Boolean(label),
           creator: isCreator && !label,
+          team: b.team && !label,
         };
       });
   }, [book.data, known, creator, totalSupply]);
@@ -174,7 +189,9 @@ export function HolderMap({
   const wallets = entries.filter((e) => !e.ours);
   const topTen = wallets.slice(0, 10).reduce((sum, e) => sum + e.share, 0);
   const largest = wallets[0]?.share ?? 0;
-  const named = entries.filter((e) => e.label);
+  const named = entries.filter((e) => e.label && !e.team);
+  const team = entries.filter((e) => e.team);
+  const teamShare = team.reduce((sum, e) => sum + e.share, 0);
   const reading = active ? entries.find((e) => e.address === active) : undefined;
 
   return (
@@ -205,6 +222,7 @@ export function HolderMap({
                 "holder-dot",
                 entry.ours ? "is-ours" : "",
                 entry.creator ? "is-creator" : "",
+                entry.team ? "is-team" : "",
                 active === entry.address ? "is-on" : "",
               ].filter(Boolean).join(" ");
               return (
@@ -241,13 +259,19 @@ export function HolderMap({
             )}
           </p>
 
-          {named.length > 0 && (
+          {(named.length > 0 || team.length > 0) && (
             <ul className="holder-legend">
               {named.map((e) => (
                 <li key={e.address} className={e.creator ? "is-creator" : "is-ours"}>
                   <b>{e.label}</b> <span className="mono">{pct(e.share)}</span>
                 </li>
               ))}
+              {team.length > 0 && (
+                <li className="is-team">
+                  <b>{team.length === 1 ? "the team wallet" : `${team.length} team wallets`}</b>{" "}
+                  <span className="mono">{pct(teamShare)}</span>
+                </li>
+              )}
             </ul>
           )}
 
@@ -269,7 +293,8 @@ export function HolderMap({
           <p className="holder-note">
             Every share is of the supply. The circles our own contracts hold are named above and left
             out of the two wallet figures, because the curve, the pool and the locker are the machine
-            rather than anybody's position.
+            rather than anybody's position. Team wallets are the ones the launch itself declared and
+            bought for in its first transaction; they are people, so they stay in the figures.
             {entries.length > DRAW && ` ${entries.length - DRAW} smaller holders are counted but not drawn.`}
           </p>
         </>

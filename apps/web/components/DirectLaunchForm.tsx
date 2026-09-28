@@ -9,11 +9,12 @@ import { directTicks, hoodPortalAbi, hoodDirectDeployerAbi, mineFreeHookSalt, pr
 import { directAddresses } from "@/lib/config";
 import { api, type PairRow } from "@/lib/api";
 import { pairDecimals, pairSymbol, shortAddress } from "@/lib/format";
-import { detectPortalGeneration, encodeAuctionBlocks, encodePenalties, penaltiesInUse, penaltyProblem, penaltyReviewRows, portalAbis, PENALTY_FORM_DEFAULTS, type PenaltyForm } from "@/lib/launchAbi";
+import { detectPortalGeneration, portalTakesTeam, encodeAuctionBlocks, encodePenalties, penaltiesInUse, penaltyProblem, penaltyReviewRows, portalAbis, PENALTY_FORM_DEFAULTS, type PenaltyForm } from "@/lib/launchAbi";
 import { Artwork } from "@/components/Artwork";
 import { ArtworkPicker } from "@/components/ArtworkPicker";
 import { DEFAULT_SNIPE_PCT, Field, LaunchBar, LaunchFeeExample, LaunchReview, PairChooser, PenaltyOptions, Slider, Step, WhatHappens, WizardNav, WizardProgress } from "@/components/LaunchUI";
 import { DirectSim } from "@/components/Sim";
+import { EMPTY_LEG, legsProblem, TeamLegsEditor, units, type LegForm } from "@/components/TeamLegsEditor";
 import { brand } from "@/brands";
 
 const SUPPLY = 1_000_000_000;
@@ -99,12 +100,18 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     queryKey: ["portal-generation", directAddresses.portal],
     queryFn: async () => {
       const code = await publicClient!.getCode({ address: directAddresses.portal! });
-      return detectPortalGeneration(code) ?? null;
+      return { generation: detectPortalGeneration(code) ?? null, team: portalTakesTeam(code) };
     },
     enabled: Boolean(publicClient && directAddresses.portal),
     staleTime: Infinity,
   });
-  const generation = portalGeneration.data ?? undefined;
+  const generation = portalGeneration.data?.generation ?? undefined;
+  const supportsTeam = portalGeneration.data?.team ?? false;
+  /// Block zero on the direct machine: declared team wallets that buy in the launch transaction.
+  /// With a team the creator's single first buy is off; the team list is the first buy.
+  const [teamOn, setTeamOn] = useState(false);
+  const [teamLegs, setTeamLegs] = useState<LegForm[]>([{ ...EMPTY_LEG }]);
+  const [teamGas, setTeamGas] = useState("0.0005");
   const supportsFeeRecipient = generation === "v2" || generation === "v3";
   const supportsPenalties = generation === "v3";
 
@@ -166,7 +173,10 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
   // A creator who turned a penalty on is owed that penalty. On a portal that cannot take it, the
   // launch waits rather than silently going out without it.
   const penaltiesUnsupported = penaltiesInUse(penalties) && generation !== undefined && !supportsPenalties;
-  const reviewedTerms = JSON.stringify({ form, penalties, launchFee: String(launchFee ?? 0n), generation });
+  const teamTotal = teamOn ? teamLegs.reduce((s, l) => s + units(l.amount, quoteDec), 0n) : 0n;
+  const teamGasEach = teamOn ? units(teamGas, 18) : 0n;
+  const teamError = teamOn ? (!supportsTeam ? "The launch contract on this deployment does not take team wallets yet." : legsProblem(teamLegs, quoteDec)) : undefined;
+  const reviewedTerms = JSON.stringify({ form, penalties, launchFee: String(launchFee ?? 0n), generation, teamOn, teamLegs, teamGas });
   const reviewed = reviewedFingerprint === reviewedTerms;
 
   useEffect(() => {
@@ -226,11 +236,39 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
         tickSpacing: SPACING,
         config,
         salt,
-        initialBuy: safeUnits(form.firstBuy, quoteDec),
+        initialBuy: teamOn ? 0n : safeUnits(form.firstBuy, quoteDec),
       };
       const params = supportsFeeRecipient
         ? { ...baseParams, creatorFeeRecipient: form.feeRecipient ? getAddress(form.feeRecipient) : address }
         : baseParams;
+
+      if (teamOn) {
+        if (!isNative) {
+          const allowance = await publicClient!.readContract({
+            address: form.quote, abi: erc20Abi, functionName: "allowance", args: [address, directAddresses.portal],
+          }) as bigint;
+          if (allowance < teamTotal) {
+            setHash(await writeContractAsync({
+              address: form.quote, abi: erc20Abi, functionName: "approve", args: [directAddresses.portal, teamTotal],
+            }));
+            return;
+          }
+        }
+        const legArgs = teamLegs.map((l) => ({
+          wallet: getAddress(l.wallet.trim()), pairIn: units(l.amount, quoteDec), minTokensOut: 0n, lock: BigInt(l.lock), gas: teamGasEach,
+        }));
+        const teamValue = ((launchFee as bigint | undefined) ?? 0n) + (isNative ? teamTotal : 0n) + teamGasEach * BigInt(legArgs.length);
+        // Simulated first: a team wallet over the launch's own hold cap reverts, and this says so.
+        await publicClient!.simulateContract({
+          account: address, address: directAddresses.portal, abi: portalAbis[generation] as never, functionName: "createTeamLaunch",
+          args: [params, hookSalt, legArgs] as never, value: teamValue,
+        });
+        setHash(await writeContractAsync({
+          address: directAddresses.portal, abi: portalAbis[generation] as never, functionName: "createTeamLaunch",
+          args: [params, hookSalt, legArgs] as never, value: teamValue,
+        }));
+        return;
+      }
 
       // Only the chain's own currency travels with the transaction; anything else is pulled, and
       // the portal needs an allowance before it can pull it.
@@ -294,6 +332,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
     : !firstBuyValid ? `Enter a valid first-buy amount with at most ${quoteDec} decimal places.`
     : supportsFeeRecipient && form.creatorBps > 0 && form.feeRecipient !== "" && !isAddress(form.feeRecipient) ? "Enter a valid creator-fee address."
     : penaltyError ? penaltyError
+    : teamError ? teamError
     : launchFee === undefined ? "Reading the launch fee from chain."
     : !reviewed ? "Review and acknowledge the permanent launch terms."
     : portalGeneration.isLoading ? "Checking the launch contract version."
@@ -388,10 +427,30 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
               </div>
               {!windowValid && <p className="field-note bad">Lower the single-buy cap to at most 110% of the wallet cap.</p>}
             </details>
-            <Field label={`Your first buy in ${quoteSym}`} help="Optional. Bought in the launch transaction, before anyone else can trade.">
-              <input className="input mono" inputMode="decimal" value={form.firstBuy}
-                onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
-            </Field>
+            {!teamOn && (
+              <Field label={`Your first buy in ${quoteSym}`} help="Optional. Bought in the launch transaction, before anyone else can trade.">
+                <input className="input mono" inputMode="decimal" value={form.firstBuy}
+                  onChange={(e) => set("firstBuy", e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" />
+              </Field>
+            )}
+            <label className="team-toggle">
+              <input type="checkbox" checked={teamOn} disabled={!supportsTeam && !teamOn} onChange={(e) => setTeamOn(e.target.checked)} />
+              <span>
+                <b>Team wallets in the launch transaction</b>
+                <span className="field-note">{supportsTeam
+                  ? "Declared wallets buy before anyone else, each one published as the team on the token page. Each wallet still meets the hold cap above; a locked wallet's tokens wait in the token lock."
+                  : "Not available on this launch contract yet."}</span>
+              </span>
+            </label>
+            {teamOn && (
+              <>
+                <TeamLegsEditor legs={teamLegs} onChange={setTeamLegs} symbol={quoteSym} decimals={quoteDec} />
+                <Field label="Gas per wallet, in ETH" help="Sent to every team wallet with its tokens. 0 for none.">
+                  <input className="input mono" value={teamGas} onChange={(e) => setTeamGas(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" />
+                </Field>
+                {teamError && <p className="field-note bad">{teamError}</p>}
+              </>
+            )}
             </div></details>
           </Step>
           </>)}
@@ -496,6 +555,7 @@ export function DirectLaunchForm({ chooser }: { chooser: React.ReactNode }) {
                 { label: "Your tax goes to", value: `Creator ${form.creatorBps}% · burn ${form.buybackBps}% · holders ${form.dividendsBps}% · liquidity ${form.liquidityBps}%` },
                 { label: "Creator address", value: recipient },
                 { label: "Opening limits", value: form.restrictionBlocks ? `${form.restrictionBlocks} blocks · max hold ${form.maxHold}% · max buy ${form.maxBuy}%` : "None" },
+                ...(teamOn ? [{ label: "Team wallets", value: `${teamLegs.length} wallets, ${formatUnits(teamTotal, quoteDec)} ${quoteSym} in the launch transaction${teamGasEach > 0n ? `, ${teamGas} ETH gas each` : ""}; published as the team` }] : []),
                 ...penaltyReviewRows(penalties, { snipe: { pct: form.snipeTax, seconds: form.snipeSeconds } }),
                 { label: "Launch cost", value: `${feeDisplay} plus gas${form.firstBuy ? ` · ${form.firstBuy} ${quoteSym} first buy` : ""}` },
               ]}

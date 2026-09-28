@@ -104,9 +104,14 @@ contract HoodLaunchToken is ERC20Upgradeable {
     }
 
     /// @notice Called once by the portal, after the pool and the splitter exist.
-    function setLaunchAddresses(address pool_, address dividends_, address locker, address hook, address buybackModule)
-        external
-    {
+    function setLaunchAddresses(
+        address pool_,
+        address dividends_,
+        address locker,
+        address hook,
+        address buybackModule,
+        address tokenLock
+    ) external {
         if (msg.sender != portal) revert NotPortal();
         if (pool != address(0)) revert AlreadyInitialized();
         pool = pool_;
@@ -117,6 +122,8 @@ contract HoodLaunchToken is ERC20Upgradeable {
         exempt[hook] = true;
         // holds tokens for the length of one instruction, on their way to being burned
         exempt[buybackModule] = true;
+        // holds locked first buys and team legs in their owners' names; zero when there is none
+        if (tokenLock != address(0)) exempt[tokenLock] = true;
     }
 
     /// @notice Called once by the portal when the launch chose the sniper auction. `endBlock` is

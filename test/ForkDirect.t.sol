@@ -30,6 +30,8 @@ import {LaunchMode} from "../src/HoodTypes.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {MockUSD} from "./mocks/Mocks.sol";
 import {MockBag} from "./mocks/DirectMocks.sol";
+import {HoodTokenLock} from "../src/HoodTokenLock.sol";
+import {TeamBuy} from "../src/TeamTypes.sol";
 
 interface IPermit2 {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
@@ -42,6 +44,18 @@ interface IUR {
 interface IStateView {
     function getSlot0(bytes32 poolId) external view returns (uint160 sqrtPriceX96, int24 tick, uint24, uint24);
     function getLiquidity(bytes32 poolId) external view returns (uint128);
+}
+
+/// @dev The registry the portal reports to, reduced to what a team launch reads: the token lock.
+contract LockRegistry {
+    address public firstBuyLocker;
+
+    constructor(address lock) {
+        firstBuyLocker = lock;
+    }
+
+    function registerDirectLaunch(address, address, address, address, address, address, string calldata, string calldata)
+        external {}
 }
 
 /// @notice A direct launch, end to end, against the real Uniswap v4 on chain 4663.
@@ -817,5 +831,121 @@ contract ForkDirectTest is Test {
         locker.deepen();
         assertEq(POOL_MANAGER.balance - poolBefore, pot, "all of it, onto the launch's own position");
         assertEq(address(locker).balance, 0);
+    }
+
+    // ---------------------------------------------------------------- team launch
+
+    HoodTokenLock internal tokenLock;
+    address internal t1 = makeAddr("t1");
+    address internal t2 = makeAddr("t2");
+    address internal t3 = makeAddr("t3");
+
+    function _teamInput(string memory sym, uint32 restrictionBlocks) internal pure returns (HoodPortal.LaunchInput memory) {
+        DirectConfig memory config = DirectConfig({
+            buyTaxBps: 500,
+            sellTaxBps: 500,
+            snipeTaxBps: 5_000,
+            snipeDecaySeconds: 3,
+            restrictionBlocks: restrictionBlocks,
+            maxHoldBps: 500,
+            maxBuyBps: 550,
+            tickStart: TICK_START,
+            tickBond: TICK_BOND,
+            allocations: Allocations(2_500, 2_500, 4_000, 1_000),
+            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
+            auctionBlocks: 0
+        });
+        return HoodPortal.LaunchInput({
+            name: "Team Fam",
+            symbol: sym,
+            logo: "",
+            description: "",
+            socials: Socials("", "", "", "", ""),
+            quote: address(0),
+            creatorFeeRecipient: address(0),
+            supply: SUPPLY,
+            poolFee: POOL_FEE,
+            tickSpacing: SPACING,
+            config: config,
+            salt: bytes32(uint256(777)),
+            initialBuy: 0
+        });
+    }
+
+    function _wireLock() internal {
+        tokenLock = new HoodTokenLock();
+        LockRegistry reg = new LockRegistry(address(tokenLock));
+        vm.prank(owner);
+        portal.setRegistry(address(reg));
+    }
+
+    function _legs() internal view returns (TeamBuy[] memory legs) {
+        legs = new TeamBuy[](3);
+        legs[0] = TeamBuy({wallet: t1, pairIn: 0.2 ether, minTokensOut: 0, lock: 0, gas: 0.005 ether});
+        legs[1] = TeamBuy({wallet: t2, pairIn: 0.2 ether, minTokensOut: 0, lock: 30 days, gas: 0});
+        legs[2] = TeamBuy({wallet: t3, pairIn: 0.1 ether, minTokensOut: 0, lock: 0, gas: 0});
+    }
+
+    function test_team_launch_buys_every_wallet_in_the_launch_transaction() public {
+        _wireLock();
+        bytes32 salt = _mineHookSalt(5_000_000);
+        vm.prank(creator);
+        HoodPortal.Addresses memory out =
+            portal.createTeamLaunch{value: 0.002 ether + 0.5 ether + 0.005 ether}(_teamInput("TEAMD", 30), salt, _legs());
+        HoodLaunchToken t = HoodLaunchToken(out.token);
+
+        assertGt(t.balanceOf(t1), 0);
+        assertGt(t.balanceOf(t3), 0);
+        assertEq(t.balanceOf(t2), 0, "the locked wallet holds nothing in hand");
+        (, address lockOwner, uint128 amount,) = tokenLock.locks(1);
+        assertEq(lockOwner, t2);
+        assertGt(amount, 0);
+        assertEq(t1.balance, 0.005 ether, "gas went with the tokens");
+        // The portal swapped, so the hook took no surcharge from the team.
+        assertEq(HoodLaunchHook(payable(out.hook)).snipeClaims(), 0);
+        assertEq(t.balanceOf(address(portal)), 0, "nothing left in the portal");
+        assertEq(address(portal).balance, 0);
+    }
+
+    function test_the_hold_cap_still_applies_to_a_team_wallet() public {
+        _wireLock();
+        TeamBuy[] memory legs = new TeamBuy[](1);
+        // about 10 ETH of FDV at the open, 5% hold cap: two ETH is far past it
+        legs[0] = TeamBuy({wallet: t1, pairIn: 2 ether, minTokensOut: 0, lock: 0, gas: 0});
+        bytes32 salt = _mineHookSalt(6_000_000);
+        vm.prank(creator);
+        vm.expectRevert(HoodLaunchToken.HoldsTooMuch.selector);
+        portal.createTeamLaunch{value: 0.002 ether + 2 ether}(_teamInput("CAPD", 30), salt, legs);
+    }
+
+    function test_a_locked_leg_may_exceed_the_hold_cap_because_the_lock_is_not_a_wallet() public {
+        _wireLock();
+        TeamBuy[] memory legs = new TeamBuy[](1);
+        legs[0] = TeamBuy({wallet: t2, pairIn: 2 ether, minTokensOut: 0, lock: 90 days, gas: 0});
+        bytes32 salt = _mineHookSalt(7_000_000);
+        vm.prank(creator);
+        HoodPortal.Addresses memory out =
+            portal.createTeamLaunch{value: 0.002 ether + 2 ether}(_teamInput("LOCKD", 30), salt, legs);
+        assertGt(IERC20(out.token).balanceOf(address(tokenLock)), 0);
+    }
+
+    function test_team_launch_refusals() public {
+        _wireLock();
+        bytes32 salt = _mineHookSalt(8_000_000);
+        HoodPortal.LaunchInput memory input = _teamInput("NOPE", 30);
+        vm.startPrank(creator);
+        vm.expectRevert(HoodPortal.NoLegs.selector);
+        portal.createTeamLaunch{value: 0.002 ether}(input, salt, new TeamBuy[](0));
+        input.initialBuy = 1;
+        vm.expectRevert(HoodPortal.UseLegs.selector);
+        portal.createTeamLaunch{value: 0.002 ether}(input, salt, _legs());
+        input.initialBuy = 0;
+        TeamBuy[] memory legs = _legs();
+        legs[2].wallet = t1;
+        vm.expectRevert(HoodPortal.BadLeg.selector);
+        portal.createTeamLaunch{value: 0.502 ether + 0.005 ether}(input, salt, legs);
+        vm.expectRevert(HoodPortal.BadFee.selector);
+        portal.createTeamLaunch{value: 0.4 ether}(input, salt, _legs());
+        vm.stopPrank();
     }
 }

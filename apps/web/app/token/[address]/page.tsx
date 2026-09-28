@@ -25,6 +25,7 @@ import { KingOfHill } from "@/components/token/KingOfHill";
 import { BoostBadge } from "@/components/token/BoostBadge";
 import { BoostBuy } from "@/components/token/BoostBuy";
 import { AuctionPanel } from "@/components/token/AuctionPanel";
+import { TeamPanel } from "@/components/token/TeamPanel";
 import dynamic from "next/dynamic";
 // lightweight-charts is ~45 kB and the chart is a widget, not the first thing a trader needs. Split
 // it out of the token page's initial bundle and mount it after hydration, behind a matching box, so
@@ -71,7 +72,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
 
   const holders = useQuery({
     queryKey: ["holders", token],
-    queryFn: () => api<{ holders: { address: string; balance: string }[] }>(`/tokens/${token}/holders`),
+    queryFn: () => api<{ holders: { address: string; balance: string; team?: boolean }[] }>(`/tokens/${token}/holders`),
     refetchInterval: 30_000,
   });
 
@@ -183,6 +184,9 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
               {twitterUrl(data.twitter) && <a className="hover:text-[var(--color-lime)]" href={twitterUrl(data.twitter)!} target="_blank" rel="noreferrer noopener">x</a>}
               {telegramUrl(data.telegram) && <a className="hover:text-[var(--color-lime)]" href={telegramUrl(data.telegram)!} target="_blank" rel="noreferrer noopener">telegram</a>}
               <span>printed {ago(data.launched_at)} ago by <Link className="hover:text-[var(--color-lime)]" href={`/portfolio?address=${data.creator}`}>{shortAddress(data.creator)}</Link></span>
+              {(data.team_legs ?? 0) > 0 && (
+                <span className="token-team-line">team launch: {data.team_legs} wallets bought in block zero</span>
+              )}
               {BigInt(data.first_buy_locked || "0") > 0n && (
                 <span className="token-locked-line">
                   dev locked
@@ -233,6 +237,14 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
             <span>{machineLabel(data)}</span>
             <span className="mono dim">{(progress * 100).toFixed(1)}% to the pool</span>
           </div>
+          {((data.snipe_tax_bps ?? 0) > 0 || (data.max_buy_bps ?? 0) > 0) && (
+            <p className="token-guard-line mono dim text-xs mb-2">
+              opening rules:
+              {(data.snipe_tax_bps ?? 0) > 0 && ` ${(data.snipe_tax_bps! / 100).toFixed(0)}% extra on buys, gone after ${data.snipe_decay_seconds}s, 80% to holders`}
+              {(data.snipe_tax_bps ?? 0) > 0 && (data.max_buy_bps ?? 0) > 0 && " ·"}
+              {(data.max_buy_bps ?? 0) > 0 && ` ${(data.max_buy_bps! / 100).toFixed(2)}% per wallet until block ${data.restrictions_end_block}`}
+            </p>
+          )}
           <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-ink)]">
             <div className="h-full rounded-full bg-[var(--color-lime)]" style={{ width: `${Math.min(100, progress * 100)}%` }} />
           </div>
@@ -285,7 +297,7 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
             <div className="space-y-1 text-xs">
               {holders.data?.holders.slice(0, 8).map((h) => (
                 <div key={h.address} className="flex justify-between">
-                  <span className="mono dim">{shortAddress(h.address)}</span>
+                  <span className="mono dim">{shortAddress(h.address)}{h.team && <span className="team-tag"> team</span>}</span>
                   <span className="mono">{fmt(BigInt(h.balance))}</span>
                 </div>
               ))}
@@ -305,6 +317,10 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
           totalSupply={totalSupply}
           holders={data.holders}
         />
+
+        {(data.team_legs ?? 0) > 0 && (
+          <TeamPanel token={data.token} totalSupply={totalSupply} pairSymbol={sym} pairDecimals={dec} />
+        )}
 
         <GraduationRace current={data.token} />
 

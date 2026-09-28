@@ -28,7 +28,7 @@ contract DirectTokenTest is Test {
             Socials("@hoodfam", "t.me/hoodfam", "discord.gg/hoodfam", "https://hood.fam", "hoodfam.eth"),
             SUPPLY, creator, 30, 500, 550
         );
-        token.setLaunchAddresses(pool, address(0), makeAddr("locker"), makeAddr("hook"), makeAddr("buybackModule"));
+        token.setLaunchAddresses(pool, address(0), makeAddr("locker"), makeAddr("hook"), makeAddr("buybackModule"), address(0));
         // the pool holds the supply, the way it does after a launch
         token.transfer(pool, SUPPLY);
     }
@@ -137,7 +137,7 @@ contract DirectTokenTest is Test {
         free.initialize(
             "Free", "FREE", "", "", Socials("", "", "", "", ""), SUPPLY, creator, 0, 100, 100
         );
-        free.setLaunchAddresses(pool, address(0), makeAddr("locker2"), makeAddr("hook2"), makeAddr("buybackModule"));
+        free.setLaunchAddresses(pool, address(0), makeAddr("locker2"), makeAddr("hook2"), makeAddr("buybackModule"), address(0));
         free.transfer(pool, SUPPLY);
 
         vm.prank(pool);
@@ -178,7 +178,7 @@ contract CreatorSlashTest is Test {
         splitter = new HoodRevenueSplitter(address(this), makeAddr("treasury"), makeAddr("buyback"), address(token), address(0));
         splitter.initialize(recipient, makeAddr("locker"), Allocations(5_000, 0, 5_000, 0));
         splitter.exclude(pool);
-        token.setLaunchAddresses(pool, address(splitter), makeAddr("locker"), makeAddr("hook"), makeAddr("buybackModule"));
+        token.setLaunchAddresses(pool, address(splitter), makeAddr("locker"), makeAddr("hook"), makeAddr("buybackModule"), address(0));
         token.transfer(pool, SUPPLY);
         vm.startPrank(pool);
         token.transfer(alice, SUPPLY / 4);
@@ -251,7 +251,7 @@ contract AuctionGateTest is Test {
         vm.roll(100);
         token = HoodLaunchToken(Clones.clone(address(new HoodLaunchToken())));
         token.initialize("T", "T", "", "", Socials("", "", "", "", ""), SUPPLY, creator, 0, 10_000, 10_000);
-        token.setLaunchAddresses(pool, address(0), locker, makeAddr("hook"), makeAddr("buybackModule"));
+        token.setLaunchAddresses(pool, address(0), locker, makeAddr("hook"), makeAddr("buybackModule"), address(0));
         auction = new HoodOpeningAuction(address(this));
         endBlock = uint64(block.number) + AUCTION_BLOCKS;
         auction.register(address(token), endBlock, 0.01 ether);

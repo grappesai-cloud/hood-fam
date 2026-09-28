@@ -14,6 +14,8 @@ export const SYSTEM = new Set(
     // the auction takes bids. None of them is a person.
     process.env.HOOD_BAG, process.env.HOOD_PAYDAY, process.env.HOOD_BURN_CLOCK, process.env.HOOD_BOOSTS,
     process.env.HOOD_GRADUATION_HOOK, process.env.HOOD_OPENING_AUCTION,
+    // The block-zero periphery buys for team wallets inside a launch; the wallets are people, it is not.
+    process.env.HOOD_BLOCK_ZERO,
     "0x8366a39cc670b4001a1121b8f6a443a643e40951", // the PoolManager
     "0x8876789976decbfcbbbe364623c63652db8c0904", // the UniversalRouter
     zeroAddress,

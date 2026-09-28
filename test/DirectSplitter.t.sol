@@ -42,7 +42,7 @@ contract DirectSplitterTest is Test {
         splitter.initialize(creator, locker, Allocations(2_500, 2_500, 4_000, 1_000));
         splitter.setHook(hook);
         splitter.exclude(pool);
-        token.setLaunchAddresses(pool, address(splitter), locker, hook, buybackModule);
+        token.setLaunchAddresses(pool, address(splitter), locker, hook, buybackModule, address(0));
         token.transfer(pool, SUPPLY);
         vm.deal(hook, 100 ether);
     }
@@ -245,7 +245,7 @@ contract DirectSplitterTest is Test {
         HoodRevenueSplitter s2 = new HoodRevenueSplitter(portal, treasury, buybackModule, address(t2), address(usd));
         s2.initialize(creator, locker, Allocations(2_500, 2_500, 4_000, 1_000));
         s2.exclude(pool);
-        t2.setLaunchAddresses(pool, address(s2), locker, hook, buybackModule);
+        t2.setLaunchAddresses(pool, address(s2), locker, hook, buybackModule, address(0));
         t2.transfer(pool, SUPPLY);
         vm.prank(pool);
         t2.transfer(alice, SUPPLY / 2);
@@ -408,7 +408,7 @@ contract DirectSplitterTest is Test {
         s2.initialize(address(bag), locker, Allocations(2_500, 2_500, 4_000, 1_000));
         s2.exclude(pool);
         vm.stopPrank();
-        t2.setLaunchAddresses(pool, address(s2), locker, hook, buybackModule);
+        t2.setLaunchAddresses(pool, address(s2), locker, hook, buybackModule, address(0));
         t2.transfer(pool, SUPPLY);
         vm.prank(pool);
         t2.transfer(alice, SUPPLY / 2);

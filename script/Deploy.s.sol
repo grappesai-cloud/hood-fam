@@ -8,6 +8,7 @@ import {HoodDeployer} from "../src/HoodDeployer.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodTokenLock} from "../src/HoodTokenLock.sol";
+import {HoodBlockZero} from "../src/HoodBlockZero.sol";
 import {HoodCurveRouter} from "../src/HoodCurveRouter.sol";
 import {HoodReferrals} from "../src/HoodReferrals.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
@@ -77,6 +78,7 @@ contract Deploy is Script {
         address bag;
         address boosts;
         address graduationHook;
+        address blockZero;
         address directDeployer;
         address tokenImplementation;
         address portal;
@@ -170,6 +172,9 @@ contract Deploy is Script {
         // Factory owner only, and before ownership moves: no curve can open a pool without it.
         UniswapV4Graduator(payable(book.graduator)).setHook(book.graduationHook);
         factory.setFirstBuyLocker(book.firstBuyLocker);
+        // Block zero: the team launch periphery. No owner, nothing to wire; it reads the factory.
+        book.blockZero = address(new HoodBlockZero(book.factory));
+        console.log("blockZero ", book.blockZero);
         factory.setLaunchFee(LAUNCH_FEE);
 
         // Native pair. A ticker locks after this much volume inside 24 hours.
@@ -300,6 +305,7 @@ contract Deploy is Script {
         console.log("HOOD_BOOSTS=%s", book.boosts);
         console.log("HOOD_GRADUATION_HOOK=%s", book.graduationHook);
         console.log("HOOD_OPENING_AUCTION=%s", book.auction);
+        console.log("HOOD_BLOCK_ZERO=%s", book.blockZero);
         console.log("HOOD_START_BLOCK=%s", block.number);
     }
 

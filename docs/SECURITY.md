@@ -168,20 +168,44 @@ funds that are not already in their path.
 
 Slither 0.11.6, run over `src/` with dependencies, tests and scripts excluded, informational and
 low findings dropped. The v3 run (28-09-2026, the Bag, pots, Payday, burn clock and the graduation
-hook included) has 120 results. Every one of them was read and is answered here, so the next person
+hook included) had 120 results; v4 (block zero on both machines and the curve's opening rules) has 132. Every one of them was read and is answered here, so the next person
 does not have to re-derive the verdicts. `docs/slither-baseline.json` lists them, and CI fails on
 any finding that is not in it (`scripts/slither-gate.mjs`).
 
 | Detector | Count | Verdict |
 |---|---|---|
 | `arbitrary-send-erc20` | 1 | False positive. `PairTransfer.pull` pulls from `msg.sender` at every call site; the "arbitrary" address is the caller. |
-| `arbitrary-send-eth` | 12 | False positive. Every destination is fixed by the protocol, never passed by a caller: the fee router pays the registry's creator fee recipient, the Bag, the launch's own curve or graduation handler; the Bag pays the house address, the Payday and a launch's own pot; the Payday pays the wallets and pots the keeper's epoch names, from its own balance; the pots and the splitter push a holder's own dividend; the launch hook pays the referral the portal's registry names; `finalize` pays the Bag. Pushes to wallets carry a gas cap (30k to 60k) and fall back to a claim. |
-| `reentrancy-eth` | 14 | Guarded. `takeTradeFee`, `takeGraduationFee`, `takePenaltyCut`, both `pushMany`, `graduate`, `flush`, `unstake` and `demote` are `nonReentrant`, and their outgoing ETH calls are gas-capped or go to protocol contracts. `buybackInline` can only be called by the hook itself (`NotSelf`), from inside the PoolManager's lock. |
+| `arbitrary-send-eth` | 14 | False positive. Every destination is fixed by the protocol, never passed by a caller: a curve pays its snipe penalty's holder share into its own pot, pinned at launch; the fee router pays the registry's creator fee recipient, the Bag, the launch's own curve or graduation handler; the Bag pays the house address, the Payday and a launch's own pot; the Payday pays the wallets and pots the keeper's epoch names, from its own balance; the pots and the splitter push a holder's own dividend; the launch hook pays the referral the portal's registry names; `finalize` pays the Bag. Pushes to wallets carry a gas cap (30k to 60k) and fall back to a claim. |
+| `reentrancy-eth` | 16 | Guarded. `HoodCurve.claimProtocol` (now also paying the snipe penalties' Bag share) and every `HoodBlockZero` entry point are `nonReentrant`; block zero's buys go to a curve the factory printed in the same transaction. `takeTradeFee`, `takeGraduationFee`, `takePenaltyCut`, both `pushMany`, `graduate`, `flush`, `unstake` and `demote` are `nonReentrant`, and their outgoing ETH calls are gas-capped or go to protocol contracts. `buybackInline` can only be called by the hook itself (`NotSelf`), from inside the PoolManager's lock. |
 | `reentrancy-no-eth` | 10 | Harmless. `releaseHeld`, `takeHouseCoinLeg`, `HoodBurnClock.burn` (keeper only) and `HoodBuybackModule.run` are `nonReentrant`. `deployAdapter` could only be re-entered by LayerZero's endpoint, and a second CREATE2 with the same salt reverts anyway. `_beforeSwap`, `_afterSwap` and `_flushClaims` are reached only through the PoolManager's lock. `HoodStaking._settle` runs under `unstake`/`demote`/`claim`, all `nonReentrant`. |
 | `incorrect-equality` | 28 | Not exploitable. They are `== 0` on amounts this contract computed, or `block.number == launchBlock`, not balance comparisons somebody can move with a donation. |
-| `uninitialized-local` | 14 | False positive. Structs filled field by field, tuples assigned by a ternary or a try branch, and counters and flags (`released`, `burned`, `ret`, `pen2`) that are meant to start at zero. |
-| `unused-return` | 40 | Accepted. `initialize`, `unlock`, `settle`, `donate` and `getSlot0` return values we do not need; each of them reverts on failure rather than returning a code. |
+| `uninitialized-local` | 18 | False positive. Structs filled field by field, tuples assigned by a ternary or a try branch, and counters and flags (`released`, `burned`, `ret`, `pen2`) that are meant to start at zero. `HoodBlockZero`'s and the portal's leg sums (`total`, `got`) and a leg's `lockId`/`unlockAt`, which stay zero for a leg that is not locked. |
+| `unused-return` | 43 | Accepted. `initialize`, `unlock`, `settle`, `donate` and `getSlot0` return values we do not need; each of them reverts on failure rather than returning a code. `HoodBlockZero` drops the factory's third return, the first buy, which it always turns off (`UseLegs`), so it is always zero; the portal's team legs drop `unlock`'s return and measure the tokens as a balance delta instead. |
+| `reentrancy-balance` | 1 | Guarded. `HoodPortal._teamLeg` measures its token balance around `poolManager.unlock`; the only code that runs in between is the portal's own `unlockCallback` (PoolManager only), this launch's hook and this launch's token, under `createTeamLaunch`'s `nonReentrant`. |
 | `divide-before-multiply` | 1 | Intentional. `(MAX_TICK / spacing) * spacing` floors a tick to its spacing. |
+
+`HoodBlockZero` (block zero, the team launch) is a periphery with no owner and no state between
+calls: it launches through the factory's public `launch`/`launchCustom` exactly as any creator can,
+then buys on the new curve for each declared wallet in the same transaction and records the wallet,
+its spend, its tokens and its lock. It holds nothing afterwards: refunds and change are measured as
+balance deltas of the call, so a stray balance is never handed to a launcher (`test/BlockZero.t.sol`).
+The factory records the periphery as `creator`; the periphery's `launcherOf` names the real caller,
+and the creator fee recipient defaults to that caller so the stream can never land on the periphery.
+`followUp` is launcher-only and reverts (`OutsidersAhead`) when wallets outside the team have bought
+more than the launcher's line, so a second wave never lands in a crowded open; it is a later
+transaction and pays the curve's opening rules like anyone. `fundGas` only moves the caller's own
+value. On the direct machine the portal's `createTeamLaunch` does the same inside the launch
+transaction: the portal swaps (the hook exempts it) and then transfers, so the launch's own hold cap
+still applies to every team wallet; the token lock is exempt from the cap and excluded from dividends.
+
+**The curve's opening rules (v4).** A surcharge on buys that decays quadratically to zero over at
+most 600 s (at most 90%), and a per-wallet buy cap for at most 1,200 blocks. The surcharge is split
+80% to the launch's pot (paid inline; the pot books a deposit without calling out) and 20% booked for
+the Bag and paid in `claimProtocol`, so a Bag that refuses funds cannot stop a trade. The only
+exemption is the launch transaction itself: the curve's constructor sets a transient-storage flag
+(EIP-1153), which lives for exactly that transaction, and only the factory (the creator's first buy)
+and the account that called the factory (the block-zero periphery) are exempt while it is set. A buy
+one transaction later, in the same block or not, pays like anyone (`test/CurveGuard.t.sol`, isolated).
 
 Slither cannot build IR for `HoodPortal._mintPosition` under via-IR and says so; that function is
 covered by the fork suite and by `test/DirectSwap.t.sol` instead.

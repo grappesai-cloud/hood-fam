@@ -10,7 +10,7 @@ import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodTokenLock} from "../src/HoodTokenLock.sol";
-import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
+import {CurveConfig, CurveGuard, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
 import {PenaltyConfig} from "../src/bag/BagTypes.sol";
 import {MockBag, MockGraduator, MockUSD} from "./mocks/Mocks.sol";
 
@@ -142,7 +142,8 @@ contract BaseTest is Test {
             firstBuyLock: 0,
             salt: bytes32(uint256(1)),
             econ: bytes32(0),
-            penalties: _noPenalties()
+            penalties: _noPenalties(),
+            guard: CurveGuard(0, 0, 0, 0)
         });
     }
 

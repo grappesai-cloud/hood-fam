@@ -88,4 +88,8 @@ export const bagAddresses = {
   houseCoin: configured(process.env.NEXT_PUBLIC_HOUSE_COIN),
 };
 
+/// The team launch periphery: a curve launch and every team wallet's buy in one transaction. Unset,
+/// the team launch page says so and sends nothing.
+export const blockZeroAddress = configured(process.env.NEXT_PUBLIC_BLOCK_ZERO);
+
 export const EXPLORER = "https://robinhoodchain.blockscout.com";

@@ -33,6 +33,8 @@ const wanted = [
   "HoodBoosts",
   "HoodGraduationHook",
   "HoodOpeningAuction",
+  // the team launch: a curve launch and every team wallet's buy in one transaction
+  "HoodBlockZero",
 ];
 
 const out = [

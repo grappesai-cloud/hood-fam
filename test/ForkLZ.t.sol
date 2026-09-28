@@ -16,7 +16,7 @@ import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodBridgeFactory} from "../src/omnichain/HoodBridgeFactory.sol";
 import {HoodOFTAdapter} from "../src/omnichain/HoodOFTAdapter.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
-import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
+import {CurveConfig, CurveGuard, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
 import {PenaltyConfig} from "../src/bag/BagTypes.sol";
 
 /// @notice The omnichain leg against the real LayerZero V2 endpoint on 4663.
@@ -107,7 +107,8 @@ contract ForkLZTest is BagRig {
                 firstBuyLock: 0,
                 salt: bytes32(uint256(1)),
                 econ: bytes32(0),
-                penalties: PenaltyConfig(0, 0, 0, 0, 0, false)
+                penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
+                guard: CurveGuard(0, 0, 0, 0)
             })
         );
         token = t;

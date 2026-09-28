@@ -344,6 +344,33 @@ an indexer that takes two factories, which would have to be written. Plan the cu
 in mind: run the old api beside the new one until the v2 launches have gone quiet, or accept that
 the old launches are reachable on chain and through the old contracts only.
 
+## 1d. Block zero: the team launch
+
+`HoodBlockZero` launches a curve token and buys for every team wallet in the same transaction, then
+writes each wallet, what it paid, what it got and its lock on chain; `followUp` sends a second wave
+only while outside buys are under the launcher's line. The direct machine does the same in
+`HoodPortal.createTeamLaunch`. Both need the v4 series (the curve's opening rules changed
+`LaunchParams`, `launch` selector `0x313f39fb`), which `script/Deploy.s.sol` deploys whole,
+`HoodBlockZero` included, and prints as `HOOD_BLOCK_ZERO`. `script/DeployBlockZero.s.sol` is only
+for a second periphery against an existing v4 factory.
+
+Set `HOOD_BLOCK_ZERO` in the box `.env` (compose passes it to the api, the keeper and, as
+`NEXT_PUBLIC_BLOCK_ZERO`, to the web build) and rebuild the api and web. For the team's alerts,
+make a Telegram bot, add it to a PRIVATE team chat and set `TEAM_ALERT_TELEGRAM_TOKEN` and
+`TEAM_ALERT_TELEGRAM_CHAT`; `TEAM_ALERT_WINDOW_MINUTES` (default 15) is how long after a team launch
+outside buys are reported. The console is `/launch/team` (it turns into the watch at
+`/launch/team?token=`), the wallets are on `/launch/team/desk`. The indexer
+picks up `TeamLaunched` and `TeamLeg` from the block the periphery was deployed in; nothing before
+it can exist. The console is `/launch/team`; the token page labels the team on the holder map and
+lists it in the Team panel.
+
+Rehearsal on a local chain, 31 checks from the launch to the API and the alert:
+
+```bash
+npm run build -w @hood/sdk && npm run build -w @hood/api
+E2E_PG=postgres://$USER@127.0.0.1:5432/postgres node scripts/e2e/block-zero.mjs
+```
+
 ## 2. Presets and pairs
 
 `script/Deploy.s.sol` seeds three presets and two pairs. Change them there before deploying, not

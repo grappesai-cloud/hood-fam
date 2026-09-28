@@ -8,6 +8,7 @@ import {HoodDeployer} from "../src/HoodDeployer.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodTokenLock} from "../src/HoodTokenLock.sol";
+import {HoodBlockZero} from "../src/HoodBlockZero.sol";
 import {HoodReferrals} from "../src/HoodReferrals.sol";
 import {HoodBridgeFactory} from "../src/omnichain/HoodBridgeFactory.sol";
 import {HoodBag} from "../src/bag/HoodBag.sol";
@@ -44,6 +45,7 @@ contract DeployLocal is Script {
         address bag;
         address boosts;
         address graduationHook;
+        address blockZero;
     }
 
     Book internal book;
@@ -79,6 +81,7 @@ contract DeployLocal is Script {
         factory.setModules(book.feeRouter, book.staking, book.graduator);
         factory.setBag(book.bag);
         factory.setFirstBuyLocker(book.firstBuyLocker);
+        book.blockZero = address(new HoodBlockZero(book.factory));
         factory.setLaunchFee(LAUNCH_FEE);
         factory.setPair(address(0), true, 25 ether);
         factory.addConfig(
@@ -116,6 +119,7 @@ contract DeployLocal is Script {
         console.log("HOOD_BURN_CLOCK=%s", book.burnClock);
         console.log("HOOD_BOOSTS=%s", book.boosts);
         console.log("HOOD_GRADUATION_HOOK=%s", book.graduationHook);
+        console.log("HOOD_BLOCK_ZERO=%s", book.blockZero);
         console.log("HOOD_START_BLOCK=%s", block.number);
         console.log("# no Uniswap v4 here: HOOD_PORTAL, HOOD_DIRECT_DEPLOYER, HOOD_BUYBACK_MODULE, HOOD_OPENING_AUCTION stay empty");
         if (keeper == address(0)) console.log("# no KEEPER given: feeRouter, payday and burnClock have no keeper yet");

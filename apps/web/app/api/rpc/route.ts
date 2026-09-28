@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 
 const DEFAULT_RPC = "https://rpc.mainnet.chain.robinhood.com";
 
-// The browser only needs public chain reads and gas simulation. Keeping writes out means this
-// endpoint cannot be turned into a free transaction broadcaster; injected wallets submit their
-// own signed transactions, as they should.
+// The browser only needs public chain reads, gas simulation, and one write: relaying a transaction
+// that is already signed. Injected wallets still submit their own; the team desk signs in the page
+// with keys that never leave it, so it needs somewhere to hand the signed bytes. That is not a free
+// broadcaster: a raw transaction pays its own gas from its own sender, and nothing here can sign.
+// Anything that would ask the node to sign (eth_sendTransaction, eth_sign) stays out.
 const METHODS = new Set([
   "eth_blockNumber",
   "eth_call",
@@ -25,6 +27,7 @@ const METHODS = new Set([
   "eth_getTransactionCount",
   "eth_getTransactionReceipt",
   "eth_maxPriorityFeePerGas",
+  "eth_sendRawTransaction",
 ]);
 
 interface RpcCall { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown }

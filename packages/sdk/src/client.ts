@@ -282,6 +282,8 @@ export function createHoodClient({ publicClient, walletClient, addresses }: Hood
       firstBuyLock: BigInt(p.firstBuyLock ?? 0),
       salt,
       econ,
+      penalties: p.penalties,
+      guard: p.guard,
     }];
 
     const value = isNative ? launchFee + firstBuy : launchFee;
@@ -310,6 +312,7 @@ export function createHoodClient({ publicClient, walletClient, addresses }: Hood
       creatorFeeRecipient: (p.creatorFeeRecipient ?? account().address) as Address,
       firstBuy, firstBuyLock: BigInt(p.firstBuyLock ?? 0), salt,
       econ: `0x${"0".repeat(64)}` as Hex,
+      penalties: p.penalties, guard: p.guard,
     };
     const hash = await write(addresses.factory, hoodFactoryAbi, "launchCustom", [launchParams, { ...config, enabled: true }], launchFee);
     return { hash, salt, launchFee, value: launchFee };
@@ -405,8 +408,14 @@ export function createHoodClient({ publicClient, walletClient, addresses }: Hood
   /// The curve books them rather than pushing them, so that a treasury which cannot take a transfer
   /// can never stop a trade.
   const claimProtocol = (curve: Address) => write(curve, hoodCurveAbi, "claimProtocol", []);
-  const protocolClaimable = (curve: Address) =>
-    publicClient.readContract({ address: curve, abi: hoodCurveAbi, functionName: "protocolClaimable" }) as Promise<bigint>;
+  /// Everything `claimProtocol` would pay out: the fee legs, plus (on a v4 curve) the Bag's share of
+  /// snipe penalties, which the same call pays. An older curve has no penalty balance to read.
+  const protocolClaimable = async (curve: Address) => {
+    const fees = await publicClient.readContract({ address: curve, abi: hoodCurveAbi, functionName: "protocolClaimable" }) as bigint;
+    const penalties = await (publicClient.readContract({ address: curve, abi: hoodCurveAbi, functionName: "penaltyClaimable" }) as Promise<bigint>)
+      .catch(() => 0n);
+    return fees + penalties;
+  };
 
   /// What a buy of `pairIn` would return on the curve right now, for the floor on a buyback.
   const quoteCurveBuy = (curve: Address, pairIn: bigint) =>

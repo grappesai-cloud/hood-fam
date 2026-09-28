@@ -28,6 +28,8 @@ import {HoodRevenueSplitter} from "./HoodRevenueSplitter.sol";
 import {PairTransfer} from "../libraries/PairTransfer.sol";
 import {PenaltyConfig} from "../bag/BagTypes.sol";
 import {IHoodBag} from "../interfaces/IHoodBag.sol";
+import {IHoodTokenLock} from "../interfaces/IHoodTokenLock.sol";
+import {ITeamEvents, TeamBuy} from "../TeamTypes.sol";
 
 interface IPositionManagerLite {
     function modifyLiquidities(bytes calldata unlockData, uint256 deadline) external payable;
@@ -54,6 +56,7 @@ interface IRegistry {
         string calldata symbol,
         string calldata image
     ) external;
+    function firstBuyLocker() external view returns (address);
 }
 
 /// @title HoodPortal
@@ -73,7 +76,13 @@ interface IRegistry {
 ///      of the caller honest (the portal, exempt from the opening surcharge) and the token's view of
 ///      the recipient honest (the creator, whom the launch block belongs to). The window's buy cap
 ///      still applies to it, so a creator gets first dibs, not the whole open.
-contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
+///
+///      A team launch (`createTeamLaunch`) does the same for a list of declared wallets: each one's
+///      buy is swapped by this portal inside the launch transaction, so the hook sees the portal
+///      and takes no surcharge, and then handed to the wallet, or written into the token lock in
+///      its name. The hand-over is a transfer, so the launch's own hold cap applies to every team
+///      wallet. Each wallet, its spend, its tokens and its lock are emitted for the app to label.
+contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEvents {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -96,6 +105,8 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
     uint32 public constant MAX_AUCTION_BLOCKS = 300;
     /// @notice The launch fee can be raised by the owner, but never past this.
     uint256 public constant MAX_LAUNCH_FEE = 0.01 ether;
+    /// @notice Most wallets a team launch may buy for, so it never runs out of gas half way.
+    uint256 public constant MAX_TEAM_LEGS = 40;
     /// @notice The most a launch may print. Above this the caps and the position maths silently
     ///         truncate: `maxHold` is a uint128 and Permit2's allowance is a uint160.
     uint256 public constant MAX_SUPPLY = type(uint128).max;
@@ -194,6 +205,10 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
     error PoolAlreadyOpen();
     error BadPenalty();
     error NoAuction();
+    error NoLegs();
+    error TooManyLegs();
+    error BadLeg();
+    error UseLegs();
 
     struct LaunchInput {
         string name;
@@ -379,6 +394,113 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         nonReentrant
         returns (Addresses memory out)
     {
+        PoolKey memory key;
+        bool tokenIsZero;
+        (out, key, tokenIsZero) = _create(p, hookSalt);
+
+        uint256 spent = launchFee;
+        if (p.initialBuy != 0) {
+            _initialBuy(p, out.token, key, tokenIsZero, msg.sender);
+            if (p.quote == address(0)) spent += p.initialBuy;
+        }
+        _settleValue(out.token, spent);
+    }
+
+    /// @notice A launch whose opening buys are a declared team's: every wallet in `legs` buys in
+    ///         the launch transaction, before anyone else can. Send the launch fee, the legs (on a
+    ///         native quote) and their gas; approve the legs on an ERC-20 quote.
+    function createTeamLaunch(LaunchInput calldata p, bytes32 hookSalt, TeamBuy[] calldata legs)
+        external
+        payable
+        nonReentrant
+        returns (Addresses memory out)
+    {
+        if (p.initialBuy != 0) revert UseLegs();
+        uint256 n = legs.length;
+        if (n == 0) revert NoLegs();
+        if (n > MAX_TEAM_LEGS) revert TooManyLegs();
+        // Checked before anything is deployed, so a short payment says so instead of running
+        // dry half way through the swaps.
+        (uint256 total, uint256 gas) = _legTotals(legs);
+        if (msg.value < launchFee + gas + (p.quote == address(0) ? total : 0)) revert BadFee();
+        PoolKey memory key;
+        bool tokenIsZero;
+        (out, key, tokenIsZero) = _create(p, hookSalt);
+
+        if (p.quote != address(0)) IERC20(p.quote).safeTransferFrom(msg.sender, address(this), total);
+        address tokenLock = registry == address(0) ? address(0) : IRegistry(registry).firstBuyLocker();
+        uint256 got;
+        for (uint256 i; i < n; ++i) {
+            got += _teamLeg(out.token, key, tokenIsZero, p.quote, tokenLock, legs[i], i);
+        }
+        emit TeamLaunched(out.token, out.hook, msg.sender, n, total, got);
+        _settleValue(out.token, launchFee + gas + (p.quote == address(0) ? total : 0));
+    }
+
+    function _legTotals(TeamBuy[] calldata legs) internal pure returns (uint256 total, uint256 gas) {
+        for (uint256 i; i < legs.length; ++i) {
+            TeamBuy calldata l = legs[i];
+            if (l.wallet == address(0) || l.pairIn == 0) revert BadLeg();
+            for (uint256 j; j < i; ++j) {
+                if (legs[j].wallet == l.wallet) revert BadLeg();
+            }
+            total += l.pairIn;
+            gas += l.gas;
+        }
+    }
+
+    /// @dev Swapped to this portal (exempt everywhere, so neither the launch block rule nor the buy
+    ///      cap stops it), then handed over: a transfer to the wallet, which the hold cap still
+    ///      sees, or a lock in the wallet's name.
+    function _teamLeg(
+        address token,
+        PoolKey memory key,
+        bool tokenIsZero,
+        address quote,
+        address tokenLock,
+        TeamBuy calldata l,
+        uint256 index
+    ) internal returns (uint256 got) {
+        uint256 before = IERC20(token).balanceOf(address(this));
+        poolManager.unlock(
+            abi.encode(
+                BuyContext({
+                    key: key, quote: quote, token: token, amount: l.pairIn, zeroForOne: !tokenIsZero, recipient: address(this)
+                })
+            )
+        );
+        got = IERC20(token).balanceOf(address(this)) - before;
+        if (got < l.minTokensOut) revert BadLeg();
+
+        uint256 lockId;
+        uint64 unlockAt;
+        if (l.lock == 0) {
+            IERC20(token).safeTransfer(l.wallet, got);
+        } else {
+            if (tokenLock == address(0) || !IHoodTokenLock(tokenLock).isTier(l.lock)) revert BadLeg();
+            IERC20(token).forceApprove(tokenLock, got);
+            lockId = IHoodTokenLock(tokenLock).lockFor(token, l.wallet, got, l.lock);
+            unlockAt = uint64(block.timestamp) + l.lock;
+        }
+        if (l.gas != 0) {
+            PairTransfer.push(address(0), l.wallet, l.gas);
+            emit TeamGas(token, l.wallet, l.gas);
+        }
+        emit TeamLeg(token, l.wallet, index, l.pairIn, got, lockId, unlockAt);
+    }
+
+    /// @dev The fee to the Bag and any native change back to the caller.
+    function _settleValue(address token, uint256 spent) internal {
+        if (msg.value < spent) revert BadFee();
+        // Creators pay to be seen: the fee is the house's, through the Bag.
+        IHoodBag(bag).takeHouseFee{value: launchFee}(address(0), launchFee, token);
+        if (msg.value > spent) PairTransfer.push(address(0), msg.sender, msg.value - spent);
+    }
+
+    function _create(LaunchInput calldata p, bytes32 hookSalt)
+        internal
+        returns (Addresses memory out, PoolKey memory key, bool tokenIsZero)
+    {
         if (buybackModule == address(0) || bag == address(0)) revert NotWired();
         if (!launchEnabled) revert LaunchesPaused();
         if (whitelistOnly && !whitelisted[msg.sender]) revert NotWhitelisted();
@@ -405,8 +527,8 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
             p.config.restrictionBlocks, p.config.maxHoldBps, p.config.maxBuyBps
         );
 
-        PoolKey memory key = _poolKey(out.token, p.quote, p.poolFee, p.tickSpacing, out.hook);
-        bool tokenIsZero = Currency.unwrap(key.currency0) == out.token;
+        key = _poolKey(out.token, p.quote, p.poolFee, p.tickSpacing, out.hook);
+        tokenIsZero = Currency.unwrap(key.currency0) == out.token;
 
         // Order matters, and the chain taught it: the pool has to be exempt from the opening window
         // and excluded from dividends BEFORE the supply is deposited into it, or the token's own
@@ -435,17 +557,6 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         _register(p, out, msg.sender);
         _announcePool(p, out.token, key);
         _openAuction(p, out.token);
-
-        uint256 spent = launchFee;
-        if (p.initialBuy != 0) {
-            _initialBuy(p, out.token, key, tokenIsZero, msg.sender);
-            if (p.quote == address(0)) spent += p.initialBuy;
-        }
-        if (msg.value < spent) revert BadFee();
-
-        // Creators pay to be seen: the fee is the house's, through the Bag.
-        IHoodBag(bag).takeHouseFee{value: launchFee}(address(0), launchFee, out.token);
-        if (msg.value > spent) PairTransfer.push(address(0), msg.sender, msg.value - spent);
     }
 
     /// @dev Straight against the PoolManager, so the hook sees the portal as the caller and the
@@ -629,10 +740,14 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback {
         HoodRevenueSplitter(payable(out.splitter)).initialize(creatorFeeRecipient, out.locker, p.config.allocations);
         HoodRevenueSplitter(payable(out.splitter)).setHook(out.hook);
         HoodRevenueSplitter(payable(out.splitter)).exclude(address(poolManager));
+        // The token lock holds locked first buys and team legs for months in their owners' names.
+        // It is not a holder with a share of anything, and the hold cap is for wallets, not for it.
+        address tokenLock = registry == address(0) ? address(0) : IRegistry(registry).firstBuyLocker();
+        if (tokenLock != address(0)) HoodRevenueSplitter(payable(out.splitter)).exclude(tokenLock);
 
         // In v4 every pool's tokens sit in the PoolManager, so that is the address a buy comes from.
         HoodLaunchToken(out.token).setLaunchAddresses(
-            address(poolManager), out.splitter, out.locker, out.hook, buybackModule
+            address(poolManager), out.splitter, out.locker, out.hook, buybackModule, tokenLock
         );
     }
 

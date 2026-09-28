@@ -128,6 +128,12 @@ export const createLaunchSelectors: Record<PortalGeneration, `0x${string}`> = {
   v3: toFunctionSelector(createLaunchV3),
 };
 
+/// The portal's team launch (block zero on the direct machine), from v4 on. A portal whose code
+/// does not carry this selector cannot take team wallets.
+export const createTeamLaunchSelector = toFunctionSelector(fn(hoodPortalAbi as unknown as Abi, "createTeamLaunch"));
+export const portalTakesTeam = (code: `0x${string}` | undefined) =>
+  Boolean(code && code.toLowerCase().includes(createTeamLaunchSelector.slice(2).toLowerCase()));
+
 /// Which `createLaunch` the deployed portal answers to, read off its bytecode. `undefined` means
 /// none of the three, which is a deployment problem the form should say out loud.
 export function detectPortalGeneration(code: `0x${string}` | undefined): PortalGeneration | undefined {
@@ -144,28 +150,49 @@ export function detectPortalGeneration(code: `0x${string}` | undefined): PortalG
 const launchAsExported = fn(hoodFactoryAbi as unknown as Abi, "launch");
 const launchCustomAsExported = fn(hoodFactoryAbi as unknown as Abi, "launchCustom");
 
-/// v3: LaunchParams ends in `penalties`. `launchCustom` takes the same params first.
-const launchV3 = withFirstTuple(launchAsExported, ensureComponents([PENALTIES_PARAM]));
-const launchCustomV3 = withFirstTuple(launchCustomAsExported, ensureComponents([PENALTIES_PARAM]));
-/// v2: the same without it.
-const launchV2 = withFirstTuple(launchAsExported, stripComponents(["penalties"]));
-const launchCustomV2 = withFirstTuple(launchCustomAsExported, stripComponents(["penalties"]));
+/// The curve's opening rules, appended to LaunchParams after `penalties` in v4.
+const GUARD_PARAM: AbiParameter = {
+  name: "guard", type: "tuple", internalType: "struct CurveGuard",
+  components: [
+    { name: "snipeTaxBps", type: "uint16", internalType: "uint16" },
+    { name: "snipeDecaySeconds", type: "uint32", internalType: "uint32" },
+    { name: "restrictionBlocks", type: "uint32", internalType: "uint32" },
+    { name: "maxBuyBps", type: "uint16", internalType: "uint16" },
+  ],
+};
 
-export type FactoryGeneration = "v2" | "v3";
+/// v4: LaunchParams ends in `penalties` then `guard`. The SDK's ABI already does.
+const launchV4 = withFirstTuple(launchAsExported, ensureComponents([PENALTIES_PARAM, GUARD_PARAM]));
+const launchCustomV4 = withFirstTuple(launchCustomAsExported, ensureComponents([PENALTIES_PARAM, GUARD_PARAM]));
+/// v3: LaunchParams ends in `penalties`. `launchCustom` takes the same params first.
+const launchV3 = withFirstTuple(launchAsExported, (t) => ensureComponents([PENALTIES_PARAM])(stripComponents(["guard"])(t)));
+const launchCustomV3 = withFirstTuple(launchCustomAsExported, (t) => ensureComponents([PENALTIES_PARAM])(stripComponents(["guard"])(t)));
+/// v2: the same without either.
+const launchV2 = withFirstTuple(launchAsExported, stripComponents(["penalties", "guard"]));
+const launchCustomV2 = withFirstTuple(launchCustomAsExported, stripComponents(["penalties", "guard"]));
+
+export type FactoryGeneration = "v2" | "v3" | "v4";
 
 export const factoryAbis: Record<FactoryGeneration, Abi> = {
   v2: replaceFn(replaceFn(hoodFactoryAbi as unknown as Abi, launchV2), launchCustomV2),
   v3: replaceFn(replaceFn(hoodFactoryAbi as unknown as Abi, launchV3), launchCustomV3),
+  v4: replaceFn(replaceFn(hoodFactoryAbi as unknown as Abi, launchV4), launchCustomV4),
 };
 
 export const launchSelectors: Record<FactoryGeneration, { launch: `0x${string}`; launchCustom: `0x${string}` }> = {
   v2: { launch: toFunctionSelector(launchV2), launchCustom: toFunctionSelector(launchCustomV2) },
   v3: { launch: toFunctionSelector(launchV3), launchCustom: toFunctionSelector(launchCustomV3) },
+  v4: { launch: toFunctionSelector(launchV4), launchCustom: toFunctionSelector(launchCustomV4) },
 };
+
+/// v3 and later take creator penalties; v4 and later take the curve's opening rules.
+export const factoryTakesPenalties = (g: FactoryGeneration | undefined) => g === "v3" || g === "v4";
+export const factoryTakesGuard = (g: FactoryGeneration | undefined) => g === "v4";
 
 export function detectFactoryGeneration(code: `0x${string}` | undefined): FactoryGeneration | undefined {
   if (!code) return undefined;
   const hex = code.toLowerCase();
+  if (hex.includes(launchSelectors.v4.launch.slice(2).toLowerCase())) return "v4";
   if (hex.includes(launchSelectors.v3.launch.slice(2).toLowerCase())) return "v3";
   if (hex.includes(launchSelectors.v2.launch.slice(2).toLowerCase())) return "v2";
   return undefined;
@@ -179,8 +206,8 @@ export function detectFactoryGeneration(code: `0x${string}` | undefined): Factor
 ///   node --experimental-strip-types -e "import('./apps/web/lib/launchAbi.ts').then(m => console.log(m.launchSelectorMismatches()))"
 export const EXPECTED_LAUNCH_SELECTORS = {
   createLaunch: { legacy: "0x626a36e8", v2: "0x1d5a8281", v3: "0x896e053e" },
-  launch: { v2: "0xe0e22ce1", v3: "0xb3a7d553" },
-  launchCustom: { v2: "0xa78faace", v3: "0x7741131c" },
+  launch: { v2: "0xe0e22ce1", v3: "0xb3a7d553", v4: "0x313f39fb" },
+  launchCustom: { v2: "0xa78faace", v3: "0x7741131c", v4: "0xf3f6982e" },
 } as const;
 
 /// Every derived selector that differs from its pinned value, as "name: derived != expected".
@@ -191,7 +218,7 @@ export function launchSelectorMismatches(): string[] {
     if (derived.toLowerCase() !== expected.toLowerCase()) out.push(`${name}: ${derived} != ${expected}`);
   };
   for (const gen of ["legacy", "v2", "v3"] as const) check(`createLaunch.${gen}`, createLaunchSelectors[gen], EXPECTED_LAUNCH_SELECTORS.createLaunch[gen]);
-  for (const gen of ["v2", "v3"] as const) {
+  for (const gen of ["v2", "v3", "v4"] as const) {
     check(`launch.${gen}`, launchSelectors[gen].launch, EXPECTED_LAUNCH_SELECTORS.launch[gen]);
     check(`launchCustom.${gen}`, launchSelectors[gen].launchCustom, EXPECTED_LAUNCH_SELECTORS.launchCustom[gen]);
   }

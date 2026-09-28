@@ -184,7 +184,7 @@ contract DividendSafetyTest is Test {
         splitter = new HoodRevenueSplitter(address(this), makeAddr("treasury"), makeAddr("buyback"), address(token), address(0));
         splitter.initialize(creator, makeAddr("locker"), Allocations(2_500, 2_500, 4_000, 1_000));
         splitter.exclude(pool);
-        token.setLaunchAddresses(pool, address(splitter), makeAddr("locker"), makeAddr("hook"), makeAddr("buybackModule"));
+        token.setLaunchAddresses(pool, address(splitter), makeAddr("locker"), makeAddr("hook"), makeAddr("buybackModule"), address(0));
         token.transfer(pool, SUPPLY);
     }
 

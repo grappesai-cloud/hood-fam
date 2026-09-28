@@ -11,6 +11,7 @@ import { recordBasis } from "./pnl.js";
 import { usdValue } from "./price.js";
 import { SYSTEM } from "./system.js";
 import { accrueStakePoints, settleStake } from "./stake-accrual.js";
+import { teamWatch } from "./alerts.js";
 
 /// The chain reader. Three facts about 4663 shape everything here:
 ///   - blocks are 100ms, so "catch up from genesis" is not a thing anyone does; start at the
@@ -44,6 +45,10 @@ const OPENING_AUCTION = (process.env.HOOD_OPENING_AUCTION ?? "").toLowerCase() a
 /// The season airdrop: one contract for every season, each row of a season's list paid on a claim.
 /// Optional like the Bag's machines: unset, it matches no log.
 const SEASON_DROP = (process.env.HOOD_SEASON_DROP ?? "").toLowerCase() as Address;
+/// The team launch periphery: it launches on the factory and buys for every team wallet in the
+/// same transaction. The factory names it as creator; its own events name the real launcher and
+/// every wallet. Optional: unset, it matches no log.
+const BLOCK_ZERO = (process.env.HOOD_BLOCK_ZERO ?? "").toLowerCase() as Address;
 
 const START_BLOCK = BigInt(process.env.HOOD_START_BLOCK ?? "0");
 
@@ -60,6 +65,20 @@ const events = {
   ),
   firstBuyLocked: parseAbiItem(
     "event FirstBuyLocked(address indexed token, address indexed creator, uint256 positionId, uint256 amount, uint64 unlockAt)",
+  ),
+  // Block zero, on both machines: HoodBlockZero on the curve, the portal on the direct machine.
+  // `market` is the curve or the hook.
+  teamLaunched: parseAbiItem(
+    "event TeamLaunched(address indexed token, address indexed market, address indexed launcher, uint256 legs, uint256 pairSpent, uint256 tokens)",
+  ),
+  teamGas: parseAbiItem("event TeamGas(address indexed token, address indexed wallet, uint256 amount)"),
+  // The curve's opening rules (v4 factory) and the surcharge a buy paid under them.
+  launchGuard: parseAbiItem(
+    "event LaunchGuard(address indexed token, (uint16 snipeTaxBps, uint32 snipeDecaySeconds, uint32 restrictionBlocks, uint16 maxBuyBps) guard)",
+  ),
+  sniped: parseAbiItem("event Sniped(address indexed buyer, address indexed to, uint256 penalty, uint256 toHolders, uint256 toBag)"),
+  teamLeg: parseAbiItem(
+    "event TeamLeg(address indexed token, address indexed wallet, uint256 index, uint256 pairSpent, uint256 tokens, uint256 lockId, uint64 unlockAt)",
   ),
   launchMetadata: parseAbiItem(
     "event LaunchMetadata(address indexed token, string name, string symbol, string image, string description, string website, string twitter, string telegram)",
@@ -515,6 +534,95 @@ async function onFirstBuyLocked(log: Log & { args: Record<string, unknown> }) {
   );
 }
 
+/// One team wallet's buy in a block-zero launch, on either machine. The trade for it came first in
+/// the same transaction, bought by the machine (the periphery on the curve, the portal on the direct
+/// machine) on the wallet's behalf; it is handed to the wallet here, with its cost basis where the
+/// trade itself could not name the wallet: a locked curve leg, and every direct leg.
+async function onTeamLeg(log: Log & { args: Record<string, unknown> }, machine: string) {
+  const a = log.args;
+  const token = lower(a.token);
+  const wallet = lower(a.wallet);
+  const pairSpent = a.pairSpent as bigint;
+  const tokens = a.tokens as bigint;
+  const unlockAt = a.unlockAt as bigint;
+  const locked = unlockAt !== 0n;
+  const { rows: written } = await pool.query<{ token: string }>(
+    `insert into team_wallets (token, wallet, idx, pair_spent, tokens, lock_id, unlock_at, block, tx)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict (token, wallet) do nothing returning token`,
+    [
+      token, wallet, Number(a.index), pairSpent.toString(), tokens.toString(), (a.lockId as bigint).toString(),
+      locked ? new Date(Number(unlockAt) * 1000) : null, log.blockNumber!.toString(), log.transactionHash,
+    ],
+  );
+  // The totals are recounted rather than taken from TeamLaunched, so a second wave (a follow-up,
+  // which emits legs and no TeamLaunched) is counted the same way as the first.
+  await pool.query(
+    `update launches set team_legs = t.n, team_tokens = t.sum
+       from (select count(*)::int as n, coalesce(sum(tokens), 0) as sum from team_wallets where token = $1) t
+      where launches.token = $1`,
+    [token],
+  );
+  if (!written[0]) return;
+  await pool.query(
+    `update trades set trader = $3, recipient = $3
+      where id = (select id from trades where tx = $1 and trader = any($2::text[]) and token_amount = $4
+                  order by log_index limit 1)`,
+    [log.transactionHash, [BLOCK_ZERO, PORTAL].filter(Boolean), wallet, tokens.toString()],
+  );
+  if (locked || machine === PORTAL) {
+    await recordBasis({
+      token, address: wallet, side: "buy", tokenAmount: tokens, usd: await usdValue(assetOf(token), pairSpent),
+      at: await blockTime(log.blockNumber!),
+    });
+  }
+}
+
+/// Native currency a launch sent to a team wallet with its tokens, or a later top-up.
+async function onTeamGas(log: Log & { args: Record<string, unknown> }) {
+  await pool.query(
+    `update team_wallets set gas = gas + $3 where token = $1 and wallet = $2`,
+    [lower(log.args.token), lower(log.args.wallet), (log.args.amount as bigint).toString()],
+  );
+}
+
+/// Closes a block-zero launch. On the curve the factory registered the periphery as creator, so
+/// the launcher replaces it and the fee recipient is read back from the factory, where the
+/// periphery wrote it; on the direct machine the portal already registered the launcher.
+async function onTeamLaunched(log: Log & { args: Record<string, unknown> }, machine: string) {
+  const a = log.args;
+  const token = lower(a.token);
+  if (machine === PORTAL) {
+    await pool.query(`update launches set launched_by = $2 where token = $1`, [token, PORTAL]);
+    return;
+  }
+  let feeRecipient = lower(a.launcher);
+  try {
+    feeRecipient = lower(await client.readContract({
+      address: FACTORY, abi: [parseAbiItem("function creatorFeeRecipient(address) view returns (address)")],
+      functionName: "creatorFeeRecipient", args: [token as Address],
+    }));
+  } catch {}
+  await pool.query(
+    `update launches set creator = $2, fee_recipient = $3, launched_by = $4 where token = $1`,
+    [token, lower(a.launcher), feeRecipient, BLOCK_ZERO],
+  );
+  payees.delete(token);
+}
+
+/// The curve's opening rules, in the same columns the direct machine's live in.
+async function onLaunchGuard(log: Log & { args: Record<string, unknown> }) {
+  const g = log.args.guard as { snipeTaxBps: number; snipeDecaySeconds: number; restrictionBlocks: number; maxBuyBps: number };
+  await pool.query(
+    `update launches set snipe_tax_bps = $2, snipe_decay_seconds = $3, max_buy_bps = $4, restrictions_end_block = $5
+      where token = $1`,
+    [
+      lower(log.args.token), Number(g.snipeTaxBps), Number(g.snipeDecaySeconds),
+      Number(g.restrictionBlocks) === 0 ? null : Number(g.maxBuyBps),
+      (log.blockNumber! + BigInt(g.restrictionBlocks)).toString(),
+    ],
+  );
+}
+
 async function onTrade(log: Log & { args: Record<string, unknown> }, side: "buy" | "sell") {
   const curve = curves.get(log.address.toLowerCase());
   if (!curve) return;
@@ -554,6 +662,10 @@ async function onTrade(log: Log & { args: Record<string, unknown> }, side: "buy"
       token: curve.token, side, trader, pairAmount: pairAmount.toString(), tokenAmount: tokenAmount.toString(),
       price: price.toString(), tx: log.transactionHash, at: when,
     });
+    // The team's own legs are bought by the periphery; anything else on a team launch is outside.
+    if (side === "buy" && trader !== BLOCK_ZERO && trader !== FACTORY) {
+      await teamWatch({ token: curve.token, wallet: recipient, pairAmount, tokenAmount, at: when, tx: log.transactionHash! });
+    }
   }
 
   // A buy is credited to whoever ends up holding the tokens, not to whoever sent the transaction:
@@ -561,6 +673,13 @@ async function onTrade(log: Log & { args: Record<string, unknown> }, side: "buy"
   // credited to the seller, who is the one giving up the position.
   const scorer = side === "buy" ? recipient : trader;
   const usd = await usdValue(curve.pairToken, pairAmount);
+  // A team leg is the launch buying for its own team: it has a cost basis like any buy, but it
+  // scores nothing and does not count as the launch's traded volume for points.
+  const teamLeg = Boolean(BLOCK_ZERO) && trader === BLOCK_ZERO;
+  if (teamLeg) {
+    if (written[0] && scorer !== BLOCK_ZERO) await recordBasis({ token: curve.token, address: scorer, side, tokenAmount, usd, at: when });
+    return;
+  }
   const selfDealt = await paysItself(curve.token, scorer);
   // Cost basis follows the tokens, not the points: a wallet that pays itself still bought
   // something, and its profit page should say so even though the trade scores nothing.
@@ -976,6 +1095,10 @@ async function onV4Swap(log: Log & { args: Record<string, unknown> }) {
       token: launch.token, side, trader, pairAmount: quoteAmount.toString(), tokenAmount: tokenAmount.toString(),
       price: price.toString(), tx: log.transactionHash, at: when,
     });
+    // The portal buys the creator's and the team's opening legs; every other buy is outside.
+    if (side === "buy" && trader !== PORTAL) {
+      await teamWatch({ token: launch.token, wallet: trader, pairAmount: quoteAmount, tokenAmount, at: when, tx: log.transactionHash! });
+    }
   }
 
   const usd = await usdValue(launch.quote, quoteAmount);
@@ -1649,6 +1772,27 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
     case "Launched": if (address === FACTORY) await onLaunched(l); break;
     case "FirstBuyLocked": if (address === FACTORY) await onFirstBuyLocked(l); break;
     case "LaunchMetadata": if (address === FACTORY) await onLaunchMetadata(l); break;
+    case "TeamLeg":
+      if ((BLOCK_ZERO && address === BLOCK_ZERO) || address === PORTAL) await onTeamLeg(l, address);
+      break;
+    case "TeamLaunched":
+      if ((BLOCK_ZERO && address === BLOCK_ZERO) || address === PORTAL) await onTeamLaunched(l, address);
+      break;
+    case "TeamGas": if ((BLOCK_ZERO && address === BLOCK_ZERO) || address === PORTAL) await onTeamGas(l); break;
+    case "LaunchGuard": if (address === FACTORY) await onLaunchGuard(l); break;
+    case "Sniped": {
+      const curve = curves.get(address);
+      if (curve) {
+        await onPenalty({
+          ...l,
+          args: {
+            reason: keccak256(stringToHex("snipe")), payer: l.args.to, amount: l.args.penalty,
+            toHolders: l.args.toHolders, toBag: l.args.toBag, isBuy: true,
+          },
+        } as typeof l, curve.token);
+      }
+      break;
+    }
     case "Bought": await onTrade(l, "buy"); break;
     case "Sold": await onTrade(l, "sell"); break;
     case "Transfer": await onTransfer(l); break;

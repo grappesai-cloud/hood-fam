@@ -592,6 +592,28 @@ create index if not exists airdrop_payouts_ts on airdrop_payouts (ts);
 create index if not exists pot_payouts_ts on pot_payouts (ts);
 create index if not exists payday_payouts_ts on payday_payouts (ts);
 
+-- Block zero: a launch made through HoodBlockZero, where every team wallet bought in the launch
+-- transaction. One row per wallet, written from the periphery's own TeamLeg events, so the app can
+-- label the team on the holders list without reading traces. unlock_at is null for a leg that went
+-- straight to its wallet.
+create table if not exists team_wallets (
+  token      text not null,
+  wallet     text not null,
+  idx        int not null,
+  pair_spent numeric(78,0) not null,
+  tokens     numeric(78,0) not null,
+  lock_id    numeric(78,0) not null default 0,
+  unlock_at  timestamptz,
+  block      bigint not null,
+  tx         text not null,
+  primary key (token, wallet)
+);
+create index if not exists team_wallets_wallet on team_wallets (wallet);
+alter table team_wallets add column if not exists gas numeric(78,0) not null default 0;
+alter table launches add column if not exists launched_by text;
+alter table launches add column if not exists team_tokens numeric(78,0) not null default 0;
+alter table launches add column if not exists team_legs int not null default 0;
+
 -- Payday reads the hour's points between two timestamps, which is a range scan on ts.
 create index if not exists points_ts on points (ts);
 `;
