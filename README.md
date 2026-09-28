@@ -218,20 +218,3 @@ Deployment, wallets and route wiring are in `docs/RUNBOOK.md`.
 
 `FEATURES.md` maps every line of the Printr feature set to a status: what is built and tested here,
 what exists on-chain but has no layer on top of it yet, and what does not exist at all.
-
-## Verified beyond the tests
-
-The whole stack has been run against a fork of 4663 from a real browser: both machines launched
-through the app, bought, sold through Permit2 and the router, staked, dividends claimed, and every
-one of those transactions checked on chain afterwards. The MCP server drove the same chain through
-its own tools, the keeper ran against it, and the three Docker images build from a clean clone.
-Slither's findings are triaged in `docs/SECURITY.md`.
-
-## Not built
-
-- **Solana.** Out on purpose: this launches on Robinhood Chain.
-- **An external audit.** None is planned. The internal review, tests and fork rehearsal are not an independent security certification; the public app must say so plainly.
-- **The far side of a bridge route.** `HoodOFTRemote` compiles and is deployed per destination
-  chain by hand; there is no script that fans it out across seven chains yet.
-- **In-app cross-chain quotes** need a Relay API key. Without one the app links out to Relay's own
-  page, which works but is one more click.
