@@ -31,14 +31,12 @@ interface IBurnable {
 
 interface IHookTax {
     function buyTaxBps() external view returns (uint16);
-    /// @dev The block the hook's own inline buyback last ran in; one buyback per block across both.
-    function lastBuybackBlock() external view returns (uint64);
 }
 
 interface IPortalLaunches {
     function getLaunch(address token) external view returns (
         address token_, address quote, address hook, address splitter, address locker,
-        address creator, uint256 positionId, uint64 launchedAt, uint64 restrictionsEndBlock, bool exists
+        address creator, uint256 positionId, uint64 launchedAt, bool exists
     );
 }
 
@@ -59,8 +57,7 @@ contract HoodBuybackModule is IUnlockCallback, ReentrancyGuard {
 
     /// @notice How far one run may move the price, in ticks: about three percent. A run is
     ///         permissionless, so this is what keeps a stranger's run from being a stranger's
-    ///         sandwich; what does not fit under the limit waits for the next run. The hook's
-    ///         inline buyback ("bots buy the dip") is held to the same number.
+    ///         sandwich; what does not fit under the limit waits for the next run.
     int24 public constant MAX_IMPACT_TICKS = BuybackMath.MAX_IMPACT_TICKS;
     /// @notice Quote a run could not spend inside the impact limit, kept here for the next run.
     mapping(address token => uint256) public carried;
@@ -101,13 +98,11 @@ contract HoodBuybackModule is IUnlockCallback, ReentrancyGuard {
     ///         quote; a stranger passing zero is bounded by the impact limit and by the one run a
     ///         block, so the worst they can do is buy a little at a little worse price.
     function run(address token, uint256 minTokensOut) external nonReentrant returns (uint256 burned) {
-        (, address quote, address hook, address splitter, address locker,,,,, bool exists) =
+        (, address quote, address hook, address splitter, address locker,,,, bool exists) =
             IPortalLaunches(portal).getLaunch(token);
         if (!exists) revert UnknownLaunch();
+        // One run a block, or the cap bounds one swap and nothing else.
         if (lastRunBlock[token] == uint64(block.number)) revert AlreadyRanThisBlock();
-        // The hook buys the dip inline on penalised sells, under the same cap; the two together
-        // are still one run a block, or the cap bounds one swap and nothing else.
-        if (IHookTax(hook).lastBuybackBlock() == uint64(block.number)) revert AlreadyRanThisBlock();
         lastRunBlock[token] = uint64(block.number);
 
         uint256 released;

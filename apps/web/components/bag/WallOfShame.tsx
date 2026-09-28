@@ -5,7 +5,7 @@ import { ago, fmt, shortAddress } from "@/lib/format";
 import { Prov, usdCompact } from "@/components/Provenance";
 import { assetOf, big, isMissing, useShame, type ShameRow } from "@/lib/bag";
 
-/// The wall of shame: every wallet that paid a penalty, how many times, and what it cost them.
+/// The snipers' wall: every wallet that paid the opening tax, how many times, and what it cost them.
 /// Display only. The holders who were there when a bot paid got season points for it, which is
 /// the bounty the doc names.
 
@@ -17,17 +17,17 @@ export function WallOfShame({ limit = 50 }: { limit?: number }) {
   return (
     <section className="panel">
       <header className="refer-head">
-        <h2>Wall of shame</h2>
-        <span className="dim text-sm">who paid the penalties <Prov kind="measured" /></span>
+        <h2>Snipers&apos; wall</h2>
+        <span className="dim text-sm">who paid the opening tax <Prov kind="measured" /></span>
       </header>
       {shame.isPending && <p className="dim text-sm">Reading the wall…</p>}
       {shame.isError && (
         <p className="dim text-sm">
-          {missing ? "The wall is not wired into this API yet. It fills once the indexer serves the penalties." : "The wall could not be read. The API is not answering."}
+          {missing ? "The wall is not wired into this API yet. It fills once the indexer serves the opening tax." : "The wall could not be read. The API is not answering."}
         </p>
       )}
       {shame.isSuccess && rows.length === 0 && (
-        <p className="dim text-sm">Nobody has paid a penalty yet. The first sniper writes the first line, and the holders who were there get the bounty.</p>
+        <p className="dim text-sm">Nobody has paid the opening tax yet. The first bot to buy in a launch's first three seconds writes the first line, and the holders who were there get the bounty.</p>
       )}
       {rows.length > 0 && (
         <ol className="shame-list">
@@ -44,14 +44,12 @@ export function WallOfShame({ limit = 50 }: { limit?: number }) {
 function Row({ row }: { row: ShameRow }) {
   const kinds = [
     row.snipe > 0 ? `${row.snipe} ${row.snipe === 1 ? "snipe" : "snipes"}` : null,
-    row.jeet > 0 ? `${row.jeet} ${row.jeet === 1 ? "jeet" : "jeets"}` : null,
-    row.whale > 0 ? `${row.whale} ${row.whale === 1 ? "dump" : "dumps"}` : null,
   ].filter(Boolean).join(", ");
   return (
     <li>
       <span className="shame-payer">
         <Link href={`/trader/${row.payer}`}>{shortAddress(row.payer)}</Link>
-        <small className="dim">{row.count} {row.count === 1 ? "penalty" : "penalties"} on {row.tokens} {row.tokens === 1 ? "launch" : "launches"}</small>
+        <small className="dim">{row.count} {row.count === 1 ? "snipe" : "snipes"} on {row.tokens} {row.tokens === 1 ? "launch" : "launches"}</small>
       </span>
       <span className="shame-paid mono">
         {row.paid.filter((p) => big(p.amount) > 0n).map((p) => {

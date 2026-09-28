@@ -8,7 +8,7 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 
-import {BagOutlet, BagSource, PenaltyConfig} from "../../src/bag/BagTypes.sol";
+import {BagOutlet, BagSource} from "../../src/bag/BagTypes.sol";
 import {IHoodBag} from "../../src/interfaces/IHoodBag.sol";
 import {IHoodFactory} from "../../src/interfaces/IHoodFactory.sol";
 import {IHoodFeeRouter} from "../../src/interfaces/IHoodFeeRouter.sol";
@@ -125,7 +125,6 @@ contract MockBag is IHoodBag {
 
     bool public broken;
     mapping(address asset => mapping(address token => uint256)) public tradeFee;
-    mapping(address asset => mapping(address token => uint256)) public penaltyCut;
     mapping(address asset => mapping(BagSource source => uint256)) internal _totalIn;
 
     error WrongValue();
@@ -146,10 +145,9 @@ contract MockBag is IHoodBag {
         emit BagIn(BagSource.Graduation, asset, amount, token);
     }
 
-    function takePenaltyCut(address asset, uint256 amount, address token) external payable {
-        _take(asset, amount, BagSource.Penalty);
-        penaltyCut[asset][token] += amount;
-        emit BagIn(BagSource.Penalty, asset, amount, token);
+    function takeBoost(address asset, uint256 amount, address token, uint64) external payable {
+        _take(asset, amount, BagSource.Boost);
+        emit BagIn(BagSource.Boost, asset, amount, token);
     }
 
     function takeHouseFee(address asset, uint256 amount, address token) external payable {
@@ -289,7 +287,6 @@ contract MockFactory {
     address public bag;
 
     mapping(address token => Launch) internal _launches;
-    mapping(address token => PenaltyConfig) internal _penalties;
 
     constructor(address owner_) {
         owner = owner_;
@@ -313,16 +310,8 @@ contract MockFactory {
         l.exists = true;
     }
 
-    function setPenalties(address token, PenaltyConfig calldata penalties) external {
-        _penalties[token] = penalties;
-    }
-
     function getLaunch(address token) external view returns (Launch memory) {
         return _launches[token];
-    }
-
-    function penaltiesOf(address token) external view returns (PenaltyConfig memory) {
-        return _penalties[token];
     }
 
     function getConfig(uint256) external pure returns (CurveConfig memory config) {

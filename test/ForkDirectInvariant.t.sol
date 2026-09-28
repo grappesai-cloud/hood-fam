@@ -15,9 +15,7 @@ import {HoodLaunchHook} from "../src/direct/HoodLaunchHook.sol";
 import {HoodLocker} from "../src/direct/HoodLocker.sol";
 import {HoodRevenueSplitter} from "../src/direct/HoodRevenueSplitter.sol";
 import {HoodBuybackModule} from "../src/direct/HoodBuybackModule.sol";
-import {HoodOpeningAuction} from "../src/direct/HoodOpeningAuction.sol";
 import {Allocations, DirectConfig, Socials} from "../src/direct/DirectTypes.sol";
-import {PenaltyConfig} from "../src/bag/BagTypes.sol";
 import {MockBag} from "./mocks/DirectMocks.sol";
 import {ExactInputSingleParams, PoolKey as RhPoolKey, V4Actions} from "../src/interfaces/IExternal.sol";
 
@@ -176,18 +174,17 @@ contract DirectForkInvariant is StdInvariant, Test {
         vm.startPrank(owner);
         portal.setBuybackModule(address(buyback));
         portal.setBag(address(bag));
-        portal.setAuction(address(new HoodOpeningAuction(address(portal))));
         vm.stopPrank();
         vm.deal(creator, 10 ether);
 
         bytes32 hookSalt = _mineHookSalt();
         DirectConfig memory config = DirectConfig({
-            buyTaxBps: 500, sellTaxBps: 500, snipeTaxBps: 0, snipeDecaySeconds: 0,
-            restrictionBlocks: 0, maxHoldBps: 10_000, maxBuyBps: 10_000,
-            tickStart: TICK_START, tickBond: TICK_BOND,
+            buyTaxBps: 500,
+            sellTaxBps: 500,
+            tickStart: TICK_START,
+            tickBond: TICK_BOND,
             allocations: Allocations(2_500, 2_500, 4_000, 1_000),
-            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
-            auctionBlocks: 0
+            exempt: new address[](0)
         });
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
             name: "Inv", symbol: "INV", logo: "", description: "",

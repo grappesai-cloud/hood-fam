@@ -1,8 +1,7 @@
 import { log } from "./log.js";
 
-/// A launch as the indexer's `/tokens` returns it. The fields the Bag adds (`pot`, `king_bps` and
-/// the rest of the penalties) arrive when the API worker lands; until then they are undefined and
-/// the jobs that need them have nothing to do.
+/// A launch as the indexer's `/tokens` returns it. `pot` arrives with the Bag's API; until then it is
+/// undefined and the jobs that need it have nothing to do.
 export interface Row {
   token: string;
   curve: string;
@@ -15,10 +14,6 @@ export interface Row {
   pair_token?: string;
   symbol?: string;
   pot?: string | null;
-  king_bps?: number | null;
-  jeet_tax_bps?: number | null;
-  whale_tax_bps?: number | null;
-  auction_blocks?: number | null;
 }
 
 export interface PaydayEpoch {
@@ -38,12 +33,6 @@ export interface TapeRow {
   tx: string;
   ts: string;
   extra?: Record<string, unknown>;
-}
-
-export interface OpenAuction {
-  token: string;
-  end_block: string | number;
-  settled?: boolean;
 }
 
 const PAGE = 100;

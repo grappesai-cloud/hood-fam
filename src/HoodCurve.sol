@@ -6,14 +6,13 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import {Phase} from "./HoodTypes.sol";
+import {Launch, Phase} from "./HoodTypes.sol";
 import {CurveMath} from "./libraries/CurveMath.sol";
 import {PairTransfer} from "./libraries/PairTransfer.sol";
 import {IHoodBag} from "./interfaces/IHoodBag.sol";
 import {IHoodCurve} from "./interfaces/IHoodCurve.sol";
 import {IHoodFactory} from "./interfaces/IHoodFactory.sol";
-import {IHoodPot} from "./interfaces/IHoodPot.sol";
-import {BagReasons, BagSplits} from "./bag/BagTypes.sol";
+import {SnipeSchedule} from "./libraries/SnipeSchedule.sol";
 import {IHoodFeeRouter} from "./interfaces/IHoodFeeRouter.sol";
 import {IHoodReferrals} from "./interfaces/IHoodReferrals.sol";
 import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
@@ -29,13 +28,15 @@ import {IGraduationHandler} from "./interfaces/IGraduationHandler.sol";
 ///      claims them, the graduation fee inside `finalize`. The Bag has no owner and splits by rules
 ///      fixed at its deploy, so pinning it is pinning the rules this launch was sold under.
 ///
-///      The open is guarded the way the direct machine's is: a surcharge on buys that decays to
-///      nothing over `snipeDecaySeconds`, and a per-wallet buy cap for `restrictionBlocks`. The
-///      surcharge is a penalty, not a fee: 80% to this launch's holders through the pot, 20% to
-///      the Bag. Exempt are buys made INSIDE the launch transaction by the factory (the creator's
-///      first buy) or by the account that called the factory (a block-zero periphery), and
-///      nothing else: the constructor marks this contract's transient storage, which lives for
-///      exactly the launch transaction, so a buy one transaction later is a buy like any other.
+///      The open runs the one schedule every launch runs (SnipeSchedule): 99% of a buy in the
+///      launch's own second, 6.18% in the next, 0.19% in the one after, then nothing. What it
+///      collects is trading fee, split between the protocol and the creator exactly as the fee
+///      is. Exempt for the whole window are the wallets named at launch (the launcher, the
+///      creator fee recipient and up to SnipeSchedule.MAX_EXEMPT more), keyed on the wallet that
+///      RECEIVES the tokens; and every buy made INSIDE the launch transaction by the factory (the
+///      creator's first buy) or by the account that called the factory (a block-zero periphery):
+///      the constructor marks this contract's transient storage, which lives for exactly the
+///      launch transaction.
 contract HoodCurve is IHoodCurve, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -46,7 +47,6 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         address token;
         address pairToken;
         address bag;
-        address pot;
         address feeRouter;
         address graduationHandler;
         uint256 curveSupply;
@@ -58,13 +58,10 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         uint16 creatorFeeBps;
         uint24 poolFee;
         int24 tickSpacing;
-        // The opening rules (v4), and who called the factory: its buys inside the launch
-        // transaction are the launch's own.
+        // Who called the factory: its buys inside the launch transaction are the launch's own.
         address opener;
-        uint16 snipeTaxBps;
-        uint32 snipeDecaySeconds;
-        uint32 restrictionBlocks;
-        uint256 maxBuy;
+        // Wallets that pay no opening tax: the launcher, the fee recipient and the named ones.
+        address[] exempt;
     }
 
     /// @dev Transient slot set by the constructor: nonzero for the rest of the launch transaction.
@@ -75,8 +72,6 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     address public immutable pairToken;
     /// @notice Where every protocol leg goes. Pinned: a Bag swapped later cannot reach this launch.
     address public immutable bag;
-    /// @notice The launch's pot, named to the Bag at graduation so Confetti lands in the right room.
-    address public immutable pot;
     address public immutable feeRouter;
     /// @dev Pinned at launch. A later change of the launchpad's default handler cannot reach a
     ///      token that is already trading.
@@ -92,13 +87,7 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     int24 public immutable tickSpacing;
     /// @notice The account that called the factory. Only inside the launch transaction does it matter.
     address public immutable opener;
-    uint16 public immutable snipeTaxBps;
-    uint32 public immutable snipeDecaySeconds;
     uint64 public immutable launchedAt;
-    /// @notice The last block of the per-wallet buy cap.
-    uint64 public immutable restrictionsEndBlock;
-    /// @notice Token wei one wallet may buy until `restrictionsEndBlock`. Zero = no cap.
-    uint256 public immutable maxBuy;
 
     Phase public phase;
     /// @notice Token wei sold off the curve.
@@ -109,10 +98,8 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     uint256 public bonus;
     /// @notice The protocol's fee legs, booked and waiting to be pulled by anyone.
     uint256 public protocolClaimable;
-    /// @notice The Bag's share of snipe penalties, booked like the fee legs and pulled with them.
-    uint256 public penaltyClaimable;
-    /// @notice Token wei each wallet bought while the buy cap held.
-    mapping(address => uint256) public boughtDuringWindow;
+    /// @notice Wallets that pay no opening tax, fixed at launch.
+    mapping(address => bool) public snipeExempt;
 
     event Bought(address indexed buyer, address indexed to, uint256 pairIn, uint256 tokensOut, uint256 fee);
     event Sold(address indexed seller, address indexed to, uint256 tokensIn, uint256 pairOut, uint256 fee);
@@ -121,9 +108,11 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     event Graduated(uint256 tokenAmount, uint256 pairAmount, uint256 graduationFee);
     event ProtocolClaimed(address indexed to, uint256 amount);
     event ReferralPaid(address indexed to, uint256 amount);
-    /// @notice A buy inside the decay window paid the surcharge. `buyer` is the caller, `to` the
-    ///         wallet that got the tokens; `toHolders` went into the pot in this same call.
-    event Sniped(address indexed buyer, address indexed to, uint256 penalty, uint256 toHolders, uint256 toBag);
+    /// @notice A buy in the opening window paid the opening tax. `buyer` is the caller, `to` the
+    ///         wallet that got the tokens. `tax` is also inside the `fee` of the Bought event.
+    event Sniped(address indexed buyer, address indexed to, uint256 tax);
+    /// @notice The wallets that pay no opening tax, once, from the constructor.
+    event SnipeExempt(address[] wallets);
 
     error NotTrading();
     error NotSoldOut();
@@ -134,14 +123,12 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     error ExceedsCurveSupply();
     error InsufficientValue();
     error NothingToClaim();
-    error BuysTooMuch();
 
     constructor(InitParams memory p) {
         factory = p.factory;
         token = p.token;
         pairToken = p.pairToken;
         bag = p.bag;
-        pot = p.pot;
         feeRouter = p.feeRouter;
         graduationHandler = p.graduationHandler;
         curveSupply = p.curveSupply;
@@ -154,11 +141,11 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         poolFee = p.poolFee;
         tickSpacing = p.tickSpacing;
         opener = p.opener;
-        snipeTaxBps = p.snipeTaxBps;
-        snipeDecaySeconds = p.snipeDecaySeconds;
         launchedAt = uint64(block.timestamp);
-        restrictionsEndBlock = uint64(block.number) + p.restrictionBlocks;
-        maxBuy = p.maxBuy;
+        for (uint256 i; i < p.exempt.length; ++i) {
+            if (p.exempt[i] != address(0)) snipeExempt[p.exempt[i]] = true;
+        }
+        emit SnipeExempt(p.exempt);
         bytes32 slot = LAUNCH_TX_SLOT;
         assembly ("memory-safe") {
             tstore(slot, 1)
@@ -182,11 +169,20 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         return CurveMath.cost(p0, p1, curveSupply, 0, curveSupply, false);
     }
 
-    /// @notice What `pairIn` buys right now, for a caller who is not the launch itself. `fee`
-    ///         includes the snipe surcharge while it lasts, as `pairSpent` does.
+    /// @notice What `pairIn` buys right now for a wallet that is not exempt. `fee` includes the
+    ///         opening tax while it lasts, as `pairSpent` does.
     function quoteBuy(uint256 pairIn) public view returns (uint256 tokensOut, uint256 pairSpent, uint256 fee) {
+        return quoteBuyFor(pairIn, address(0));
+    }
+
+    /// @notice What `pairIn` buys right now with the tokens going to `to`.
+    function quoteBuyFor(uint256 pairIn, address to)
+        public
+        view
+        returns (uint256 tokensOut, uint256 pairSpent, uint256 fee)
+    {
         if (phase != Phase.Curve) return (0, 0, 0);
-        uint256 snipe = currentSnipeBps();
+        uint256 snipe = currentSnipeTaxBps(to);
         uint256 afterSnipe = pairIn - Math.mulDiv(pairIn, snipe, BPS, Math.Rounding.Ceil);
         uint256 budget = afterSnipe - _feeOnGross(afterSnipe);
         tokensOut = CurveMath.tokensForPair(p0, p1, curveSupply, sold, budget, remaining());
@@ -198,21 +194,21 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     }
 
     function quoteBuyExactOut(uint256 tokensOut) public view returns (uint256 pairIn, uint256 fee) {
+        return quoteBuyExactOutFor(tokensOut, address(0));
+    }
+
+    function quoteBuyExactOutFor(uint256 tokensOut, address to) public view returns (uint256 pairIn, uint256 fee) {
         uint256 net = CurveMath.cost(p0, p1, curveSupply, sold, tokensOut, true);
         uint256 spent = net + _feeOnNet(net);
-        pairIn = spent + _snipeOnNet(spent, currentSnipeBps());
+        pairIn = spent + _snipeOnNet(spent, currentSnipeTaxBps(to));
         fee = pairIn - net;
     }
 
-    /// @notice The surcharge on a buy right now, in bps of what the buyer hands in. Quadratic, so
-    ///         it is nearly gone half way through the window.
-    function currentSnipeBps() public view returns (uint256) {
-        uint256 window = snipeDecaySeconds;
-        if (window == 0 || snipeTaxBps == 0) return 0;
-        uint256 elapsed = block.timestamp - launchedAt;
-        if (elapsed >= window) return 0;
-        uint256 left = window - elapsed;
-        return (uint256(snipeTaxBps) * left * left) / (window * window);
+    /// @notice The opening tax on a buy whose tokens go to `recipient`, in bps of what the buyer
+    ///         hands in. Zero for an exempt wallet and from the third second on.
+    function currentSnipeTaxBps(address recipient) public view returns (uint256) {
+        if (snipeExempt[recipient]) return 0;
+        return SnipeSchedule.bpsAt(block.timestamp - launchedAt);
     }
 
     /// @notice Whether the current call is the launch transaction's own buy.
@@ -246,19 +242,17 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         if (to == address(0)) revert ZeroAddress();
         PairTransfer.pull(pairToken, msg.sender, pairIn, msg.value);
 
-        bool own = isLaunchBuy(msg.sender);
-        uint256 snipe = own ? 0 : currentSnipeBps();
+        uint256 snipe = isLaunchBuy(msg.sender) ? 0 : currentSnipeTaxBps(to);
         uint256 afterSnipe = pairIn - Math.mulDiv(pairIn, snipe, BPS, Math.Rounding.Ceil);
         uint256 budget = afterSnipe - _feeOnGross(afterSnipe);
         tokensOut = CurveMath.tokensForPair(p0, p1, curveSupply, sold, budget, remaining());
         if (tokensOut == 0) revert NothingBought();
         if (tokensOut < minTokensOut) revert Slippage();
-        if (!own) _checkWindow(to, tokensOut);
 
         uint256 net = CurveMath.cost(p0, p1, curveSupply, sold, tokensOut, true);
         uint256 spent = _settleBuy(net, tokensOut, to);
         // Charged on what was actually bought, so a buy the curve could only partly fill pays the
-        // surcharge on the part it got and gets the rest back whole.
+        // tax on the part it got and gets the rest back whole.
         uint256 penalty = _snipeOnNet(spent, snipe);
         // Rounding up can overshoot what the buyer handed in by a wei; never charge past it.
         if (penalty > pairIn - spent) penalty = pairIn - spent;
@@ -278,12 +272,9 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         if (to == address(0)) revert ZeroAddress();
         if (tokensOut == 0) revert NothingBought();
         if (tokensOut > remaining()) revert ExceedsCurveSupply();
-        bool own = isLaunchBuy(msg.sender);
-        if (!own) _checkWindow(to, tokensOut);
-
         uint256 net = CurveMath.cost(p0, p1, curveSupply, sold, tokensOut, true);
         uint256 spent = net + _feeOnNet(net);
-        uint256 penalty = own ? 0 : _snipeOnNet(spent, currentSnipeBps());
+        uint256 penalty = isLaunchBuy(msg.sender) ? 0 : _snipeOnNet(spent, currentSnipeTaxBps(to));
         uint256 quoted = spent + penalty;
         if (quoted > maxPairIn) revert TooExpensive();
 
@@ -334,9 +325,10 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     /// @dev Kept out of the last buy on purpose: a pool deployment that reverts must never be able
     ///      to hold a trade hostage. Anyone can call this, in the same block if they want.
     ///
-    ///      The graduation fee is not booked: it goes into the Bag in this same call, and the Bag
-    ///      pays a quarter of it (Confetti) into this launch's pot right here, so the holders who
-    ///      bonded the curve are paid in the transaction that bonded it.
+    ///      The graduation fee is not booked: it goes into the Bag in this same call, which pays the
+    ///      launch's creator fee recipient their bonus (read off the factory's registry row, so a
+    ///      recipient the creator handed on since launch is the one paid) and sends the rest to
+    ///      the burn clock.
     function finalize() external nonReentrant {
         if (phase != Phase.Sold) revert NotSoldOut();
         phase = Phase.Graduated;
@@ -357,7 +349,7 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
             )
         );
         if (graduationFee != 0) {
-            IHoodBag(bag).takeGraduationFee{value: _forBag(graduationFee)}(pairToken, graduationFee, token, pot);
+            IHoodBag(bag).takeGraduationFee{value: _forBag(graduationFee)}(pairToken, graduationFee, token, _dev());
         }
 
         emit Graduated(tokenAmount, pairForLp, graduationFee);
@@ -375,13 +367,7 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
     ///      in the registry to unblock it.
     function claimProtocol() external nonReentrant returns (uint256 amount) {
         amount = protocolClaimable;
-        uint256 penalties = penaltyClaimable;
-        if (amount == 0 && penalties == 0) revert NothingToClaim();
-        if (penalties != 0) {
-            penaltyClaimable = 0;
-            IHoodBag(bag).takePenaltyCut{value: _forBag(penalties)}(pairToken, penalties, token);
-        }
-        if (amount == 0) return 0;
+        if (amount == 0) revert NothingToClaim();
         protocolClaimable = 0;
         (address referrer, uint256 cut) = _referral(amount);
         if (cut != 0) {
@@ -401,6 +387,14 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         if (pairToken == address(0)) return amount;
         IERC20(pairToken).forceApprove(bag, amount);
         return 0;
+    }
+
+    /// @dev The creator fee recipient on the registry row right now, or nobody when the factory
+    ///      cannot say. Nothing about reading it may stop a graduation.
+    function _dev() internal view returns (address dev) {
+        try IHoodFactory(factory).getLaunch(token) returns (Launch memory l) {
+            dev = l.creatorFeeRecipient;
+        } catch {}
     }
 
     /// @dev The referral leg of `amount`, or (0, 0) whenever the registry cannot be read. A cut
@@ -438,31 +432,14 @@ contract HoodCurve is IHoodCurve, ReentrancyGuard {
         return Math.mulDiv(spent, bps, BPS - bps, Math.Rounding.Ceil);
     }
 
-    /// @dev The per-wallet buy cap. Keyed on the receiving wallet, cumulative over the window.
-    function _checkWindow(address to, uint256 tokensOut) internal {
-        uint256 cap = maxBuy;
-        if (cap == 0 || block.number > restrictionsEndBlock) return;
-        uint256 bought = boughtDuringWindow[to] + tokensOut;
-        if (bought > cap) revert BuysTooMuch();
-        boughtDuringWindow[to] = bought;
-    }
-
-    /// @dev 80% of the surcharge to this launch's holders now, 20% booked for the Bag. The pot is
-    ///      this launch's own contract and books a deposit without calling out, so paying it inline
-    ///      cannot hold a trade hostage; the Bag's share waits for `claimProtocol` like the fees.
-    function _takeSnipe(address to, uint256 penalty) internal {
-        uint256 toBag = (penalty * BagSplits.PENALTY_BAG_BPS) / BPS;
-        uint256 toHolders = penalty - toBag;
-        penaltyClaimable += toBag;
-        if (toHolders != 0) {
-            if (pairToken == address(0)) {
-                IHoodPot(pot).depositForHolders{value: toHolders}(toHolders, BagReasons.SNIPE, to);
-            } else {
-                IERC20(pairToken).forceApprove(pot, toHolders);
-                IHoodPot(pot).depositForHolders(toHolders, BagReasons.SNIPE, to);
-            }
-        }
-        emit Sniped(msg.sender, to, penalty, toHolders, toBag);
+    /// @dev The opening tax is trading fee: split between the protocol and the creator the way
+    ///      the fee is, booked and routed by the same two legs.
+    function _takeSnipe(address to, uint256 tax) internal {
+        (uint256 protocolFee, uint256 creatorFee) = _splitFee(tax);
+        // A preset with no fee legs at all has no split to follow; the protocol books it whole.
+        if (protocolFee + creatorFee == 0) protocolFee = tax;
+        _payFees(protocolFee, creatorFee);
+        emit Sniped(msg.sender, to, tax);
     }
 
     /// @dev Splits one rounded total, so the two legs can never add up to more than it.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { curveBuy, raiseTarget, snipeBpsAt } from "@hood/sdk";
+import { curveBuy, raiseTarget, snipeBpsAt, SNIPE_WINDOW_SECONDS } from "@hood/sdk";
 import { compact, fmt } from "@/lib/format";
 import { Slider } from "@/components/LaunchUI";
 
@@ -75,15 +75,30 @@ export function CurveSim({ p0, p1, curveSupply, totalSupply, dec, sym, feeBps, t
   );
 }
 
+/// A creator's own surcharge on a v3 portal: quadratic over its window.
+function legacySnipeBps(snipeTaxBps: number, windowSeconds: number, t: number): number {
+  if (windowSeconds <= 0 || snipeTaxBps <= 0 || t >= windowSeconds) return 0;
+  const remaining = windowSeconds - Math.max(0, t);
+  return (snipeTaxBps * remaining * remaining) / (windowSeconds * windowSeconds);
+}
+
 /// The other machine's dials: a tax that never changes and a surcharge that is gone in seconds.
-export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds, openFdv, bondFdv, quoteSymbol }: {
+/// With `fixed` the surcharge is the opening tax every v4 launch runs (SnipeSchedule), which the
+/// hook caps so that everything together is at most 99% (the platform's 1% included).
+export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds, openFdv, bondFdv, quoteSymbol, fixed }: {
   buyTax: number; sellTax: number; snipeTax: number; snipeSeconds: number;
-  openFdv: number; bondFdv: number; quoteSymbol: string;
+  openFdv: number; bondFdv: number; quoteSymbol: string; fixed?: boolean;
 }) {
   const [t, setT] = useState(0);
   const [poolProgress, setPoolProgress] = useState(25);
-  const span = Math.max(snipeSeconds, 10);
-  const surcharge = snipeBpsAt(snipeTax * 100, snipeSeconds, t) / 100;
+  const room = Math.max(0, 98 - buyTax);
+  const surchargeAt = (s: number) => fixed
+    ? Math.min(snipeBpsAt(s) / 100, room)
+    : legacySnipeBps(snipeTax * 100, snipeSeconds, s) / 100;
+  const peak = surchargeAt(0);
+  const window = fixed ? SNIPE_WINDOW_SECONDS : snipeSeconds;
+  const span = Math.max(window, 10);
+  const surcharge = surchargeAt(t);
   const onBuy = buyTax + surcharge;
   const roundTrip = 100 - (100 - onBuy) * (100 - sellTax) / 100;
   const validOpen = Math.max(openFdv || 0, 0.000001);
@@ -92,17 +107,17 @@ export function DirectSim({ buyTax, sellTax, snipeTax, snipeSeconds, openFdv, bo
   const priceMultiple = currentFdv / validOpen;
 
   const x = (s: number) => 8 + (s / span) * 300;
-  const y = (pct: number) => 104 - (pct / Math.max(1, snipeTax + buyTax)) * 86;
+  const y = (pct: number) => 104 - (pct / Math.max(1, peak + buyTax)) * 86;
   const line = Array.from({ length: 61 }, (_, i) => {
     const s = (i / 60) * span;
-    return `${i === 0 ? "M" : "L"}${x(s).toFixed(1)} ${y(buyTax + snipeBpsAt(snipeTax * 100, snipeSeconds, s) / 100).toFixed(1)}`;
+    return `${i === 0 ? "M" : "L"}${x(s).toFixed(1)} ${y(buyTax + surchargeAt(fixed ? Math.floor(s) : s)).toFixed(1)}`;
   }).join(" ");
 
   return (
     <div className="direct-sim-wrap">
       <div className="direct-sim-summary" aria-label="Trading fee example">
-        <span><small>Buy at launch</small><strong>{(buyTax + snipeTax).toFixed(1)}%</strong></span>
-        <span><small>Buy after {snipeSeconds || 0}s</small><strong>{buyTax.toFixed(1)}%</strong></span>
+        <span><small>Buy at launch</small><strong>{(buyTax + peak).toFixed(1)}%</strong></span>
+        <span><small>Buy after {window || 0}s</small><strong>{buyTax.toFixed(1)}%</strong></span>
         <span><small>Sell</small><strong>{sellTax.toFixed(1)}%</strong></span>
       </div>
       <p className="direct-sim-caption">These are tax rates, not price predictions. Pool fees and price movement are additional.</p>

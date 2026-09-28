@@ -47,12 +47,13 @@ contract MockBag is IHoodBag {
         _take(BagSource.Trade, asset, amount, token, address(0));
     }
 
-    function takeGraduationFee(address asset, uint256 amount, address token, address pot) external payable {
-        _take(BagSource.Graduation, asset, amount, token, pot);
+    /// @dev `dev` is recorded in the `pot` field of the take.
+    function takeGraduationFee(address asset, uint256 amount, address token, address dev) external payable {
+        _take(BagSource.Graduation, asset, amount, token, dev);
     }
 
-    function takePenaltyCut(address asset, uint256 amount, address token) external payable {
-        _take(BagSource.Penalty, asset, amount, token, address(0));
+    function takeBoost(address asset, uint256 amount, address token, uint64) external payable {
+        _take(BagSource.Boost, asset, amount, token, address(0));
     }
 
     function takeHouseFee(address asset, uint256 amount, address token) external payable {

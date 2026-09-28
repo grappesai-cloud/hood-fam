@@ -64,7 +64,7 @@ const tick = (fdv) => Math.round(Math.log(supply / fdv) / Math.log(1.0001) / spa
 const { hash: dHash } = await creator.direct.launch({
   name: "Direct Fam", symbol: "DFAM", logo: "ipfs://dfam", description: "the supply is the liquidity",
   socials: { twitter: "@dfam", telegram: "", discord: "", website: "https://hood.fam", farcaster: "" },
-  tickStart: tick(10), tickBond: tick(100), restrictionBlocks: 5, initialBuy: parseEther("0.2"),
+  tickStart: tick(10), tickBond: tick(100), initialBuy: parseEther("0.2"),
 });
 const dReceipt = await wait(dHash);
 const dLog = dReceipt.logs.find((l) => l.address.toLowerCase() === direct.portal.toLowerCase() && l.topics.length >= 4);

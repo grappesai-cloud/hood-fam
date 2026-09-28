@@ -17,7 +17,6 @@ import {HoodPortal} from "../src/direct/HoodPortal.sol";
 import {HoodDirectDeployer} from "../src/direct/HoodDirectDeployer.sol";
 import {HoodLaunchToken} from "../src/direct/HoodLaunchToken.sol";
 import {HoodBuybackModule} from "../src/direct/HoodBuybackModule.sol";
-import {HoodOpeningAuction} from "../src/direct/HoodOpeningAuction.sol";
 import {HoodBag} from "../src/bag/HoodBag.sol";
 import {HoodPayday} from "../src/bag/HoodPayday.sol";
 import {HoodBurnClock} from "../src/bag/HoodBurnClock.sol";
@@ -26,8 +25,8 @@ import {CurveConfig} from "../src/HoodTypes.sol";
 import {ISafe, SafeLib} from "./safe/Safe.sol";
 import {GraduationHookDeploy} from "./lib/GraduationHookDeploy.sol";
 
-/// @notice Deploys hood.fam v3 on Robinhood Chain 4663: the curve machine, the Bag with its two
-///         clocks, the graduation hook, the direct machine with the opening auction, all wired,
+/// @notice Deploys hood.fam v4 on Robinhood Chain 4663: the curve machine, the Bag with its two
+///         clocks, the graduation hook, the direct machine, all wired,
 ///         the presets seeded, then ownership handed to OWNER.
 /// @dev The deployer is the owner while it wires the modules and seeds the presets, then hands
 ///      ownership to OWNER. Use a wallet generated for this project and nothing else.
@@ -39,12 +38,12 @@ import {GraduationHookDeploy} from "./lib/GraduationHookDeploy.sol";
 ///      Bag's deploy, never movable, so it is the Safe from the first block.
 ///
 ///      The order, and why it is this one. The Bag needs the vault (staking) and its two clocks
-///      first. The graduation hook needs the factory, the Bag, the fee router and the vault, and
+///      first. The graduation hook needs the factory, the Bag and the fee router, and
 ///      its address is mined (a v4 hook's permissions live in the low bits of its address). The
 ///      factory is told the Bag right after its modules, because it accepts no launch before; the
 ///      graduator is told the hook while the deployer still owns the factory, because only the
 ///      owner may name it and `prepare` refuses to open a pool without it. The portal is told the
-///      Bag and the auction before the factory accepts it. Payday and the burn clock take a keeper
+///      Bag before the factory accepts it. Payday and the burn clock take a keeper
 ///      from the factory owner: from the deployer here when KEEPER is set, from the Safe later
 ///      otherwise, and the calls are printed either way.
 ///
@@ -83,7 +82,6 @@ contract Deploy is Script {
         address tokenImplementation;
         address portal;
         address buybackModule;
-        address auction;
     }
 
     Book internal book;
@@ -159,7 +157,7 @@ contract Deploy is Script {
         book.boosts = address(new HoodBoosts(book.factory, book.bag));
         console.log("boosts    ", book.boosts);
         book.graduationHook =
-            GraduationHookDeploy.deploy(POOL_MANAGER, book.factory, book.bag, book.feeRouter, book.staking);
+            GraduationHookDeploy.deploy(POOL_MANAGER, book.factory, book.bag, book.feeRouter);
         console.log("gradHook  ", book.graduationHook);
     }
 
@@ -187,13 +185,16 @@ contract Deploy is Script {
     function _presets() internal {
         HoodFactory factory = HoodFactory(payable(book.factory));
 
-        // 0: the standard launch. A billion tokens, four fifths on the curve, graduates at a ten
-        //    ETH valuation, which is a raise of about 4.4 ETH.
-        factory.addConfig(_preset(address(0), 1 ether, 10 ether, 9000));
+        // Every preset keeps 90% of the raise for the pool: the graduation fee is a flat tenth,
+        // 23% of it to the dev and the rest to the burn clock (HoodBag.takeGraduationFee).
+        //
+        // 0: the standard launch. A billion tokens, four fifths on the curve, 1.1 to 11.025 ETH of
+        //    valuation, which raises 4.85 ETH: the pool gets 4.365 and the fee is 0.485.
+        factory.addConfig(_preset(address(0), 1.1 ether, 11.025 ether, 9000));
         // 1: the wide launch, for something that expects real size before it graduates.
-        factory.addConfig(_preset(address(0), 2 ether, 40 ether, 9500));
-        // 2: priced in dollars, so the chart does not move with ETH.
-        factory.addConfig(_preset(USDG, 5_000e6, 50_000e6, 9000));
+        factory.addConfig(_preset(address(0), 2 ether, 40 ether, 9000));
+        // 2: priced in dollars, so the chart does not move with ETH. The same shape as 0.
+        factory.addConfig(_preset(USDG, 5_500e6, 55_125e6, 9000));
     }
 
     function _preset(address pairToken, uint256 startCap, uint256 graduationCap, uint16 liquidityBps)
@@ -208,8 +209,8 @@ contract Deploy is Script {
             startCap: startCap,
             graduationCap: graduationCap,
             liquidityBps: liquidityBps,
-            protocolFeeBps: 70,
-            creatorFeeBps: 30,
+            protocolFeeBps: 30,
+            creatorFeeBps: 70,
             poolFee: 3000,
             tickSpacing: 60,
             enabled: true
@@ -218,9 +219,7 @@ contract Deploy is Script {
 
     // ---------------------------------------------------------------- the direct machine
 
-    /// @dev No curve, the supply is the liquidity from block one. The opening auction is shared
-    ///      by every launch that chooses it over the fair open, and the portal refuses a launch
-    ///      that asks for one before it is named.
+    /// @dev No curve, the supply is the liquidity from block one.
     function _directMachine(address deployer, address treasury) internal {
         HoodDirectDeployer directDeployer = new HoodDirectDeployer();
         book.directDeployer = address(directDeployer);
@@ -235,15 +234,12 @@ contract Deploy is Script {
         directDeployer.initialize(book.portal);
         book.buybackModule = address(new HoodBuybackModule(POOL_MANAGER, book.portal));
         console.log("buyback   ", book.buybackModule);
-        book.auction = address(new HoodOpeningAuction(book.portal));
-        console.log("auction   ", book.auction);
 
         portal.setBuybackModule(book.buybackModule);
         portal.setRegistry(book.factory);
         portal.setReferrals(book.referrals);
         portal.setQuote(USDG, true);
         portal.setBag(book.bag);
-        portal.setAuction(book.auction);
         portal.setLaunchFee(LAUNCH_FEE);
         HoodFactory(payable(book.factory)).setPortal(book.portal);
     }
@@ -274,7 +270,7 @@ contract Deploy is Script {
         HoodPortal(payable(book.portal)).transferOwnership(owner);
         HoodReferrals(book.referrals).transferOwnership(owner);
         // All four are Ownable2Step: nothing moves until the owner calls acceptOwnership(). The
-        // Bag, its clocks, the boosts board, the hook and the auction have no owner of their own:
+        // Bag, its clocks, the boosts board and the hook have no owner of their own:
         // the two clocks and the board ask the factory's owner, so they follow the factory.
         // From a Safe that is one batch: `npm run safe -- accept` builds it.
         console.log("PENDING: owner must call acceptOwnership() on factory, bridge, portal and referrals");
@@ -304,7 +300,6 @@ contract Deploy is Script {
         console.log("HOOD_BURN_CLOCK=%s", book.burnClock);
         console.log("HOOD_BOOSTS=%s", book.boosts);
         console.log("HOOD_GRADUATION_HOOK=%s", book.graduationHook);
-        console.log("HOOD_OPENING_AUCTION=%s", book.auction);
         console.log("HOOD_BLOCK_ZERO=%s", book.blockZero);
         console.log("HOOD_START_BLOCK=%s", block.number);
     }

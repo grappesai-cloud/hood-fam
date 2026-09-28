@@ -5,16 +5,15 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import {BagSource, BagOutlet, BagReasons, BagSplits} from "./BagTypes.sol";
+import {BagSource, BagOutlet, BagSplits} from "./BagTypes.sol";
 import {PairTransfer} from "../libraries/PairTransfer.sol";
 import {IHoodBag} from "../interfaces/IHoodBag.sol";
-import {IHoodPot} from "../interfaces/IHoodPot.sol";
 import {IHoodPayday} from "../interfaces/IHoodPayday.sol";
 import {IHoodBurnClock} from "../interfaces/IHoodBurnClock.sol";
 import {IHoodStaking} from "../interfaces/IHoodStaking.sol";
 
 /// @title HoodBag
-/// @notice The one router every platform fee passes through. Five doors in, four outlets out,
+/// @notice The one router every platform fee passes through. Five doors in, five outlets out,
 ///         and the splits are constants: nobody owns this contract and nothing can be withdrawn
 ///         from it except along the rules below.
 /// @dev The house is paid first on every intake. A house that cannot take a native transfer (a
@@ -22,8 +21,9 @@ import {IHoodStaking} from "../interfaces/IHoodStaking.sol";
 ///      later by anyone, so a trade is never blocked by the treasury. The Vault leg waits for the
 ///      house coin: while `vault.houseToken()` is zero the share is held here and released by
 ///      anyone once the coin exists. The burn leg goes to the burn clock, which only accumulates;
-///      if that call ever fails the share is held the same way. Payday and Confetti are paid
-///      straight through.
+///      if that call ever fails the share is held the same way. Payday is paid straight through.
+///      A graduating launch's dev bonus is pushed to its creator fee recipient; one that refuses
+///      it is booked in `devClaimable` and can be pushed again by anyone.
 ///
 ///      Every `take*` uses the payment convention of IHoodBag: native with `msg.value == amount`,
 ///      or an approved ERC-20 the Bag pulls from the caller.
@@ -50,9 +50,12 @@ contract HoodBag is IHoodBag, ReentrancyGuard {
     mapping(address asset => uint256) public heldForBurn;
     /// @notice House shares the treasury refused. Anyone can push them to the house later.
     mapping(address asset => uint256) public houseClaimable;
+    /// @notice Dev bonuses a creator fee recipient refused. Anyone can push them again.
+    mapping(address dev => mapping(address asset => uint256)) public devClaimable;
 
     event HouseDeferred(address indexed asset, uint256 amount);
     event HouseClaimed(address indexed asset, uint256 amount);
+    event DevDeferred(address indexed dev, address indexed asset, uint256 amount);
 
     error ZeroAddress();
     error WrongValue();
@@ -60,7 +63,6 @@ contract HoodBag is IHoodBag, ReentrancyGuard {
     error UnexpectedPayout();
     error NothingToClaim();
     error NothingReleased();
-    error PotAssetMismatch();
 
     constructor(address house_, address vault_, address payday_, address burnClock_) {
         if (house_ == address(0) || vault_ == address(0) || payday_ == address(0) || burnClock_ == address(0)) {
@@ -75,46 +77,46 @@ contract HoodBag is IHoodBag, ReentrancyGuard {
     // ---------------------------------------------------------------- the five doors
 
     /// @inheritdoc IHoodBag
+    /// @dev The house coin's own trades send all of it to the Vault: its creator leg already pays
+    ///      the house its tenth (takeHouseCoinLeg), and it has no Payday leg.
     function takeTradeFee(address asset, uint256 amount, address token) external payable nonReentrant {
         if (!_intake(BagSource.Trade, asset, amount, token)) return;
+        if (token != address(0) && token == _houseToken()) {
+            _vault(asset, amount);
+            return;
+        }
         uint256 toVault = (amount * BagSplits.TRADE_VAULT_BPS) / BPS;
         uint256 toPayday = (amount * BagSplits.TRADE_PAYDAY_BPS) / BPS;
-        uint256 toBurn = (amount * BagSplits.TRADE_BURN_BPS) / BPS;
-        _house(asset, amount - toVault - toPayday - toBurn);
+        _house(asset, amount - toVault - toPayday);
         _vault(asset, toVault);
         _payday(asset, toPayday);
-        _burn(asset, toBurn);
     }
 
     /// @inheritdoc IHoodBag
-    /// @dev A launch without a pot (address(0)) folds its Confetti into the Vault leg, so a
-    ///      graduation never fails on the Bag and the money stays inside the system.
-    function takeGraduationFee(address asset, uint256 amount, address token, address pot)
+    /// @dev A launch with no recipient to name (`dev == address(0)`) sends the whole fee to the
+    ///      burn clock, so a graduation never fails on the Bag and the money stays in the system.
+    function takeGraduationFee(address asset, uint256 amount, address token, address dev)
         external
         payable
         nonReentrant
     {
         if (!_intake(BagSource.Graduation, asset, amount, token)) return;
-        uint256 toHouse = (amount * BagSplits.GRAD_HOUSE_BPS) / BPS;
-        uint256 toConfetti = (amount * BagSplits.GRAD_CONFETTI_BPS) / BPS;
-        uint256 toVault = amount - toHouse - toConfetti;
-        _house(asset, toHouse);
-        if (pot == address(0)) {
-            toVault += toConfetti;
-        } else {
-            _confetti(asset, toConfetti, pot);
-        }
-        _vault(asset, toVault);
+        uint256 toDev = dev == address(0) ? 0 : (amount * BagSplits.GRAD_DEV_BPS) / BPS;
+        _dev(asset, toDev, dev);
+        _burn(asset, amount - toDev);
     }
 
     /// @inheritdoc IHoodBag
-    function takePenaltyCut(address asset, uint256 amount, address token) external payable nonReentrant {
-        if (!_intake(BagSource.Penalty, asset, amount, token)) return;
-        uint256 toHouse = (amount * BagSplits.PENALTY_CUT_HOUSE_BPS) / BPS;
-        uint256 toPayday = (amount * BagSplits.PENALTY_CUT_PAYDAY_BPS) / BPS;
-        _house(asset, toHouse);
-        _payday(asset, toPayday);
-        _burn(asset, amount - toHouse - toPayday);
+    function takeBoost(address asset, uint256 amount, address token, uint64 epoch) external payable nonReentrant {
+        if (!_intake(BagSource.Boost, asset, amount, token)) return;
+        if (asset == address(0)) {
+            IHoodPayday(payday).fundEpoch{value: amount}(asset, amount, epoch);
+        } else {
+            IERC20(asset).forceApprove(payday, amount);
+            IHoodPayday(payday).fundEpoch(asset, amount, epoch);
+        }
+        totalOut[asset][BagOutlet.Payday] += amount;
+        emit BagOut(BagOutlet.Payday, asset, amount, payday);
     }
 
     /// @inheritdoc IHoodBag
@@ -127,8 +129,8 @@ contract HoodBag is IHoodBag, ReentrancyGuard {
     function takeHouseCoinLeg(address asset, uint256 amount) external payable nonReentrant {
         if (!_intake(BagSource.HouseCoin, asset, amount, _houseToken())) return;
         uint256 toVault = (amount * BagSplits.HOUSE_COIN_VAULT_BPS) / BPS;
+        _house(asset, amount - toVault);
         _vault(asset, toVault);
-        _burn(asset, amount - toVault);
     }
 
     // ---------------------------------------------------------------- held money
@@ -172,6 +174,16 @@ contract HoodBag is IHoodBag, ReentrancyGuard {
         PairTransfer.push(asset, house, amount);
         emit HouseClaimed(asset, amount);
         emit BagOut(BagOutlet.House, asset, amount, house);
+    }
+
+    /// @notice Permissionless. Pushes a dev bonus the recipient refused earlier to that recipient.
+    function claimDev(address dev, address asset) external nonReentrant {
+        uint256 amount = devClaimable[dev][asset];
+        if (amount == 0) revert NothingToClaim();
+        devClaimable[dev][asset] = 0;
+        totalOut[asset][BagOutlet.Dev] += amount;
+        PairTransfer.push(asset, dev, amount);
+        emit BagOut(BagOutlet.Dev, asset, amount, dev);
     }
 
     // ---------------------------------------------------------------- self-calls
@@ -278,17 +290,27 @@ contract HoodBag is IHoodBag, ReentrancyGuard {
         emit BagOut(BagOutlet.Payday, asset, amount, payday);
     }
 
-    function _confetti(address asset, uint256 amount, address pot) internal {
+    /// @dev Pushed with bounded gas like the house's share, and booked for `claimDev` when the
+    ///      recipient cannot take it, so no recipient can stop a graduation.
+    function _dev(address asset, uint256 amount, address dev) internal {
         if (amount == 0) return;
-        if (IHoodPot(pot).asset() != asset) revert PotAssetMismatch();
+        bool paid;
         if (asset == address(0)) {
-            IHoodPot(pot).depositForHolders{value: amount}(amount, BagReasons.CONFETTI, address(this));
+            (paid,) = dev.call{value: amount, gas: HOUSE_GAS}("");
         } else {
-            IERC20(asset).forceApprove(pot, amount);
-            IHoodPot(pot).depositForHolders(amount, BagReasons.CONFETTI, address(this));
+            uint256 before = IERC20(asset).balanceOf(address(this));
+            IERC20(asset).trySafeTransfer(dev, amount);
+            uint256 spent = before - IERC20(asset).balanceOf(address(this));
+            if (spent != 0 && spent != amount) revert UnexpectedPayout();
+            paid = spent == amount;
         }
-        totalOut[asset][BagOutlet.Confetti] += amount;
-        emit BagOut(BagOutlet.Confetti, asset, amount, pot);
+        if (paid) {
+            totalOut[asset][BagOutlet.Dev] += amount;
+            emit BagOut(BagOutlet.Dev, asset, amount, dev);
+        } else {
+            devClaimable[dev][asset] += amount;
+            emit DevDeferred(dev, asset, amount);
+        }
     }
 
     function _vaultReady() internal view returns (bool) {

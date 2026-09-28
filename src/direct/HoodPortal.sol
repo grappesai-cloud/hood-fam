@@ -26,7 +26,7 @@ import {HoodLaunchToken} from "./HoodLaunchToken.sol";
 import {HoodLocker} from "./HoodLocker.sol";
 import {HoodRevenueSplitter} from "./HoodRevenueSplitter.sol";
 import {PairTransfer} from "../libraries/PairTransfer.sol";
-import {PenaltyConfig} from "../bag/BagTypes.sol";
+import {SnipeSchedule} from "../libraries/SnipeSchedule.sol";
 import {IHoodBag} from "../interfaces/IHoodBag.sol";
 import {IHoodTokenLock} from "../interfaces/IHoodTokenLock.sol";
 import {ITeamEvents, TeamBuy} from "../TeamTypes.sol";
@@ -38,11 +38,6 @@ interface IPositionManagerLite {
 
 interface IPermit2Lite {
     function approve(address token, address spender, uint160 amount, uint48 expiration) external;
-}
-
-interface IOpeningAuction {
-    function register(address token, uint64 endBlock, uint256 minBid) external;
-    function SLOT_BLOCKS() external view returns (uint64);
 }
 
 interface IRegistry {
@@ -73,15 +68,16 @@ interface IRegistry {
 ///
 ///      The creator's first buy happens inside the launch transaction when they ask for one, swapped
 ///      straight against the PoolManager rather than through a router: that keeps the hook's view
-///      of the caller honest (the portal, exempt from the opening surcharge) and the token's view of
-///      the recipient honest (the creator, whom the launch block belongs to). The window's buy cap
-///      still applies to it, so a creator gets first dibs, not the whole open.
+///      of the caller honest (the portal, which the opening tax never charges).
 ///
 ///      A team launch (`createTeamLaunch`) does the same for a list of declared wallets: each one's
 ///      buy is swapped by this portal inside the launch transaction, so the hook sees the portal
-///      and takes no surcharge, and then handed to the wallet, or written into the token lock in
-///      its name. The hand-over is a transfer, so the launch's own hold cap applies to every team
-///      wallet. Each wallet, its spend, its tokens and its lock are emitted for the app to label.
+///      and charges no opening tax, and then handed to the wallet, or written into the token lock
+///      in its name. Each wallet, its spend, its tokens and its lock are emitted for the app to
+///      label.
+///
+///      Every launch opens on the same schedule (SnipeSchedule). The launcher, the creator fee
+///      recipient and up to SnipeSchedule.MAX_EXEMPT wallets the creator names pay no opening tax.
 contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEvents {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
@@ -95,20 +91,12 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
     uint24 internal constant MAX_LP_FEE = 1_000_000;
     uint8 internal constant MINT_POSITION = 0x02;
     uint8 internal constant SETTLE_PAIR = 0x0d;
-    /// @notice The longest the per-wallet caps may hold: two minutes at this chain's 100ms blocks.
-    uint32 public constant MAX_RESTRICTION_BLOCKS = 1_200;
-    /// @notice The ceilings on what a launch may charge as penalties and how long it may auction.
-    uint16 public constant MAX_PENALTY_BPS = 2_500;
-    uint32 public constant MAX_JEET_WINDOW_SECONDS = 3_600;
-    uint24 public constant MAX_WHALE_TICK_LIMIT = 2_000;
-    uint16 public constant MAX_KING_BPS = 5_000;
-    uint32 public constant MAX_AUCTION_BLOCKS = 300;
     /// @notice The launch fee can be raised by the owner, but never past this.
     uint256 public constant MAX_LAUNCH_FEE = 0.01 ether;
     /// @notice Most wallets a team launch may buy for, so it never runs out of gas half way.
     uint256 public constant MAX_TEAM_LEGS = 40;
-    /// @notice The most a launch may print. Above this the caps and the position maths silently
-    ///         truncate: `maxHold` is a uint128 and Permit2's allowance is a uint160.
+    /// @notice The most a launch may print. Above this the position maths silently truncates:
+    ///         Permit2's allowance is a uint160.
     uint256 public constant MAX_SUPPLY = type(uint128).max;
 
     HoodDirectDeployer public immutable deployer;
@@ -125,8 +113,6 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
     /// @notice The Bag: where the launch fee goes, and where every hook sends the platform's fee.
     ///         Set once; no launch can be created before it is.
     address public bag;
-    /// @notice The shared sniper auction. Set once; a launch may only ask for an auction after.
-    address public auction;
     /// @notice The referral registry a splitter reads when the protocol's tenth is claimed. Zero
     ///         turns the leg off for every direct launch.
     address public referrals;
@@ -148,7 +134,6 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
         address splitter,
         address locker,
         uint256 positionId,
-        uint64 restrictionsEndBlock,
         uint256 initialBuy
     );
     event DirectMetadata(address indexed token, string name, string symbol, string logo, string description);
@@ -160,19 +145,6 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
     event LaunchGateSet(bool enabled, bool whitelistOnly);
     event WhitelistSet(address indexed who, bool allowed);
     event BagSet(address bag);
-    event AuctionSet(address auction);
-    /// @notice The launch's penalty and auction settings, next to PoolOpened.
-    event LaunchRules(
-        address indexed token,
-        uint16 jeetTaxBps,
-        uint32 jeetWindowSeconds,
-        uint16 whaleTaxBps,
-        uint24 whaleTickLimit,
-        uint16 kingBps,
-        bool penaltiesToVault,
-        uint32 auctionBlocks,
-        uint64 auctionEndBlock
-    );
     /// @notice Everything an indexer needs to follow the pool without calling back into the hook.
     event PoolOpened(
         address indexed token,
@@ -182,11 +154,7 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
         int24 tickStart,
         int24 tickBond,
         uint16 buyTaxBps,
-        uint16 sellTaxBps,
-        uint16 snipeTaxBps,
-        uint32 snipeDecaySeconds,
-        uint16 maxHoldBps,
-        uint16 maxBuyBps
+        uint16 sellTaxBps
     );
 
     error BadHookSalt();
@@ -201,10 +169,8 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
     error LaunchesPaused();
     error NotWhitelisted();
     error BadPoolFee();
-    error BadWindow();
     error PoolAlreadyOpen();
-    error BadPenalty();
-    error NoAuction();
+    error ExemptionListTooLong();
     error NoLegs();
     error TooManyLegs();
     error BadLeg();
@@ -291,13 +257,6 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
         if (bag != address(0)) revert AlreadyWired();
         bag = bag_;
         emit BagSet(bag_);
-    }
-
-    /// @notice Names the shared opening auction, once.
-    function setAuction(address auction_) external onlyOwner {
-        if (auction != address(0)) revert AlreadyWired();
-        auction = auction_;
-        emit AuctionSet(auction_);
     }
 
     /// @notice Points every splitter, live ones included, at a referral registry. Zero switches
@@ -449,9 +408,8 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
         }
     }
 
-    /// @dev Swapped to this portal (exempt everywhere, so neither the launch block rule nor the buy
-    ///      cap stops it), then handed over: a transfer to the wallet, which the hold cap still
-    ///      sees, or a lock in the wallet's name.
+    /// @dev Swapped to this portal (which the opening tax never charges), then handed over: a
+    ///      transfer to the wallet, or a lock in the wallet's name.
     function _teamLeg(
         address token,
         PoolKey memory key,
@@ -509,8 +467,7 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
         if (p.supply == 0 || p.supply > MAX_SUPPLY) revert BadSupply();
         if (p.poolFee & DYNAMIC_FEE_FLAG != 0 || p.poolFee > MAX_LP_FEE) revert BadPoolFee();
         _checkTicks(p);
-        _checkWindow(p.config);
-        _checkPenalties(p.config);
+        if (p.config.exempt.length > SnipeSchedule.MAX_EXEMPT) revert ExemptionListTooLong();
 
         bytes32 salt = keccak256(abi.encode(msg.sender, p.salt));
         out.token = deployer.cloneToken(tokenImplementation, salt);
@@ -522,18 +479,14 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
             address(poolManager), address(positionManager), out.token, p.quote, out.splitter, salt
         );
 
-        HoodLaunchToken(out.token).initialize(
-            p.name, p.symbol, p.logo, p.description, p.socials, p.supply, msg.sender,
-            p.config.restrictionBlocks, p.config.maxHoldBps, p.config.maxBuyBps
-        );
+        HoodLaunchToken(out.token).initialize(p.name, p.symbol, p.logo, p.description, p.socials, p.supply, msg.sender);
 
         key = _poolKey(out.token, p.quote, p.poolFee, p.tickSpacing, out.hook);
         tokenIsZero = Currency.unwrap(key.currency0) == out.token;
 
-        // Order matters, and the chain taught it: the pool has to be exempt from the opening window
-        // and excluded from dividends BEFORE the supply is deposited into it, or the token's own
-        // anti-snipe cap rejects its own liquidity and the dividend accumulator counts the pool as
-        // the largest holder alive.
+        // Order matters, and the chain taught it: the pool has to be excluded from dividends BEFORE
+        // the supply is deposited into it, or the dividend accumulator counts the pool as the
+        // largest holder alive.
         _wire(p, out, key, tokenIsZero, p.creatorFeeRecipient == address(0) ? msg.sender : p.creatorFeeRecipient);
 
         // The token and the hook are CREATE2 addresses derived from a salt that is public the
@@ -556,12 +509,9 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
         startTick[out.hook] = p.config.tickStart;
         _register(p, out, msg.sender);
         _announcePool(p, out.token, key);
-        _openAuction(p, out.token);
     }
 
-    /// @dev Straight against the PoolManager, so the hook sees the portal as the caller and the
-    ///      token sees the creator as the recipient. The window's buy cap applies as it would to
-    ///      anyone: first dibs, not the whole open.
+    /// @dev Straight against the PoolManager, so the hook sees the portal as the caller.
     function _initialBuy(LaunchInput calldata p, address token, PoolKey memory key, bool tokenIsZero, address creator)
         internal
     {
@@ -607,58 +557,11 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
         return bytes("");
     }
 
-    /// @dev The buy cap is per wallet and cumulative, the hold cap is per wallet and absolute. A
-    ///      buy cap far above the hold cap is a cap on nothing; Pons pins it at 1.1x, and so do we.
-    ///      The window also has a ceiling: `restrictionBlocks` is a uint32, and a launch that set
-    ///      it to four billion with a hold cap of one basis point would be a token nobody can ever
-    ///      hold more than a hundredth of a percent of. Every limit here expires by itself, and
-    ///      MAX_RESTRICTION_BLOCKS is what makes that sentence true.
-    function _checkWindow(DirectConfig calldata c) internal pure {
-        if (c.restrictionBlocks == 0) return;
-        if (c.restrictionBlocks > MAX_RESTRICTION_BLOCKS) revert BadWindow();
-        if (c.maxHoldBps == 0 || c.maxBuyBps == 0) revert BadWindow();
-        if (c.maxHoldBps > 10_000 || c.maxBuyBps > (uint256(c.maxHoldBps) * 11) / 10) revert BadWindow();
-    }
-
-    /// @dev The ceilings that keep a penalty a penalty: a quarter of the trade at most, a flip
-    ///      window of an hour at most, a whale line no further than a doubling of the price, and
-    ///      an auction that ends within half a minute of blocks.
-    function _checkPenalties(DirectConfig calldata c) internal view {
-        PenaltyConfig calldata pc = c.penalties;
-        if (pc.jeetTaxBps > MAX_PENALTY_BPS || pc.whaleTaxBps > MAX_PENALTY_BPS) revert BadPenalty();
-        if (pc.jeetWindowSeconds > MAX_JEET_WINDOW_SECONDS || pc.whaleTickLimit > MAX_WHALE_TICK_LIMIT) revert BadPenalty();
-        if (pc.kingBps > MAX_KING_BPS) revert BadPenalty();
-        // a rate with no window, or a whale line at zero, is a tax on everyone wearing another name
-        if (pc.jeetTaxBps != 0 && pc.jeetWindowSeconds == 0) revert BadPenalty();
-        if (pc.whaleTaxBps != 0 && pc.whaleTickLimit == 0) revert BadPenalty();
-        if (c.auctionBlocks > MAX_AUCTION_BLOCKS) revert BadWindow();
-        if (c.auctionBlocks != 0 && auction == address(0)) revert NoAuction();
-    }
-
-    /// @dev The sniper auction, when the launch chose it: the window starts after the creator's
-    ///      block. For a launch quoted in the chain's own currency the first bid must at least
-    ///      match the launch fee; for any other quote the market sets the floor.
-    function _openAuction(LaunchInput calldata p, address token) internal {
-        uint32 blocks = p.config.auctionBlocks;
-        uint64 endBlock;
-        if (blocks != 0) {
-            endBlock = uint64(block.number) + blocks;
-            IOpeningAuction a = IOpeningAuction(auction);
-            a.register(token, endBlock, p.quote == address(0) ? launchFee : 0);
-            HoodLaunchToken(token).setOpeningAuction(auction, endBlock, a.SLOT_BLOCKS());
-        }
-        PenaltyConfig calldata pc = p.config.penalties;
-        emit LaunchRules(
-            token, pc.jeetTaxBps, pc.jeetWindowSeconds, pc.whaleTaxBps, pc.whaleTickLimit, pc.kingBps,
-            pc.penaltiesToVault, blocks, endBlock
-        );
-    }
-
     function _announcePool(LaunchInput calldata p, address token, PoolKey memory key) internal {
         DirectConfig calldata c = p.config;
         emit PoolOpened(
             token, PoolId.unwrap(key.toId()), key.fee, key.tickSpacing, c.tickStart, c.tickBond,
-            c.buyTaxBps, c.sellTaxBps, c.snipeTaxBps, c.snipeDecaySeconds, c.maxHoldBps, c.maxBuyBps
+            c.buyTaxBps, c.sellTaxBps
         );
     }
 
@@ -728,12 +631,10 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
         hp.tokenIsZero = tokenIsZero;
         hp.buyTaxBps = p.config.buyTaxBps;
         hp.sellTaxBps = p.config.sellTaxBps;
-        hp.snipeTaxBps = p.config.snipeTaxBps;
-        hp.snipeDecaySeconds = p.config.snipeDecaySeconds;
         hp.tickBond = p.config.tickBond;
         hp.buybackModule = buybackModule;
         hp.bag = bag;
-        hp.penalties = p.config.penalties;
+        hp.exempt = _exemptList(p, creatorFeeRecipient);
         hp.key = key;
         HoodLaunchHook(payable(out.hook)).initialize(hp);
 
@@ -741,14 +642,24 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
         HoodRevenueSplitter(payable(out.splitter)).setHook(out.hook);
         HoodRevenueSplitter(payable(out.splitter)).exclude(address(poolManager));
         // The token lock holds locked first buys and team legs for months in their owners' names.
-        // It is not a holder with a share of anything, and the hold cap is for wallets, not for it.
+        // It is not a holder with a share of anything.
         address tokenLock = registry == address(0) ? address(0) : IRegistry(registry).firstBuyLocker();
         if (tokenLock != address(0)) HoodRevenueSplitter(payable(out.splitter)).exclude(tokenLock);
 
         // In v4 every pool's tokens sit in the PoolManager, so that is the address a buy comes from.
-        HoodLaunchToken(out.token).setLaunchAddresses(
-            address(poolManager), out.splitter, out.locker, out.hook, buybackModule, tokenLock
-        );
+        HoodLaunchToken(out.token).setLaunchAddresses(address(poolManager), out.splitter);
+    }
+
+    /// @dev The launcher and the fee recipient, then the named wallets as given. The hook keys the
+    ///      exemption on `tx.origin`.
+    function _exemptList(LaunchInput calldata p, address feeRecipient) internal view returns (address[] memory list) {
+        address[] calldata named = p.config.exempt;
+        list = new address[](named.length + 2);
+        list[0] = msg.sender;
+        list[1] = feeRecipient;
+        for (uint256 i; i < named.length; ++i) {
+            list[i + 2] = named[i];
+        }
     }
 
     function _register(LaunchInput calldata p, Addresses memory out, address creator) internal {
@@ -761,7 +672,6 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
             creator: creator,
             positionId: out.positionId,
             launchedAt: uint64(block.timestamp),
-            restrictionsEndBlock: uint64(block.number) + p.config.restrictionBlocks,
             exists: true
         });
         allLaunches.push(out.token);
@@ -774,8 +684,7 @@ contract HoodPortal is Ownable2Step, ReentrancyGuard, IUnlockCallback, ITeamEven
         }
 
         emit DirectLaunched(
-            out.token, creator, p.quote, out.hook, out.splitter, out.locker, out.positionId,
-            uint64(block.number) + p.config.restrictionBlocks, p.initialBuy
+            out.token, creator, p.quote, out.hook, out.splitter, out.locker, out.positionId, p.initialBuy
         );
         emit DirectMetadata(out.token, p.name, p.symbol, p.logo, p.description);
     }

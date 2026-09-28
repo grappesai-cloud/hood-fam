@@ -3,18 +3,17 @@ import { createPublicClient, http, isAddress, parseAbi, zeroAddress, type Addres
 import { z } from "zod";
 
 import { pairAsset, robinhood } from "@hood/sdk";
-import { chainHead } from "./admin.js";
 import { pool } from "./db.js";
 import { PAIR_ASSETS as PRICEABLE, pairUsdQuote } from "./price.js";
 import { SYSTEM } from "./system.js";
 
 /// The Bag, read back. Everything the indexer wrote about the platform's money (the Bag's
 /// inflows and outlets, every token's pot, the hourly Payday, the burn clock, the boost board,
-/// the penalties and the wall of shame) served the way the ledger is served: amounts as decimal
+/// the snipers' wall) served the way the ledger is served: amounts as decimal
 /// strings in the asset's smallest unit, every asset with its symbol and decimals, dollars only
 /// where a price exists and a reason where it does not.
 ///
-/// Nothing here writes. The keeper reads two routes (`/payday/:epoch`, `/auctions/open`) and acts
+/// Nothing here writes. The keeper reads `/payday/:epoch` and acts
 /// on chain; the chain is the only thing that moves money.
 
 // ------------------------------------------------------------------ addresses
@@ -22,7 +21,7 @@ import { SYSTEM } from "./system.js";
 /// The env keys the new contracts arrive under. Exported so the server's trader exclusion and the
 /// keeper-facing routes count the same machines.
 export const BAG_ENV_KEYS = [
-  "HOOD_BAG", "HOOD_PAYDAY", "HOOD_BURN_CLOCK", "HOOD_BOOSTS", "HOOD_GRADUATION_HOOK", "HOOD_OPENING_AUCTION",
+  "HOOD_BAG", "HOOD_PAYDAY", "HOOD_BURN_CLOCK", "HOOD_BOOSTS", "HOOD_GRADUATION_HOOK",
 ] as const;
 
 const envAddress = (key: string): string | null => {
@@ -41,7 +40,6 @@ export const bagAddresses = () => ({
   vault: envAddress("HOOD_STAKING"),
   house: envAddress("HOOD_SAFE"),
   graduationHook: envAddress("HOOD_GRADUATION_HOOK"),
-  openingAuction: envAddress("HOOD_OPENING_AUCTION"),
   houseCoin: envAddress("HOOD_HOUSE_COIN"),
 });
 
@@ -172,16 +170,16 @@ async function unitPrices(assets: string[], metas: Map<string, AssetMeta>): Prom
 
 /// `bag_events.extra` carries the Bag's source and outlet. The indexer may store the enum as its
 /// number or as its name; both are matched so a tape written either way adds up the same.
-const SOURCES = ["trade", "graduation", "penalty", "house", "housecoin"] as const;
-const OUTLETS = ["house", "vault", "payday", "burn", "confetti"] as const;
+const SOURCES = ["trade", "graduation", "boost", "house", "housecoin"] as const;
+const OUTLETS = ["house", "vault", "payday", "burn", "dev"] as const;
 const sourceIs = (i: number) => `lower(replace(coalesce(b.extra->>'source', ''), '_', '')) in ('${i}', '${SOURCES[i]}')`;
 const outletIs = (i: number) => `lower(coalesce(b.extra->>'outlet', '')) in ('${i}', '${OUTLETS[i]}')`;
 
 /// The Bag's books per asset, straight off the BagIn, BagOut and Held rows.
 interface BagTotalsRow {
   asset: string;
-  in_trade: string; in_graduation: string; in_penalty: string; in_house: string; in_house_coin: string; in_total: string;
-  out_house: string; out_vault: string; out_payday: string; out_burn: string; out_confetti: string; out_total: string;
+  in_trade: string; in_graduation: string; in_boost: string; in_house: string; in_house_coin: string; in_total: string;
+  out_house: string; out_vault: string; out_payday: string; out_burn: string; out_dev: string; out_total: string;
   held_vault: string; held_burn: string;
 }
 async function bagTotals(): Promise<BagTotalsRow[]> {
@@ -189,7 +187,7 @@ async function bagTotals(): Promise<BagTotalsRow[]> {
     `select b.asset,
             coalesce(sum(b.amount) filter (where b.kind = 'bag_in' and ${sourceIs(0)}), 0) as in_trade,
             coalesce(sum(b.amount) filter (where b.kind = 'bag_in' and ${sourceIs(1)}), 0) as in_graduation,
-            coalesce(sum(b.amount) filter (where b.kind = 'bag_in' and ${sourceIs(2)}), 0) as in_penalty,
+            coalesce(sum(b.amount) filter (where b.kind = 'bag_in' and ${sourceIs(2)}), 0) as in_boost,
             coalesce(sum(b.amount) filter (where b.kind = 'bag_in' and ${sourceIs(3)}), 0) as in_house,
             coalesce(sum(b.amount) filter (where b.kind = 'bag_in' and ${sourceIs(4)}), 0) as in_house_coin,
             coalesce(sum(b.amount) filter (where b.kind = 'bag_in'), 0) as in_total,
@@ -197,7 +195,7 @@ async function bagTotals(): Promise<BagTotalsRow[]> {
             coalesce(sum(b.amount) filter (where b.kind = 'bag_out' and ${outletIs(1)}), 0) as out_vault,
             coalesce(sum(b.amount) filter (where b.kind = 'bag_out' and ${outletIs(2)}), 0) as out_payday,
             coalesce(sum(b.amount) filter (where b.kind = 'bag_out' and ${outletIs(3)}), 0) as out_burn,
-            coalesce(sum(b.amount) filter (where b.kind = 'bag_out' and ${outletIs(4)}), 0) as out_confetti,
+            coalesce(sum(b.amount) filter (where b.kind = 'bag_out' and ${outletIs(4)}), 0) as out_dev,
             coalesce(sum(b.amount) filter (where b.kind = 'bag_out'), 0) as out_total,
             coalesce(sum(b.amount) filter (where b.kind = 'held' and ${outletIs(1)}), 0) as held_vault,
             coalesce(sum(b.amount) filter (where b.kind = 'held' and ${outletIs(3)}), 0) as held_burn
@@ -268,14 +266,13 @@ async function boostSlots(hour: number): Promise<BoostSlot[]> {
 interface PotLaunch {
   token: string; symbol: string; mode: string; pot: string | null; splitter: string | null;
   pair_token: string; pair_symbol: string | null; pair_decimals: number | null;
-  king_bps: number | null; auction_blocks: number | null;
 }
 const effectivePot = (l: { pot?: string | null; mode?: string | null; splitter?: string | null }): string | null =>
   l.pot ?? (l.mode === "direct" ? l.splitter ?? null : null);
 
 async function potLaunch(token: string): Promise<PotLaunch | null> {
   const { rows } = await pool.query<PotLaunch>(
-    `select token, symbol, mode, pot, splitter, pair_token, pair_symbol, pair_decimals, king_bps, auction_blocks
+    `select token, symbol, mode, pot, splitter, pair_token, pair_symbol, pair_decimals
        from launches where token = $1`,
     [token],
   );
@@ -289,10 +286,10 @@ const pairMeta = (l: PotLaunch): AssetMeta => ({
 
 /// The reasons a pot deposit can carry, as the contracts tag them. Every key is present so a page
 /// never has to guess whether a missing one is zero or unknown.
-const REASONS = ["snipe", "jeet", "whale", "confetti", "slash", "auction", "payday", "dividends", "lp_fees", "king"] as const;
+const REASONS = ["slash", "payday", "dividends", "lp_fees"] as const;
 
-/// What `/tokens/:token` adds for a launch: its pot, its penalty settings, what its holders were
-/// paid so far, and whether it holds a boost slot this hour. Takes the row the route already read.
+/// What `/tokens/:token` adds for a launch: its pot, the opening tax every launch runs, what its
+/// holders were paid so far, and whether it holds a boost slot this hour. Takes the row the route already read.
 export async function tokenBag(row: Record<string, unknown>) {
   const token = String(row.token).toLowerCase();
   const [{ rows: paid }, { rows: boosted }] = await Promise.all([
@@ -303,17 +300,9 @@ export async function tokenBag(row: Record<string, unknown>) {
   ]);
   return {
     pot: effectivePot(row as { pot?: string | null; mode?: string | null; splitter?: string | null }),
-    penalties: {
-      snipe_tax_bps: num(row.snipe_tax_bps),
-      snipe_decay_seconds: num(row.snipe_decay_seconds),
-      jeet_tax_bps: num(row.jeet_tax_bps),
-      jeet_window_seconds: num(row.jeet_window_seconds),
-      whale_tax_bps: num(row.whale_tax_bps),
-      whale_tick_limit: num(row.whale_tick_limit),
-      king_bps: num(row.king_bps),
-      penalties_to_vault: row.penalties_to_vault == null ? null : Boolean(row.penalties_to_vault),
-      auction_blocks: num(row.auction_blocks),
-    },
+    // The same on every launch and both machines (SnipeSchedule): bps of a buy at elapsed
+    // seconds 0, 1 and 2 after the launch block, then nothing. Exempt wallets pay none of it.
+    opening_tax_bps: [9_900, 618, 19],
     paid_to_holders: dec(paid[0]?.paid),
     pot_deposits: Number(paid[0]?.deposits ?? 0),
     boosted: boosted.length > 0,
@@ -396,7 +385,6 @@ const earnersQuery = z.object({
 });
 const paidQuery = z.object({ days: z.coerce.number().int().min(1).max(90).default(1) });
 const hourQuery = z.object({ hour: z.coerce.number().int().min(0).max(10_000_000).optional() });
-const headQuery = z.object({ head: z.coerce.number().int().min(0).optional() });
 
 /// A route parameter that must be a token address, lowercased; anything else is a 400, not a
 /// query against the table.
@@ -456,8 +444,8 @@ export function registerBag(app: FastifyInstance, opts: { systemTraders?: string
       const [inUsd, outUsd] = await Promise.all([usdOf(t.asset, t.in_total, meta.decimals), usdOf(t.asset, t.out_total, meta.decimals)]);
       return {
         asset: t.asset, ...meta,
-        in: { trade: dec(t.in_trade), graduation: dec(t.in_graduation), penalty: dec(t.in_penalty), house: dec(t.in_house), houseCoin: dec(t.in_house_coin), total: dec(t.in_total) },
-        out: { house: dec(t.out_house), vault: dec(t.out_vault), payday: dec(t.out_payday), burn: dec(t.out_burn), confetti: dec(t.out_confetti), total: dec(t.out_total) },
+        in: { trade: dec(t.in_trade), graduation: dec(t.in_graduation), boost: dec(t.in_boost), house: dec(t.in_house), houseCoin: dec(t.in_house_coin), total: dec(t.in_total) },
+        out: { house: dec(t.out_house), vault: dec(t.out_vault), payday: dec(t.out_payday), burn: dec(t.out_burn), dev: dec(t.out_dev), total: dec(t.out_total) },
         held: { vault: stillHeld(t.held_vault, t.out_vault), burn: stillHeld(t.held_burn, t.out_burn) },
         usd: inUsd.usd == null ? null : { in: inUsd.usd, out: outUsd.usd ?? 0 },
         usdReason: inUsd.reason,
@@ -560,26 +548,24 @@ export function registerBag(app: FastifyInstance, opts: { systemTraders?: string
 
   // ------------------------------------------------------------------ /shame
 
-  /// The wall of shame: every wallet a penalty was taken from, what it paid and how often. Ranked
+  /// The snipers' wall: every wallet that paid the opening tax, what it paid and how often. Ranked
   /// by dollars where the assets have a price, by count where they do not.
   app.get("/shame", async (req, reply) => {
     const parsed = limitQuery.safeParse(req.query);
     if (!parsed.success) return bad(reply, parsed.error.issues[0]?.message ?? "bad request");
     const { limit } = parsed.data;
     return cachedFor(`shame:${limit}`, 30_000, async () => {
-      const { rows: payers } = await pool.query<{ payer: string; count: number; snipe: number; jeet: number; whale: number; last_ts: Date; tokens: number }>(
+      const { rows: payers } = await pool.query<{ payer: string; count: number; snipe: number; last_ts: Date; tokens: number }>(
         `select payer, count(*)::int as count,
                 count(*) filter (where kind = 'snipe')::int as snipe,
-                count(*) filter (where kind = 'jeet')::int as jeet,
-                count(*) filter (where kind = 'whale')::int as whale,
                 max(ts) as last_ts, count(distinct token)::int as tokens
-           from penalties where kind in ('snipe', 'jeet', 'whale')
+           from penalties where kind = 'snipe'
           group by payer order by count desc, last_ts desc limit 500`,
       );
       if (!payers.length) return { rows: [] };
       const { rows: paid } = await pool.query<{ payer: string; asset: string; amount: string }>(
         `select payer, asset, sum(amount) as amount from penalties
-          where kind in ('snipe', 'jeet', 'whale') and payer = any($1::text[]) group by payer, asset`,
+          where kind = 'snipe' and payer = any($1::text[]) group by payer, asset`,
         [payers.map((p) => p.payer)],
       );
       const metas = await assetMetas(paid.map((p) => p.asset));
@@ -754,67 +740,9 @@ export function registerBag(app: FastifyInstance, opts: { systemTraders?: string
     });
   });
 
-  // ------------------------------------------------------ /tokens/:token/king
-
-  /// King of the hill: who holds the crown, what the pot is, when the timer runs out, and the
-  /// last twenty rounds. Two seconds of cache because the timer is the whole point.
-  app.get("/tokens/:token/king", async (req, reply) => {
-    const token = tokenParam(req, reply);
-    if (!token) return;
-    const launch = await potLaunch(token);
-    if (!launch) return reply.code(404).send({ error: "unknown token" });
-    return cachedFor(`king:${token}`, 2_000, async () => {
-      const { rows } = await pool.query(
-        `select id, king, pot, ends_at, won_amount, won_at, tx from king_rounds where token = $1 order by id desc limit 20`, [token],
-      );
-      const rounds = rows.map((r) => ({ ...r, id: Number(r.id), pot: dec(r.pot), won_amount: r.won_amount == null ? null : dec(r.won_amount) }));
-      const open = rounds[0] && rounds[0].won_at == null ? rounds[0] : null;
-      const kingBps = Number(launch.king_bps ?? 0);
-      return {
-        token, enabled: kingBps > 0, king_bps: kingBps,
-        asset: launch.pair_token, ...pairMeta(launch),
-        king: open?.king ?? null,
-        pot: open?.pot ?? null,
-        ends_at: open?.ends_at ?? null,
-        live: open ? new Date(open.ends_at).getTime() > Date.now() : false,
-        rounds,
-      };
-    });
-  });
-
-  // --------------------------------------------------- /tokens/:token/auction
-
-  /// The sniper auction for the first slot, while it runs and after. A launch that did not turn
-  /// it on says so; one that did but has no bid yet answers with the terms and an empty book.
-  app.get("/tokens/:token/auction", async (req, reply) => {
-    const token = tokenParam(req, reply);
-    if (!token) return;
-    const launch = await potLaunch(token);
-    if (!launch) return reply.code(404).send({ error: "unknown token" });
-    return cachedFor(`auction:${token}`, 2_000, async () => {
-      const { rows } = await pool.query(`select * from auctions where token = $1`, [token]);
-      const blocks = Number(launch.auction_blocks ?? 0);
-      if (!rows[0] && blocks <= 0) return { enabled: false, token };
-      const meta = pairMeta(launch);
-      const a = rows[0];
-      return {
-        enabled: true, token, auction_blocks: blocks, asset: launch.pair_token, ...meta,
-        end_block: a ? num(a.end_block) : null,
-        top_bidder: a?.top_bidder ?? null,
-        top_bid: a ? dec(a.top_bid) : "0",
-        bids: Number(a?.bids ?? 0),
-        settled: Boolean(a?.settled),
-        winner: a?.winner ?? null,
-        to_holders: a?.to_holders == null ? null : dec(a.to_holders),
-        to_liquidity: a?.to_liquidity == null ? null : dec(a.to_liquidity),
-        updated_at: a?.updated_at ?? null,
-      };
-    });
-  });
-
   // ------------------------------------------------- /tokens/:token/penalties
 
-  /// Every penalty taken on one launch, newest first, paged by id.
+  /// Every opening tax paid on one launch, and every creator slash, newest first, paged by id.
   app.get("/tokens/:token/penalties", async (req, reply) => {
     const token = tokenParam(req, reply);
     if (!token) return;
@@ -911,29 +839,6 @@ export function registerBag(app: FastifyInstance, opts: { systemTraders?: string
         carried: p.carried == null ? null : dec(p.carried),
       })),
       excluded: excluded.length,
-    };
-  });
-
-  // ---------------------------------------------------------- /auctions/open
-
-  /// Auctions whose clock has run out and that nobody settled. The keeper passes the head it
-  /// already knows; without one the chain is asked, and a chain that does not answer means an
-  /// empty list with a reason, never a guess.
-  app.get("/auctions/open", async (req, reply) => {
-    const parsed = headQuery.safeParse(req.query);
-    if (!parsed.success) return bad(reply, parsed.error.issues[0]?.message ?? "bad request");
-    const head = parsed.data.head ?? await chainHead();
-    if (head == null) return { head: null, auctions: [], reason: "the chain did not answer for the head block; pass ?head=" };
-    const { rows } = await pool.query(
-      `select a.token, l.symbol, a.end_block, a.top_bidder, a.top_bid, a.bids, a.updated_at
-         from auctions a left join launches l on l.token = a.token
-        where not a.settled and a.end_block <= $1
-        order by a.end_block`,
-      [head],
-    );
-    return {
-      head,
-      auctions: rows.map((r) => ({ ...r, end_block: Number(r.end_block), top_bid: dec(r.top_bid), bids: Number(r.bids ?? 0) })),
     };
   });
 

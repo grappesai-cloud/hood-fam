@@ -10,7 +10,7 @@ import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodToken} from "../src/HoodToken.sol";
 import {HoodTokenLock} from "../src/HoodTokenLock.sol";
 import {CurveConfig, FeeSplit, Launch, LaunchParams} from "../src/HoodTypes.sol";
-import {BagSource, PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {BagSource} from "../src/bag/BagTypes.sol";
 import {IHoodPot} from "../src/interfaces/IHoodPot.sol";
 import {PairTransfer} from "../src/libraries/PairTransfer.sol";
 import {MockBag, MockPot, MockQuote, MockTaxQuote} from "./mocks/Mocks.sol";
@@ -140,7 +140,6 @@ contract FactoryTest is BaseTest {
         (address token, HoodCurve curve) = _launch(_toCreator());
         Launch memory l = factory.getLaunch(token);
         assertTrue(l.pot != address(0), "every curve launch gets a pot");
-        assertEq(l.pot, curve.pot(), "the curve knows it");
         assertEq(HoodToken(token).pot(), l.pot, "the token knows it");
         assertEq(IHoodPot(l.pot).token(), token);
         assertEq(IHoodPot(l.pot).asset(), address(0), "paid in the launch's quote");
@@ -214,87 +213,44 @@ contract FactoryTest is BaseTest {
         factory.setPortal(address(this));
         factory.registerDirectLaunch(direct, creator, address(0), makeAddr("hook"), splitter, makeAddr("locker"), "DIR", "");
         assertEq(factory.getLaunch(direct).pot, splitter);
-        PenaltyConfig memory none = factory.penaltiesOf(direct);
-        assertEq(none.jeetTaxBps, 0, "a direct launch keeps its penalties in its hook");
     }
 
-    // ---------------------------------------------------------------- penalties
+    // ---------------------------------------------------------------- the opening tax
 
-    function _somePenalties() internal pure returns (PenaltyConfig memory) {
-        return PenaltyConfig({
-            jeetTaxBps: 1_000,
-            jeetWindowSeconds: 10 minutes,
-            whaleTaxBps: 500,
-            whaleTickLimit: 300,
-            kingBps: 2_000,
-            penaltiesToVault: true
-        });
-    }
-
-    function test_penalties_are_stored_per_launch_for_the_graduation_hook() public {
+    function test_the_launcher_the_fee_recipient_and_the_named_wallets_pay_no_opening_tax() public {
+        address team = makeAddr("team");
         LaunchParams memory p = _params(_toCreator());
-        p.penalties = _somePenalties();
-        (address token,) = _launch(_toCreator(), p, LAUNCH_FEE);
+        p.creatorFeeRecipient = bob;
+        p.exempt = new address[](1);
+        p.exempt[0] = team;
+        (, HoodCurve curve) = _launch(_toCreator(), p, LAUNCH_FEE);
 
-        PenaltyConfig memory pc = factory.penaltiesOf(token);
-        assertEq(pc.jeetTaxBps, 1_000);
-        assertEq(pc.jeetWindowSeconds, 10 minutes);
-        assertEq(pc.whaleTaxBps, 500);
-        assertEq(pc.whaleTickLimit, 300);
-        assertEq(pc.kingBps, 2_000);
-        assertTrue(pc.penaltiesToVault);
-
-        // a launch that chose nothing reads as nothing, and so does a token nobody launched
-        LaunchParams memory q = _params(_toCreator());
-        q.symbol = "PLAIN";
-        q.salt = bytes32(uint256(2));
-        (address plain,) = _launch(_toCreator(), q, LAUNCH_FEE);
-        PenaltyConfig memory none = factory.penaltiesOf(plain);
-        assertEq(none.jeetTaxBps, 0);
-        assertEq(none.whaleTaxBps, 0);
-        assertEq(none.kingBps, 0);
-        assertFalse(none.penaltiesToVault);
-        assertEq(factory.penaltiesOf(makeAddr("nobody")).jeetWindowSeconds, 0);
+        assertTrue(curve.snipeExempt(creator), "the launcher");
+        assertTrue(curve.snipeExempt(bob), "the fee recipient");
+        assertTrue(curve.snipeExempt(team), "the named wallet");
+        assertFalse(curve.snipeExempt(alice));
+        vm.warp(curve.launchedAt());
+        assertEq(curve.currentSnipeTaxBps(team), 0);
+        assertEq(curve.currentSnipeTaxBps(alice), 9_900, "the launch's own second");
     }
 
-    function test_penalties_past_the_caps_are_refused_and_the_caps_themselves_are_not() public {
-        PenaltyConfig memory pc = _somePenalties();
-        pc.jeetTaxBps = 2_501;
-        _expectBadPenalties(pc);
-        pc = _somePenalties();
-        pc.whaleTaxBps = 2_501;
-        _expectBadPenalties(pc);
-        pc = _somePenalties();
-        pc.jeetWindowSeconds = 1 hours + 1;
-        _expectBadPenalties(pc);
-        pc = _somePenalties();
-        pc.whaleTickLimit = 2_001;
-        _expectBadPenalties(pc);
-        pc = _somePenalties();
-        pc.kingBps = 5_001;
-        _expectBadPenalties(pc);
-
-        // exactly at every cap is a launch
-        pc = PenaltyConfig({
-            jeetTaxBps: 2_500,
-            jeetWindowSeconds: 1 hours,
-            whaleTaxBps: 2_500,
-            whaleTickLimit: 2_000,
-            kingBps: 5_000,
-            penaltiesToVault: false
-        });
+    function test_an_exempt_list_past_the_cap_is_refused_and_the_cap_itself_is_not() public {
         LaunchParams memory p = _params(_toCreator());
-        p.penalties = pc;
-        (address token,) = _launch(_toCreator(), p, LAUNCH_FEE);
-        assertEq(factory.penaltiesOf(token).kingBps, 5_000);
-    }
-
-    function _expectBadPenalties(PenaltyConfig memory pc) internal {
-        LaunchParams memory p = _params(_toCreator());
-        p.penalties = pc;
+        p.exempt = new address[](33);
+        for (uint256 i; i < 33; ++i) {
+            p.exempt[i] = address(uint160(0x1000 + i));
+        }
         vm.prank(creator);
-        vm.expectRevert(HoodFactory.BadPenalties.selector);
+        vm.expectRevert(HoodFactory.ExemptionListTooLong.selector);
         factory.launch{value: LAUNCH_FEE}(p);
+
+        address[] memory full = new address[](32);
+        for (uint256 i; i < 32; ++i) {
+            full[i] = address(uint160(0x1000 + i));
+        }
+        p.exempt = full;
+        (, HoodCurve curve) = _launch(_toCreator(), p, LAUNCH_FEE);
+        assertTrue(curve.snipeExempt(address(0x101f)));
     }
 
     /// @dev The refund after a creator's first buy is what the curve handed back, not whatever the

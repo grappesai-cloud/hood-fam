@@ -15,7 +15,6 @@ export interface Ctx {
   payday?: Address;
   burnClock?: Address;
   boosts?: Address;
-  openingAuction?: Address;
   bag?: Address;
   /// Curve fee buybacks need the fee router's appointed keeper. Read at boot, refreshed by the tick.
   buybacksAppointed: boolean;

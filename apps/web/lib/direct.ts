@@ -18,11 +18,12 @@ export function tickToFdv(tick: number, supply: number): number {
 /// bytes. The UniversalRouter on 4663 is a Robinhood fork with an extra `minHopPriceX36` in every
 /// v4 swap struct; `buildSwap` knows, and the canonical encoding reverts with no message.
 export { buildSwap, universalRouterAbi } from "@hood/sdk";
+import { SNIPE_SCHEDULE_BPS, snipeBpsAt } from "@hood/sdk";
 
-/// How long the snipe surcharge still has to run, as a fraction and as seconds.
+/// How long the opening tax still has to run, as a fraction of its peak and as seconds.
 export function snipeCountdown(launchedAt: number, decaySeconds: number, now = Date.now() / 1000) {
   const elapsed = now - launchedAt;
   if (elapsed >= decaySeconds) return { active: false, remaining: 0, fraction: 0 };
   const remaining = decaySeconds - elapsed;
-  return { active: true, remaining, fraction: (remaining / decaySeconds) ** 2 };
+  return { active: true, remaining, fraction: snipeBpsAt(elapsed) / SNIPE_SCHEDULE_BPS[0] };
 }

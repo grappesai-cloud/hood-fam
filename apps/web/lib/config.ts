@@ -84,7 +84,6 @@ export const bagAddresses = {
   burnClock: configured(process.env.NEXT_PUBLIC_BURN_CLOCK),
   boosts: configured(process.env.NEXT_PUBLIC_BOOSTS),
   graduationHook: configured(process.env.NEXT_PUBLIC_GRADUATION_HOOK),
-  openingAuction: configured(process.env.NEXT_PUBLIC_OPENING_AUCTION),
   houseCoin: configured(process.env.NEXT_PUBLIC_HOUSE_COIN),
 };
 

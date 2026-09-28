@@ -60,17 +60,14 @@ export function TeamWatch({ token }: { token: Address }) {
   });
   const { data: curveReads } = useReadContracts({
     contracts: [
-      { address: curve, abi: hoodCurveAbi, functionName: "currentSnipeBps" },
-      { address: curve, abi: hoodCurveAbi, functionName: "maxBuy" },
-      { address: curve, abi: hoodCurveAbi, functionName: "restrictionsEndBlock" },
+      // For a wallet nobody named: what an outsider pays on a buy this second.
+      { address: curve, abi: hoodCurveAbi, functionName: "currentSnipeTaxBps", args: [zeroAddress] },
       { address: curve, abi: hoodCurveAbi, functionName: "pairToken" },
     ],
     query: { enabled: onCurve, refetchInterval: 1000 },
   });
   const snipeBps = Number((curveReads?.[0]?.result as bigint | undefined) ?? 0n);
-  const maxBuy = (curveReads?.[1]?.result as bigint | undefined) ?? 0n;
-  const capEnd = (curveReads?.[2]?.result as bigint | undefined) ?? 0n;
-  const pair = ((curveReads?.[3]?.result as Address | undefined) ?? (row.data?.pair_token as Address | undefined) ?? zeroAddress);
+  const pair = ((curveReads?.[1]?.result as Address | undefined) ?? (row.data?.pair_token as Address | undefined) ?? zeroAddress);
   const dec = row.data?.pair_decimals ?? pairDecimals(pair);
   const sym = row.data?.pair_symbol ?? pairSymbol(pair);
   const supply = BigInt(row.data?.total_supply || "0");
@@ -138,11 +135,7 @@ export function TeamWatch({ token }: { token: Address }) {
               </div>
               <div className="fact">
                 <strong>{onCurve ? `${(snipeBps / 100).toFixed(snipeBps < 1000 ? 1 : 0)}%` : "–"}</strong>
-                <span>opening tax right now</span>
-              </div>
-              <div className="fact">
-                <strong>{onCurve && maxBuy > 0n && blockNumber !== undefined && blockNumber <= capEnd ? `${capEnd - blockNumber} blocks` : "off"}</strong>
-                <span>{maxBuy > 0n ? `wallet cap, ${pct(maxBuy, supply)} each` : "wallet cap"}</span>
+                <span>opening tax right now, for an outsider</span>
               </div>
             </div>
             <div className="team-watch-tape mt-3 space-y-1 text-xs">

@@ -20,8 +20,8 @@ interface IGraduationHandler {
     /// @notice Called once by a curve that sold out. Receives the pool side of the supply and the
     ///         pair funds, and must open a pool with liquidity that nobody can pull back out.
     /// @dev Native pair arrives as value; an ERC-20 pair is transferred before the call. The pool
-    ///      trades through the graduation hook, which the handler registers it with here (token,
-    ///      pot, the launch's penalties) before any liquidity goes in.
+    ///      trades through the graduation hook, which the handler registers it with here (token and
+    ///      pot) before any liquidity goes in.
     function graduate(
         address token,
         address pairToken,

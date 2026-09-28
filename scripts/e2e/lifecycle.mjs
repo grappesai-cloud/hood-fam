@@ -714,9 +714,8 @@ async function directMachine(a) {
   const SUPPLY = 1_000_000_000;
   const SPACING = 200;
   const tickFor = (fdv) => Math.round(Math.log(SUPPLY / fdv) / Math.log(1.0001) / SPACING) * SPACING;
-  const RESTRICTION_BLOCKS = 12;
-  const SNIPE_BPS = 5000;
-  const SNIPE_SECONDS = 60;
+  // The opening tax every launch runs (SnipeSchedule): 99%, 6.18%, 0.19% over three seconds.
+  const SNIPE_SECONDS = 3;
 
   const salt = await direct(creator).hookSalt();
   check("a hook salt was mined to an address ending in 0xCC", (BigInt(salt.hook) & 0x3fffn) === 0xccn,
@@ -726,8 +725,7 @@ async function directMachine(a) {
   const launched = await direct(creator).launch({
     name: "Rehearsal Direct", symbol: "RDIR", logo: "ipfs://rdir", description: "the supply is the liquidity",
     socials: { twitter: "@rdir", website: "https://hood.fam" },
-    tickStart: tickFor(10), tickBond: tickFor(100), restrictionBlocks: RESTRICTION_BLOCKS,
-    snipeTaxBps: SNIPE_BPS, snipeDecaySeconds: SNIPE_SECONDS, initialBuy, salt: salt.salt,
+    tickStart: tickFor(10), tickBond: tickFor(100), initialBuy, salt: salt.salt,
   });
   const receipt = await wait(launched.hash);
   const log = receipt.logs.find((l) => same(l.address, a.portal) && l.topics.length >= 4);
@@ -746,15 +744,15 @@ async function directMachine(a) {
     return Number(t.isBuy ? (t.fee * 10_000n) / (t.fee + t.volume) : (t.fee * 10_000n) / t.volume);
   };
   const creatorBag = await balanceOf(token, creator.address);
-  check("the creator's first buy went through the hook at the base rate, not the snipe rate",
-    creatorBag > 0n && rateOf(receipt) === 500,
+  check("the creator's first buy went through the hook at the base rate plus the platform's 1%, no opening tax",
+    creatorBag > 0n && rateOf(receipt) === 600,
     `${formatEther(creatorBag)} RDIR at ${rateOf(receipt)}bps`);
 
-  // ---- the snipe surcharge window
+  // ---- the opening tax
   const openTax = await direct(creator).taxes(row.hook);
-  check("the surcharge is live the moment the pool opens",
-    openTax.snipeBps > 0 && openTax.buyBps === openTax.baseBuyBps + openTax.snipeBps,
-    `${openTax.buyBps}bps = ${openTax.baseBuyBps} base + ${openTax.snipeBps} snipe`);
+  check("the opening tax is 99% in the launch's own second, capped all in",
+    openTax.snipeBps === 9_900 && openTax.buyBps === 9_900,
+    `${openTax.buyBps}bps all in, ${openTax.snipeBps} opening tax`);
 
   const poolKey = await direct(creator).poolKey(row.locker);
   const tokenIsZero = same(poolKey.currency0, token);
@@ -774,34 +772,22 @@ async function directMachine(a) {
     }));
   };
   const swapThrough = (w, amountIn, tokenIn, tokenOut) => swapThroughKey(poolKey, w, amountIn, tokenIn, tokenOut);
-  // The opening window caps a wallet's buy and its holding; a whale trying to take the open is the
-  // exact thing it exists to refuse.
-  let windowHeld = false;
-  const whaleDeadline = await deadline();
-  try {
-    await publicClient.estimateContractGas({
-      address: uniswapV4.universalRouter, abi: universalRouterAbi, functionName: "execute",
-      args: (() => { const s = buildSwap({ key: poolKey, zeroForOne: !tokenIsZero, amountIn: parseEther("5"), minAmountOut: 0n, tokenIn: zeroAddress, tokenOut: token }); return [s.commands, s.inputs, whaleDeadline]; })(),
-      value: parseEther("5"), account: bob.account,
-    });
-  } catch { windowHeld = true; }
-  check("the opening window refuses a buy over the cap", windowHeld, "5 ETH inside the restriction blocks");
-
+  // No wallet caps: the first seconds are priced, not gated. A buy one second after the launch
+  // block pays the schedule's second step on top of the launch's own tax and the platform's 1%.
+  const launchTs = (await publicClient.getBlock({ blockNumber: receipt.blockNumber })).timestamp;
+  await rpc("evm_setNextBlockTimestamp", [`0x${(launchTs + 1n).toString(16)}`]);
   const snipeReceipt = await swapThrough(alice, parseEther("0.05"), zeroAddress, token);
   const snipeRate = rateOf(snipeReceipt);
-  check("a buy inside the window paid the surcharge", snipeRate > openTax.baseBuyBps + 1000, `${snipeRate}bps taken`);
+  check("a buy one second in paid the second step of the opening tax", Math.abs(snipeRate - (openTax.baseBuyBps + 100 + 618)) <= 2, `${snipeRate}bps taken`);
 
-  // ---- past the window and past the decay
-  const endBlock = Number(row.restrictionsEndBlock);
-  const at = Number(await publicClient.getBlockNumber());
-  if (endBlock >= at) await mine(endBlock - at + 1);
+  // ---- past the opening tax
   await warp(SNIPE_SECONDS + 1);
   const calm = await direct(creator).taxes(row.hook);
-  check("the surcharge decays to nothing", calm.snipeBps === 0 && calm.buyBps === calm.baseBuyBps, `${calm.buyBps}bps`);
+  check("the opening tax is gone after three seconds", calm.snipeBps === 0 && calm.buyBps === calm.baseBuyBps + 100, `${calm.buyBps}bps`);
 
   const calmReceipt = await swapThrough(bob, parseEther("1"), zeroAddress, token);
   const calmRate = rateOf(calmReceipt);
-  check("a buy after the decay pays only the launch's own tax", Math.abs(calmRate - calm.baseBuyBps) <= 1,
+  check("a buy after the opening tax pays the launch's own tax and the platform's 1%", Math.abs(calmRate - (calm.baseBuyBps + 100)) <= 1,
     `${calmRate}bps against a base of ${calm.baseBuyBps}`);
   await swapThrough(carol, parseEther("2"), zeroAddress, token);
 
@@ -899,8 +885,7 @@ async function directMachine(a) {
   const usdLaunched = await direct(creator).launch({
     name: "Rehearsal Dollar", symbol: "RUSD", logo: "", description: "quoted in dollars",
     socials: {}, quote: USDG, tickStart: usdTicks.tickStart, tickBond: usdTicks.tickBond,
-    restrictionBlocks: 0, maxHoldBps: 10_000, maxBuyBps: 10_000,
-    snipeTaxBps: 0, snipeDecaySeconds: 0, initialBuy: usdBuy, salt: usdSalt,
+    initialBuy: usdBuy, salt: usdSalt,
   });
   const usdReceipt = await wait(usdLaunched.hash);
   const usdLog = usdReceipt.logs.find((l) => same(l.address, a.portal) && l.topics.length >= 4);

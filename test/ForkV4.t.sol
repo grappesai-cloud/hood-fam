@@ -13,8 +13,7 @@ import {HoodDeployer} from "../src/HoodDeployer.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
-import {CurveConfig, CurveGuard, FeeSplit, LaunchParams, Phase} from "../src/HoodTypes.sol";
-import {PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {CurveConfig, FeeSplit, LaunchParams, Phase} from "../src/HoodTypes.sol";
 import {IPoolManager, PoolKey, SwapParams} from "../src/interfaces/IExternal.sol";
 import {MockUSD} from "./mocks/Mocks.sol";
 
@@ -63,7 +62,7 @@ contract ForkV4Test is BagRig {
             address(factory), POOL_MANAGER, POSITION_MANAGER, UNIVERSAL_ROUTER, PERMIT2, STATE_VIEW
         );
         (bag,,) = _bagStack(address(factory), treasury, address(staking), POOL_MANAGER);
-        hook = _graduationHook(POOL_MANAGER, address(factory), address(bag), address(router), address(staking));
+        hook = _graduationHook(POOL_MANAGER, address(factory), address(bag), address(router));
 
         vm.startPrank(owner);
         router.setKeeper(address(this));
@@ -129,11 +128,11 @@ contract ForkV4Test is BagRig {
             firstBuyLock: 0,
             salt: keccak256(bytes(symbol)),
             econ: bytes32(0),
-            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
-            guard: CurveGuard(0, 0, 0, 0)
+            exempt: new address[](0)
         });
         vm.prank(creator);
         (address t, address c,) = factory.launch{value: 0.002 ether}(p);
+        vm.warp(block.timestamp + 3); // past the opening tax (SnipeSchedule)
         return (t, HoodCurve(payable(c)));
     }
 
@@ -200,11 +199,22 @@ contract ForkV4Test is BagRig {
         vm.stopPrank();
 
         LaunchParams memory p = LaunchParams({
-            name: "Dollar Curve", symbol: "USDC1", image: "ipfs://usd", description: "", website: "",
-            twitter: "", telegram: "", pairToken: address(usd), configId: usdConfig,
-            feeSplit: _toBuyback(), creatorFeeRecipient: creator, firstBuy: 0, firstBuyLock: 0,
-            salt: bytes32(uint256(77)), econ: bytes32(0), penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
-            guard: CurveGuard(0, 0, 0, 0)
+            name: "Dollar Curve",
+            symbol: "USDC1",
+            image: "ipfs://usd",
+            description: "",
+            website: "",
+            twitter: "",
+            telegram: "",
+            pairToken: address(usd),
+            configId: usdConfig,
+            feeSplit: _toBuyback(),
+            creatorFeeRecipient: creator,
+            firstBuy: 0,
+            firstBuyLock: 0,
+            salt: bytes32(uint256(77)),
+            econ: bytes32(0),
+            exempt: new address[](0)
         });
         vm.prank(creator);
         (address token, address curveAddr,) = factory.launch{value: 0.002 ether}(p);
@@ -346,6 +356,7 @@ contract ForkV4Test is BagRig {
         curve.buyExactOut{value: needed}(left, needed, whale);
 
         uint256 forLp = Math.mulDiv(curve.reserve(), 9000, 10_000) + curve.bonus();
+        uint256 devBonus = ((curve.reserve() + curve.bonus() - forLp) * 2_300) / 10_000;
         uint256 poolBefore = POOL_MANAGER.balance;
         uint256 creatorBefore = creator.balance;
         curve.finalize();
@@ -357,7 +368,7 @@ contract ForkV4Test is BagRig {
         assertApproxEqRel(POOL_MANAGER.balance - poolBefore, forLp, 0.02e18, "the raise went into the pool");
         assertApproxEqRel(IERC20(token).balanceOf(POOL_MANAGER), lpSupply, 0.01e18, "and so did the supply");
         assertEq(IERC20(token).balanceOf(address(graduator)), 0, "nothing burned out the side door");
-        assertEq(creator.balance, creatorBefore, "and nothing leaked to the fee router");
+        assertEq(creator.balance - creatorBefore, devBonus, "the creator got the dev bonus and nothing else");
     }
 
     /// @dev The key of a pool that has been opened but not yet graduated into. Native sorts first,

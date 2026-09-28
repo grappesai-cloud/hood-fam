@@ -22,7 +22,7 @@ contract MockBag is IHoodBag {
 
     bytes32 public constant TRADE = keccak256("trade");
     bytes32 public constant GRADUATION = keccak256("graduation");
-    bytes32 public constant PENALTY = keccak256("penalty");
+    bytes32 public constant BOOST = keccak256("boost");
     bytes32 public constant HOUSE = keccak256("house");
     bytes32 public constant HOUSE_COIN = keccak256("houseCoin");
 
@@ -62,8 +62,8 @@ contract MockBag is IHoodBag {
         _take(GRADUATION, asset, amount, token);
     }
 
-    function takePenaltyCut(address asset, uint256 amount, address token) external payable {
-        _take(PENALTY, asset, amount, token);
+    function takeBoost(address asset, uint256 amount, address token, uint64) external payable {
+        _take(BOOST, asset, amount, token);
     }
 
     function takeHouseFee(address asset, uint256 amount, address token) external payable {

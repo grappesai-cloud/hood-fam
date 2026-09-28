@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Test} from "forge-std/Test.sol";
 import {BagRig} from "./helpers/BagRig.sol";
 import {HoodBag} from "../src/bag/HoodBag.sol";
@@ -143,7 +144,7 @@ contract ForkCurveGradInvariant is StdInvariant, BagRig {
         router = new HoodFeeRouter(address(factory), address(staking));
         graduator = new UniswapV4Graduator(address(factory), POOL_MANAGER, POSITION_MANAGER, UNIVERSAL_ROUTER, PERMIT2, STATE_VIEW);
         (bag,,) = _bagStack(address(factory), treasury, address(staking), POOL_MANAGER);
-        hook = _graduationHook(POOL_MANAGER, address(factory), address(bag), address(router), address(staking));
+        hook = _graduationHook(POOL_MANAGER, address(factory), address(bag), address(router));
 
         vm.startPrank(owner);
         factory.setModules(address(router), address(staking), address(graduator));
@@ -153,7 +154,7 @@ contract ForkCurveGradInvariant is StdInvariant, BagRig {
         uint256 configId = factory.addConfig(CurveConfig({
             pairToken: address(0),
             totalSupply: 1_000_000_000e18, curveSupplyBps: 8000, startCap: 1 ether,
-            graduationCap: 10 ether, liquidityBps: 9000, protocolFeeBps: 70, creatorFeeBps: 30,
+            graduationCap: 10 ether, liquidityBps: 9000, protocolFeeBps: 30, creatorFeeBps: 70,
             poolFee: 3000, tickSpacing: 60, enabled: true
         }));
         vm.stopPrank();
@@ -165,6 +166,7 @@ contract ForkCurveGradInvariant is StdInvariant, BagRig {
         p.feeSplit = FeeSplit({stakersBps: 0, buybackBps: 0, liquidityBps: 0, creatorBps: 10_000}); p.creatorFeeRecipient = creator; p.salt = bytes32(uint256(1));
         vm.prank(creator);
         (token,,) = factory.launch(p);
+        vm.warp(block.timestamp + 3); // past the opening tax (SnipeSchedule)
         curve = HoodCurve(payable(factory.getLaunch(token).curve));
         raiseTarget = curve.raiseTarget();
         lpSupply = curve.lpSupply();
@@ -209,13 +211,14 @@ contract ForkCurveGradInvariant is StdInvariant, BagRig {
         nudger.nudge(key, true, 4295128739 + 1);
 
         uint256 creatorBefore = creator.balance;
+        uint256 devBonus = ((curve.reserve() - Math.mulDiv(curve.reserve(), 9000, 10_000)) * 2_300) / 10_000;
         curve.finalize();
 
         // the raise is in the pool, the creator got nothing extra, the fee router did not get the raise
         assertGt(IStateView(STATE_VIEW).getLiquidity(poolId), 0, "pool funded");
         assertApproxEqRel(IERC20(token).balanceOf(POOL_MANAGER), lpSupply, 0.02e18, "supply in the pool");
         assertLt(router.accrued(token), raiseTarget / 10, "raise did not leak");
-        assertEq(creator.balance, creatorBefore, "creator stole nothing");
+        assertEq(creator.balance - creatorBefore, devBonus, "the creator got the dev bonus and nothing else");
     }
 
     /// @notice Once the curve has graduated, the raise is in the POOL and not in the fee router.

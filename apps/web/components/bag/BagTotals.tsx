@@ -39,7 +39,7 @@ function AssetTotal({ total }: { total: BagTotal }) {
         {leg("to the Vault", total.out?.vault)}
         {leg("to Payday", total.out?.payday)}
         {leg("to the burn clock", total.out?.burn)}
-        {leg("as Confetti", total.out?.confetti)}
+        {leg("to graduating devs", total.out?.dev)}
         {leg("held for the Vault", total.held?.vault)}
         {leg("held for the burn clock", total.held?.burn)}
       </div>
@@ -51,8 +51,8 @@ function AssetTotal({ total }: { total: BagTotal }) {
         <div className="bag-legs">
           {leg("trades", total.in?.trade)}
           {leg("graduations", total.in?.graduation)}
-          {leg("penalties", total.in?.penalty)}
-          {leg("launch fees and boosts", total.in?.house)}
+          {leg("boosts, for their hour's Payday", total.in?.boost)}
+          {leg("launch fees", total.in?.house)}
           {leg("the house coin", total.in?.houseCoin)}
         </div>
       </details>

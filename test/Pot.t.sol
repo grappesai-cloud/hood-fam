@@ -57,7 +57,7 @@ contract PotTest is Test {
 
     function _deposit(uint256 amount) internal {
         vm.prank(payer);
-        pot.depositForHolders{value: amount}(amount, BagReasons.SNIPE, payer);
+        pot.depositForHolders{value: amount}(amount, BagReasons.PAYDAY, payer);
     }
 
     // ---------------------------------------------------------------- access
@@ -92,7 +92,7 @@ contract PotTest is Test {
 
     function test_deposit_before_any_holder_is_orphaned_then_credited_on_the_first_sync() public {
         vm.expectEmit(true, true, true, true, address(pot));
-        emit IHoodPot.HoldersPaid(BagReasons.SNIPE, payer, 1 ether, 0);
+        emit IHoodPot.HoldersPaid(BagReasons.PAYDAY, payer, 1 ether, 0);
         _deposit(1 ether);
         assertEq(pot.orphaned(), 1 ether);
         assertEq(pot.totalDeposited(), 1 ether);
@@ -107,9 +107,9 @@ contract PotTest is Test {
         _mint(pot, alice, 100e18);
         _mint(pot, bob, 300e18);
         vm.expectEmit(true, true, true, true, address(pot));
-        emit IHoodPot.HoldersPaid(BagReasons.JEET, payer, 4 ether, 400e18);
+        emit IHoodPot.HoldersPaid(BagReasons.DIVIDENDS, payer, 4 ether, 400e18);
         vm.prank(payer);
-        pot.depositForHolders{value: 4 ether}(4 ether, BagReasons.JEET, payer);
+        pot.depositForHolders{value: 4 ether}(4 ether, BagReasons.DIVIDENDS, payer);
         assertEq(pot.pending(alice), 1 ether);
         assertEq(pot.pending(bob), 3 ether);
         assertEq(pot.eligibleSupply(), 400e18);
@@ -168,23 +168,23 @@ contract PotTest is Test {
 
     function test_deposit_zero_is_a_no_op_and_value_mismatch_reverts() public {
         vm.prank(payer);
-        pot.depositForHolders(0, BagReasons.SNIPE, payer);
+        pot.depositForHolders(0, BagReasons.PAYDAY, payer);
         assertEq(pot.totalDeposited(), 0);
         vm.prank(payer);
         vm.expectRevert(HoodPot.WrongValue.selector);
-        pot.depositForHolders{value: 1}(0, BagReasons.SNIPE, payer);
+        pot.depositForHolders{value: 1}(0, BagReasons.PAYDAY, payer);
         vm.prank(payer);
         vm.expectRevert(PairTransfer.WrongValue.selector);
-        pot.depositForHolders{value: 1}(2, BagReasons.SNIPE, payer);
+        pot.depositForHolders{value: 1}(2, BagReasons.PAYDAY, payer);
         vm.prank(payer);
         vm.expectRevert(PairTransfer.WrongValue.selector);
-        potUsd.depositForHolders{value: 1}(1e6, BagReasons.SNIPE, payer);
+        potUsd.depositForHolders{value: 1}(1e6, BagReasons.PAYDAY, payer);
     }
 
     function test_erc20_pot_pulls_from_the_payer() public {
         _mint(potUsd, alice, 100e18);
         vm.prank(payer);
-        potUsd.depositForHolders(10e6, BagReasons.CONFETTI, payer);
+        potUsd.depositForHolders(10e6, BagReasons.LP_FEES, payer);
         assertEq(usd.balanceOf(address(potUsd)), 10e6);
         assertEq(potUsd.pending(alice), 10e6);
     }
@@ -210,7 +210,7 @@ contract PotTest is Test {
     function test_claim_erc20() public {
         _mint(potUsd, alice, 100e18);
         vm.prank(payer);
-        potUsd.depositForHolders(10e6, BagReasons.CONFETTI, payer);
+        potUsd.depositForHolders(10e6, BagReasons.LP_FEES, payer);
         potUsd.claim(alice);
         assertEq(usd.balanceOf(alice), 10e6);
         assertEq(potUsd.totalPaid(), 10e6);

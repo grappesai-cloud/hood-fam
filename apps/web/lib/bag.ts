@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { pairAsset } from "./format";
 
-/// The Bag, as the API reports it: one router that every machine pays into, four fixed splits,
-/// and the outlets it pays (the house, the Vault, Payday, the burn clock, Confetti). Every amount
+/// The Bag, as the API reports it: one router that every machine pays into, fixed splits, and the
+/// outlets it pays (the house, the Vault, Payday, the burn clock, a graduating launch's dev). Every amount
 /// here is a decimal string in the asset's smallest unit unless the field ends in `_usd` or is
 /// called `usd`; asset address(0) is native ETH. The shapes follow the API contract in the Bag
 /// brief and nothing is invented on this side of the wire: a route that is not there yet is a
@@ -16,8 +16,8 @@ export interface BagAsset {
 }
 
 export interface BagTotal extends BagAsset {
-  in: { trade: string; graduation: string; penalty: string; house: string; houseCoin: string; total: string };
-  out: { house: string; vault: string; payday: string; burn: string; confetti: string; total: string };
+  in: { trade: string; graduation: string; boost: string; house: string; houseCoin: string; total: string };
+  out: { house: string; vault: string; payday: string; burn: string; dev: string; total: string };
   /// The Vault and burn shares the Bag keeps until the house coin exists. Held, not lost.
   held: { vault: string; burn: string };
   usd: { in: number; out: number } | null;
@@ -32,7 +32,6 @@ export interface BagAddresses {
   vault: string | null;
   house: string | null;
   graduationHook: string | null;
-  openingAuction: string | null;
   /// Unset until the coin launches; the UI says "the house coin" until it has a name.
   houseCoin: string | null;
 }
@@ -94,13 +93,13 @@ export interface BagResponse {
 export type TapeKind =
   | "bag_in" | "bag_out" | "held"
   | "payday_funded" | "payday_paid" | "payday_slice" | "payday_epoch"
-  | "burn" | "boost" | "penalty" | "holders_paid" | "pushed"
-  | "king_crowned" | "king_won" | "slash"
-  | "auction_bid" | "auction_settled" | "buyback" | "buyback_wanted"
+  | "burn" | "boost" | "sniped" | "holders_paid" | "pushed" | "slash" | "dev_deferred"
   | "airdrop" | "graduated";
 
 export interface TapeRow {
   id: number;
+  /// Who the money went to, when a line has one (a push, a payout, a dev bonus).
+  recipient?: string | null;
   kind: TapeKind | string;
   token: string | null;
   symbol: string | null;
@@ -122,8 +121,6 @@ export interface ShameRow {
   payer: string;
   count: number;
   snipe: number;
-  jeet: number;
-  whale: number;
   paid: (BagAsset & { amount: string })[];
   usd: number | null;
   last_ts: string;
@@ -174,7 +171,7 @@ export interface VaultResponse {
   held: { asset: string; amount: string }[];
 }
 
-export type PotReason = "snipe" | "jeet" | "whale" | "confetti" | "slash" | "auction" | "payday" | "dividends" | "lp_fees" | "king";
+export type PotReason = "slash" | "payday" | "dividends" | "lp_fees";
 
 export interface PotDeposit {
   id: number;
@@ -201,46 +198,10 @@ export interface PotResponse extends BagAsset {
   pushes: { last_ts: string | null; count_24h: number; paid_24h: string };
 }
 
-export interface KingRound {
-  id: number;
-  token: string;
-  king: string;
-  pot: string;
-  ends_at: string;
-  won_amount: string | null;
-  won_at: string | null;
-  tx: string;
-}
-
-export interface KingResponse {
-  enabled: boolean;
-  king_bps: number;
-  king: string | null;
-  pot: string;
-  ends_at: string | null;
-  rounds: KingRound[];
-}
-
-export interface AuctionRow {
-  enabled?: true;
-  token: string;
-  end_block: string;
-  top_bidder: string | null;
-  top_bid: string;
-  bids: number;
-  settled: boolean;
-  winner: string | null;
-  to_holders: string | null;
-  to_liquidity: string | null;
-  updated_at: string;
-}
-
-export type AuctionResponse = AuctionRow | { enabled: false };
-
 export interface PenaltyRow {
   id: number;
   token: string;
-  kind: "snipe" | "jeet" | "whale" | "slash" | string;
+  kind: "snipe" | "slash" | string;
   payer: string;
   asset: string;
   amount: string;
@@ -267,8 +228,6 @@ export const BAG_KEYS = {
   boosts: (hour?: number | null) => ["boosts", hour ?? "now"] as const,
   vault: ["vault"] as const,
   pot: (token: string) => ["pot", token.toLowerCase()] as const,
-  king: (token: string) => ["king", token.toLowerCase()] as const,
-  auction: (token: string) => ["auction", token.toLowerCase()] as const,
   penalties: (token: string) => ["penalties", token.toLowerCase()] as const,
   /// Under the "bag" name on purpose: lib/live.ts refreshes that family on every bag, trade and
   /// graduation event, so the desk moves with the stream without a new key being taught to it.
@@ -279,18 +238,18 @@ export const BAG_KEYS = {
 /// The tabs on the tape, each a comma list of bag_events kinds the API filters on.
 export const TAPE_FILTERS: { id: string; label: string; kinds: string[] | null }[] = [
   { id: "all", label: "Everything", kinds: null },
-  { id: "penalties", label: "Penalties", kinds: ["penalty", "slash"] },
+  { id: "snipers", label: "Snipers", kinds: ["sniped", "slash"] },
   { id: "payday", label: "Payday", kinds: ["payday_funded", "payday_epoch", "payday_slice", "payday_paid"] },
-  { id: "burn", label: "Burn clock", kinds: ["burn", "buyback"] },
+  { id: "burn", label: "Burn clock", kinds: ["burn"] },
   { id: "boosts", label: "Boosts", kinds: ["boost"] },
-  { id: "pots", label: "Pots", kinds: ["holders_paid", "pushed", "king_crowned", "king_won", "auction_bid", "auction_settled"] },
+  { id: "pots", label: "Pots", kinds: ["holders_paid", "pushed"] },
   { id: "drops", label: "Drops and pools", kinds: ["airdrop", "graduated"] },
 ];
 
-/// The lines where money reached people (a pot push, Payday, a pot paying holders, a king's win,
-/// a season drop claim) plus the one that moves a coin to the pool, so a migration shows in the
+/// The lines where money reached people (a pot push, Payday, a pot paying holders, a season drop
+/// claim) plus the one that moves a coin to the pool, so a migration shows in the
 /// same feed. The desk's "paid out" column is the tape cut down to exactly these.
-export const PAID_KINDS = ["pushed", "payday_paid", "payday_epoch", "holders_paid", "king_won", "airdrop", "graduated"];
+export const PAID_KINDS = ["pushed", "payday_paid", "payday_epoch", "holders_paid", "airdrop", "graduated"];
 
 export function fetchBag() {
   return api<BagResponse>("/bag");
@@ -319,14 +278,6 @@ export function fetchVault() {
 
 export function fetchPot(token: string) {
   return api<PotResponse>(`/tokens/${token}/pot`);
-}
-
-export function fetchKing(token: string) {
-  return api<KingResponse>(`/tokens/${token}/king`);
-}
-
-export function fetchAuction(token: string) {
-  return api<AuctionResponse>(`/tokens/${token}/auction`);
 }
 
 export function fetchPenalties(token: string, opts: { limit?: number; before?: number | null } = {}) {
@@ -375,26 +326,6 @@ export function usePot(token: string | null | undefined) {
     queryFn: () => fetchPot(token!),
     enabled: Boolean(token),
     refetchInterval: 10_000,
-    retry: false,
-  });
-}
-
-export function useKing(token: string | null | undefined) {
-  return useQuery({
-    queryKey: BAG_KEYS.king(token ?? ""),
-    queryFn: () => fetchKing(token!),
-    enabled: Boolean(token),
-    refetchInterval: 5_000,
-    retry: false,
-  });
-}
-
-export function useAuction(token: string | null | undefined) {
-  return useQuery({
-    queryKey: BAG_KEYS.auction(token ?? ""),
-    queryFn: () => fetchAuction(token!),
-    enabled: Boolean(token),
-    refetchInterval: 6_000,
     retry: false,
   });
 }

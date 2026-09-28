@@ -21,10 +21,8 @@ import { DirectTradeBox } from "@/components/DirectTradeBox";
 import { DirectPanels } from "@/components/DirectPanels";
 import { HoldersPaid } from "@/components/token/HoldersPaid";
 import { PenaltyTape } from "@/components/token/PenaltyTape";
-import { KingOfHill } from "@/components/token/KingOfHill";
 import { BoostBadge } from "@/components/token/BoostBadge";
 import { BoostBuy } from "@/components/token/BoostBuy";
-import { AuctionPanel } from "@/components/token/AuctionPanel";
 import { TeamPanel } from "@/components/token/TeamPanel";
 import dynamic from "next/dynamic";
 // lightweight-charts is ~45 kB and the chart is a widget, not the first thing a trader needs. Split
@@ -137,7 +135,6 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
   const paidOut = BigInt((isDirect ? data.fees?.accrued : data.fees?.flushed) ?? "0");
   // The pot's receipts, under the payout line on either machine. King of the hill is a splitter
   // option, so it only ever has a panel on a launch whose penalties turned it on.
-  const kingBps = data.penalties?.king_bps ?? 0;
   const holdersPaid = (
     <HoldersPaid token={data.token} pot={data.pot} paidToHolders={data.paid_to_holders} decimals={dec} symbol={sym} />
   );
@@ -237,12 +234,9 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
             <span>{machineLabel(data)}</span>
             <span className="mono dim">{(progress * 100).toFixed(1)}% to the pool</span>
           </div>
-          {((data.snipe_tax_bps ?? 0) > 0 || (data.max_buy_bps ?? 0) > 0) && (
+          {data.opening_tax_bps && (
             <p className="token-guard-line mono dim text-xs mb-2">
-              opening rules:
-              {(data.snipe_tax_bps ?? 0) > 0 && ` ${(data.snipe_tax_bps! / 100).toFixed(0)}% extra on buys, gone after ${data.snipe_decay_seconds}s, 80% to holders`}
-              {(data.snipe_tax_bps ?? 0) > 0 && (data.max_buy_bps ?? 0) > 0 && " ·"}
-              {(data.max_buy_bps ?? 0) > 0 && ` ${(data.max_buy_bps! / 100).toFixed(2)}% per wallet until block ${data.restrictions_end_block}`}
+              opening tax: {data.opening_tax_bps.map((b) => `${(b / 100).toFixed(b % 100 ? 2 : 0)}%`).join(", ")} of a buy over its first {data.opening_tax_bps.length}s, then none · named wallets exempt
             </p>
           )}
           <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-ink)]">
@@ -370,13 +364,6 @@ export default function TokenPage({ params }: { params: Promise<{ address: strin
           <TradeBox token={data.token as Address} curve={data.curve as Address}
             pairToken={data.pair_token as Address} pairDecimals={dec} pairSymbol={sym}
             symbol={data.symbol} phase={data.phase} />
-        )}
-
-        {/* The opening auction only exists while it is open, and the panel decides that itself. */}
-        <AuctionPanel token={data.token as Address} />
-
-        {kingBps > 0 && (
-          <KingOfHill token={data.token} splitter={data.splitter} kingBps={kingBps} decimals={dec} symbol={sym} />
         )}
 
         {!isDirect && data.phase === 1 && (

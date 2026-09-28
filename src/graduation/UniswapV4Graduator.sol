@@ -23,12 +23,11 @@ import {IHoodFeeRouter} from "../interfaces/IHoodFeeRouter.sol";
 import {IHoodToken} from "../interfaces/IHoodToken.sol";
 import {PairTransfer} from "../libraries/PairTransfer.sol";
 import {Launch} from "../HoodTypes.sol";
-import {PenaltyConfig} from "../bag/BagTypes.sol";
 
 /// @notice The one hook every graduated pool trades through (HoodGraduationHook), declared against
 ///         this file's own PoolKey, which encodes exactly like v4-core's.
 interface IHoodGraduationHook {
-    function register(PoolKey calldata key, address token, address pot, PenaltyConfig calldata penalties) external;
+    function register(PoolKey calldata key, address token, address pot) external;
 }
 
 /// @notice What a launch's pot lets the graduation handler do: keep the pool's own addresses out of
@@ -44,8 +43,7 @@ interface IHoodPotExclude {
 ///      earned, which go straight back into the token's fee split. That is the whole point:
 ///      graduated liquidity is locked, and the lock is the absence of code, not a promise.
 ///
-///      Every pool it opens names the graduation hook, which takes the platform fee and the sell-side
-///      penalties on every swap. The hook is named once, by the factory owner, and cannot be changed
+///      Every pool it opens names the graduation hook, which takes the platform fee on every swap. The hook is named once, by the factory owner, and cannot be changed
 ///      after that; until it is named no pool can be opened, so no launch runs without it.
 contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -239,13 +237,13 @@ contract UniswapV4Graduator is IGraduationHandler, ReentrancyGuard {
         emit PoolOpened(token, pairToken, tokenId, sqrtPriceX96, liquidity);
     }
 
-    /// @dev Writes the pool's row in the hook (token, pot, the launch's penalties) and keeps the
+    /// @dev Writes the pool's row in the hook (token and pot) and keeps the
     ///      pool manager and the hook out of the pot's holder count: the pool's reserves are most of
     ///      the supply, and a pot that counted them would book most of every deposit to an address
     ///      that never claims. A pot that refuses the exclusion cannot hold the raise hostage in the
     ///      curve, so that failure is an event rather than a revert.
     function _register(address token, PoolKey memory key, address pot) internal {
-        IHoodGraduationHook(hook).register(key, token, pot, factory.penaltiesOf(token));
+        IHoodGraduationHook(hook).register(key, token, pot);
         if (pot == address(0)) return;
         _exclude(token, pot, address(poolManager));
         _exclude(token, pot, hook);

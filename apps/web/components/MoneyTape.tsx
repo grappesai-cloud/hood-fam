@@ -159,26 +159,16 @@ export function describe(row: TapeRow): ReactNode {
   const source = Number(x.source);
 
   switch (row.kind) {
-    case "penalty": {
-      const payer = reason === "snipe" ? "sniper" : reason === "jeet" ? "jeet" : reason === "whale" ? "whale" : "a seller";
-      const toHolders = x.to_holders != null ? x.to_holders : row.amount;
-      const toBag = big(x.to_bag);
-      return <>{payer} {who(x.payer)} paid {money(toHolders)} to {holders(x.holders)} on {coin}{toBag > 0n && <>, {money(toBag)} to the Bag</>}</>;
-    }
+    case "sniped":
+      return <>sniper {who(x.payer)} paid {money()} of opening tax on {coin}</>;
     case "slash":
       return <>creator sold {coin}, {money()} of fees went to holders</>;
     case "holders_paid": {
       switch (reason) {
-        case "confetti": return <>Confetti paid {money()} to {holders(x.holders)} of {coin}</>;
         case "dividends": return <>the creator&apos;s dividends leg paid {money()} to {holders(x.holders)} of {coin}</>;
         case "lp_fees": return <>pool fees paid {money()} to {holders(x.holders)} of {coin}</>;
         case "payday": return <>Payday&apos;s slice paid {money()} to {holders(x.holders)} of {coin}</>;
         case "slash": return <>the creator&apos;s slashed fees paid {money()} to {holders(x.holders)} of {coin}</>;
-        case "auction": return <>the sniper auction paid {money()} to {holders(x.holders)} of {coin}</>;
-        case "king": return <>a sell put {money()} in {coin}&apos;s king pot</>;
-        case "snipe": return <>the pot paid a sniper&apos;s {money()} to {holders(x.holders)} of {coin}</>;
-        case "jeet": return <>the pot paid a jeet&apos;s {money()} to {holders(x.holders)} of {coin}</>;
-        case "whale": return <>the pot paid a whale&apos;s {money()} to {holders(x.holders)} of {coin}</>;
         default: return <>the pot paid {money()} to {holders(x.holders)} of {coin}{reason && <> ({reason})</>}</>;
       }
     }
@@ -188,8 +178,8 @@ export function describe(row: TapeRow): ReactNode {
       switch (source) {
         case 0: return <>a trade{row.token && <> on {coin}</>} put {money()} in the Bag</>;
         case 1: return <>{coin} graduated, {money()} went to the Bag</>;
-        case 2: return <>a penalty{row.token && <> on {coin}</>} put {money()} in the Bag</>;
-        case 3: return <>a launch fee or a boost put {money()} in the Bag</>;
+        case 2: return <>a boost{row.token && <> on {coin}</>} put {money()} in the Bag for that hour&apos;s Payday</>;
+        case 3: return <>a launch fee put {money()} in the Bag</>;
         case 4: return <>the house coin&apos;s creator leg put {money()} in the Bag</>;
         default: return <>{money()} went into the Bag</>;
       }
@@ -200,7 +190,7 @@ export function describe(row: TapeRow): ReactNode {
         case 1: return <>the Bag paid {money()} to the Vault</>;
         case 2: return <>the Bag paid {money()} to Payday</>;
         case 3: return <>the Bag paid {money()} to the burn clock</>;
-        case 4: return <>the Bag paid {money()} to {coin}&apos;s pot as Confetti</>;
+        case 4: return <>the Bag paid {money()} to {who(row.recipient)} as {coin}&apos;s graduation bonus</>;
         default: return <>the Bag paid {money()} out</>;
       }
     }
@@ -232,20 +222,8 @@ export function describe(row: TapeRow): ReactNode {
     }
     case "boost":
       return <>{coin} bought boost slot {String(x.slot ?? "?")} for {money()}{typeof x.buyer === "string" && <>, paid by {who(x.buyer)}</>}</>;
-    case "king_crowned":
-      return <>{who(x.king)} is king of {coin} with {money(x.pot ?? row.amount)} in the pot</>;
-    case "king_won":
-      return <>king {who(x.king ?? x.winner)} won {money()} on {coin}</>;
-    case "auction_bid":
-      return <>{who(x.bidder ?? x.payer)} bid {money()} for {coin}&apos;s first slot</>;
-    case "auction_settled":
-      return <>{who(x.winner)} won {coin}&apos;s first slot for {money()}: half to holders, half to locked liquidity</>;
-    case "buyback": {
-      const burned = big(x.burned);
-      return <>a sell tax bought back {coin} with {money(x.spent ?? row.amount)}{burned > 0n && <> and burned <b>{compact(burned)}</b></>}</>;
-    }
-    case "buyback_wanted":
-      return <>a buyback of {coin} is queued for the keeper</>;
+    case "dev_deferred":
+      return <>a graduation bonus of {money()} waits in the Bag for {who(row.recipient)}</>;
     case "airdrop":
       return <>{who(x.wallet ?? x.account ?? x.recipient ?? x.claimer)} claimed {money()} from the season drop{x.season != null && <>, season {String(x.season)}</>}</>;
     case "graduated":

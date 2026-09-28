@@ -31,16 +31,15 @@ interface IPortalTreasury {
 ///      It does not matter how tax arrives, and nothing has to call in to announce it. `sweep`
 ///      looks at what the contract holds, subtracts what is already spoken for, and splits the
 ///      difference. Money for the pot is different: it is announced (`depositForHolders`), tagged
-///      with a reason and a payer, and goes to holders whole. So do the king pot's deposits.
+///      with a reason and a payer, and goes to holders whole.
 ///
 ///      Dividends sit on a per-share accumulator. The token tells this contract when a balance
 ///      moves; the pool, the locker, the hook and this contract itself hold no share. A keeper
 ///      pushes payouts (`pushMany`); `claim` is the fallback anyone can call for anyone.
 ///
-///      Three more rules live here. The creator cannot rug their fees: a sell of their own token
+///      Two more rules live here. The creator cannot rug their fees: a sell of their own token
 ///      moves whatever they had not claimed to the holders (`slashCreator`, called by the token).
-///      King of the hill: a slice of every penalty fills a pot, each buy resets a sixty-second
-///      timer and crowns the buyer, and when it runs out the king takes the pot. The house coin:
+///      The house coin:
 ///      when the fee recipient is the Bag itself, the creator's leg goes into the Bag as the
 ///      house-coin leg, and anyone may send it.
 contract HoodRevenueSplitter is ReentrancyGuard, IHoodPot {
@@ -51,8 +50,6 @@ contract HoodRevenueSplitter is ReentrancyGuard, IHoodPot {
     /// @notice The protocol's cut of the creator's tax: none. The platform fee is the Bag's and
     ///         comes off the trade in the hook. Kept so `claimProtocol` still pays what was booked.
     uint16 public constant PROTOCOL_BPS = 0;
-    /// @notice How long the crown holds after the last buy.
-    uint64 public constant KING_TIMER = 60;
     /// @notice Gas a pushed native payout may burn. A holder that needs more claims by hand.
     uint256 internal constant PUSH_GAS = 60_000;
 
@@ -79,10 +76,6 @@ contract HoodRevenueSplitter is ReentrancyGuard, IHoodPot {
     uint256 public dividendsOrphaned;
     /// @notice A legacy protocol cut, waiting to be pulled. Nothing new is ever booked here.
     uint256 public protocolClaimable;
-    /// @notice The king of the hill's pot, the king, and when the crown falls.
-    uint256 public kingPot;
-    address public king;
-    uint64 public kingEndsAt;
 
     uint256 public accPerShare;
     uint256 public eligibleSupply;
@@ -105,20 +98,15 @@ contract HoodRevenueSplitter is ReentrancyGuard, IHoodPot {
     event LiquidityPushed(uint256 amount);
     event ProtocolClaimed(address indexed to, uint256 amount);
     event ReferralPaid(address indexed to, uint256 amount);
-    event KingCrowned(address indexed king, uint256 pot, uint64 endsAt);
-    event KingWon(address indexed king, uint256 amount);
-    event KingPotFed(uint256 amount, uint256 pot);
     event CreatorSlashed(address indexed creator, uint256 amount);
 
     error NotPortal();
     error NotCreator();
     error NotBuybackModule();
     error NotToken();
-    error NotHook();
     error AlreadyInitialized();
     error BadAllocations();
     error Nothing();
-    error KingStillReigns();
 
     constructor(address portal_, address treasury_, address buybackModule_, address token_, address quote_) {
         portal = portal_;
@@ -143,8 +131,7 @@ contract HoodRevenueSplitter is ReentrancyGuard, IHoodPot {
         excluded[buybackModule] = true;
     }
 
-    /// @notice Names the launch's hook, once: the only caller of the king pot and of the inline
-    ///         buyback's release. It holds no dividend share either.
+    /// @notice Names the launch's hook, once. It holds no dividend share.
     function setHook(address hook_) external {
         if (msg.sender != portal) revert NotPortal();
         if (hook != address(0)) revert AlreadyInitialized();
@@ -343,40 +330,6 @@ contract HoodRevenueSplitter is ReentrancyGuard, IHoodPot {
         emit HoldersPaid(BagReasons.SLASH, creator, amount, eligibleSupply);
     }
 
-    // ---------------------------------------------------------------- king of the hill
-
-    /// @notice Hook only. The buyer takes the crown and the sixty-second timer starts again.
-    function crownKing(address buyer) external {
-        if (msg.sender != hook) revert NotHook();
-        king = buyer;
-        uint64 endsAt = uint64(block.timestamp) + KING_TIMER;
-        kingEndsAt = endsAt;
-        emit KingCrowned(buyer, kingPot, endsAt);
-    }
-
-    /// @notice Hook only. The king pot's slice of a penalty, same payment convention as the pot.
-    function depositForKing(uint256 amount) external payable {
-        if (msg.sender != hook) revert NotHook();
-        _receive(amount);
-        accounted += amount;
-        kingPot += amount;
-        emit KingPotFed(amount, kingPot);
-    }
-
-    /// @notice Permissionless. Once the timer has run out, the king takes the pot.
-    function settleKing() external nonReentrant returns (uint256 amount) {
-        address k = king;
-        amount = kingPot;
-        if (k == address(0) || amount == 0) revert Nothing();
-        if (block.timestamp < kingEndsAt) revert KingStillReigns();
-        kingPot = 0;
-        king = address(0);
-        kingEndsAt = 0;
-        accounted -= amount;
-        PairTransfer.push(quote, k, amount);
-        emit KingWon(k, amount);
-    }
-
     // ---------------------------------------------------------------- the other roads
 
     /// @notice Hands the buyback pot to the module that swaps and burns. Module only, and the
@@ -389,20 +342,6 @@ contract HoodRevenueSplitter is ReentrancyGuard, IHoodPot {
         buybackPot = 0;
         accounted -= amount;
         PairTransfer.push(quote, buybackModule, amount);
-        emit BuybackReleased(amount);
-    }
-
-    /// @notice Hands at most `max` of the buyback pot to the hook, for the buyback it runs inside
-    ///         a swap. Hook only; the rest of the pot stays here.
-    function releaseBuybackUpTo(uint256 max) external nonReentrant returns (uint256 amount) {
-        if (msg.sender != hook) revert NotHook();
-        sweep();
-        amount = buybackPot;
-        if (amount > max) amount = max;
-        if (amount == 0) revert Nothing();
-        buybackPot -= amount;
-        accounted -= amount;
-        PairTransfer.push(quote, hook, amount);
         emit BuybackReleased(amount);
     }
 

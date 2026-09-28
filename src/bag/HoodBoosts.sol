@@ -8,8 +8,9 @@ import {IHoodFactory} from "../interfaces/IHoodFactory.sol";
 
 /// @title HoodBoosts
 /// @notice Hourly boost slots on the board. A creator pays `slotPrice` in native currency for one
-///         of SLOTS slots in the current or the next hour; all of it goes to the house through
-///         the Bag. First come, first served; one slot per token per hour.
+///         of SLOTS slots in the current or the next hour; all of it goes, through the Bag, to the
+///         Payday of that same hour: the traders who show up while the coin is boosted are the
+///         ones paid for it. First come, first served; one slot per token per hour.
 /// @dev No privileged writer. The factory owner sets the price under a hard cap.
 contract HoodBoosts is IHoodBoosts {
     struct Slot {
@@ -67,7 +68,7 @@ contract HoodBoosts is IHoodBoosts {
 
         _slots[hourEpoch][slot] = Slot({token: token, buyer: msg.sender});
         holdsSlot[hourEpoch][token] = true;
-        bag.takeHouseFee{value: msg.value}(address(0), msg.value, token);
+        bag.takeBoost{value: msg.value}(address(0), msg.value, token, hourEpoch);
         emit BoostBought(token, msg.sender, hourEpoch, slot, msg.value);
     }
 

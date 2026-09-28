@@ -20,6 +20,7 @@ const SECTIONS = [
   ["start", "Getting started"],
   ["curve", "Launch on the curve"],
   ["direct", "Launch a direct pool"],
+  ["opening", "The opening tax"],
   ["trade", "How to trade"],
   ["holders", "How you get paid as a holder"],
   ["payday", "Payday for traders"],
@@ -61,7 +62,6 @@ const ADDRESSES: [string, string][] = [
   ["Boosts (HoodBoosts)", "0x8ed549aa479221ece612ce26d0f5b5d724114efb"],
   ["Graduation hook", "0x06f9fe8109867a22dd98d063ed43ea19b3d880cc"],
   ["Portal (direct launches)", "0xf3541ace9098775b812df2ff7acebaeecb5aef9e"],
-  ["Opening auction (the sniper auction)", "0x7e1c0ab8ec48d529ecf44931684520062da7b930"],
   ["The Vault (HoodStaking)", "0xb24f6ee86438df7ac5d28fe04c7b77e04e2b4415"],
   ["Fee router (HoodFeeRouter)", "0x9208de8d02bf8b1d9a7c8c24668fc89320d4a677"],
   ["Referrals (HoodReferrals)", "0x64c006bb7f86a1d11f0b84b84b1d823bd6ce3f9a"],
@@ -82,36 +82,35 @@ const EXTERNAL: [string, string][] = [
 ];
 
 const GLOSSARY: [string, string][] = [
-  ["The Bag", "The contract that receives the protocol's share of every fee and splits it by four fixed rules. No owner, no withdrawal."],
-  ["The house", "Our share. Paid out of the Bag by the rules; never a share of the creator's fees."],
+  ["The Bag", "The contract that receives the protocol's share of every fee and splits it by fixed rules. No owner, no withdrawal."],
+  ["The house", "Our share, paid to the team's treasury Safe. Paid out of the Bag by the rules; never a share of the creator's fees."],
   ["The house coin", "The platform's own token. Not launched yet. The only coin the Vault stakes and the only coin the burn clock burns."],
   ["The token's pot", "The contract that pays a token's holders in proportion to what they hold. A HoodPot on curve launches, the revenue splitter on direct launches."],
-  ["Confetti", "The graduation bonus: a quarter of the graduation fee, paid into the token's pot the moment it graduates."],
   ["Payday", "The hourly payout to traders, split by points, with a slice for the pots of the ten newest launches."],
   ["The Vault", "The staking contract for the house coin. Lock tiers from flexible (1x) to 180 days (2.5x). Rewards arrive in the assets the fees were paid in."],
-  ["The burn clock", "The contract that buys the house coin once an hour per asset and burns it."],
+  ["The burn clock", "The contract that buys the house coin once an hour per asset and burns it. It is fed by 77% of every graduation fee."],
   ["The keeper", "Our off-chain service. It pushes pot payouts every 5 minutes, calls Payday and the burn every hour, and pays the gas."],
   ["The curve", "A bonding curve: a contract that sells a token at a price that rises as more is sold, then graduates into a pool when it sells out."],
   ["Direct pool", "A launch whose whole supply goes straight into a Uniswap v4 pool, with a hook that takes the fee and the creator's terms on every swap."],
-  ["The hook", "The contract attached to a direct launch's pool. It applies the fee, the creator's tax and the penalties."],
-  ["Graduation", "The moment a curve sells out and its raise plus the reserved 20% of supply become locked liquidity in a pool."],
+  ["The hook", "The contract attached to a direct launch's pool. It applies the fee, the creator's tax and the opening tax."],
+  ["Graduation", "The moment a curve sells out and 90% of its raise plus the reserved 20% of supply become locked liquidity in a pool."],
+  ["Graduation fee", "The 10% of a curve's raise that does not go into the pool. 23% of it goes to the creator as the dev bonus, 77% to the burn clock."],
+  ["Dev bonus", "The creator's 23% of the graduation fee, paid to the launch's creator fee recipient when the curve graduates."],
   ["The graduator", "The contract that opens a graduated pool and keeps the position forever. It has no transfer and no decrease-liquidity function."],
   ["Preset", "A fixed set of curve parameters: start cap, graduation cap, share of the raise that goes to liquidity, fees."],
   ["Quote asset", "What a token is priced in and what fees are paid in: ETH or USDG."],
   ["bps", "Basis points. 100 bps is 1%. 10,000 bps is 100%."],
-  ["Creator tax", "On a direct launch, an extra 1% to 10% per side chosen by the creator and split by his allocations."],
-  ["Allocations", "How the creator's tax splits: creator, buyback, dividends to holders, liquidity. They add up to 100%."],
-  ["Snipe tax", "A surcharge on buys in the first seconds after a direct launch. Decays quadratically to zero over up to 600 seconds."],
-  ["Opening window", "The first blocks of a direct launch, when no wallet may hold or buy more than the creator's caps. Up to 1,200 blocks."],
-  ["Jeet tax", "A charge of up to 25% on a sell made within the creator's window after the buy (at most 1 hour)."],
-  ["Whale tax", "A charge of up to 25% on a sell that moves the price more than the creator's tick limit (at most 2,000 ticks)."],
-  ["Penalties to vault", "A creator option that sends the holders' share of penalties to the Vault instead of the token's pot."],
-  ["King of the hill", "On a direct launch, a pot fed by penalties that goes to the last crowned buyer 60 seconds after the last crown."],
-  ["The sniper auction", "On a direct launch, an auction for the first slot after the creator's block. Half of the bid goes to the holders, half to liquidity."],
-  ["The creator slash", "On a direct launch, when the creator sells into his pool, his unclaimed fees move to the holders."],
+  ["Creator leg", "70 bps of every 1% trade fee. It goes to the creator's fee split on a curve launch and to the creator's allocations on a direct launch."],
+  ["Fee split", "On a curve launch, how the creator leg splits: creator, buyback, liquidity, stakers (the Vault). They add up to 100%."],
+  ["Creator tax", "On a direct launch, an extra 1% to 10% per side chosen by the creator and split by the creator's allocations."],
+  ["Allocations", "On a direct launch, how the creator leg and the creator's tax split: creator, buyback, dividends to holders, liquidity. They add up to 100%."],
+  ["Opening tax", "A fixed tax on buys in the first seconds of every launch, on both machines: 99% in the launch's own second, 6.18% in the next, 0.19% in the one after, then 0%. Split like the trade fee: 70% to the creator leg, 30% to the Bag."],
+  ["Exempt wallets", "Wallets that pay no opening tax: the wallet that launches, the creator fee recipient and up to 32 more the creator names at launch. The list is public on chain."],
+  ["The snipers' wall", "The list on the Bag page of the wallets that paid the opening tax."],
+  ["The creator slash", "On a direct launch, when the creator sells into the pool, the creator's unclaimed fees move to the holders."],
   ["First-buy lock", "A creator's own first buy held in HoodTokenLock for 7, 30, 90 or 180 days. It earns nothing."],
   ["Copycat lock", "For 48 hours after a launch that did 25 ETH (or 100,000 USDG) of volume in a day, its ticker and image cannot be reused."],
-  ["Boost", "A paid slot on the board for one hour. 4 slots an hour, all proceeds to the house."],
+  ["Boost", "A paid slot on the board for one hour. 4 slots an hour. The price goes to the Payday of the hour the boost runs."],
   ["Points", "An off-chain score computed by the API from trades, launches, locks and referrals. It splits Payday and the season drop."],
   ["Rank", "A multiplier on your points, 1.5x to 5x, set by your 30-day volume."],
   ["Season drop", "A Merkle-based airdrop of a share of what the protocol earned in a season, claimable for at least 30 days."],
@@ -199,9 +198,14 @@ export default function Docs() {
           <li>Enter the name, ticker, image, description and links. This is what the board and the token page show.</li>
           <li>Pick a preset. The table below has the three.</li>
           <li>
-            Choose your fee split. Your 30 bps of every trade go through the fee router, and you fix
+            Choose your fee split. Your 70 bps of every trade go through the fee router, and you fix
             at launch how they split between four legs: stakers (paid to the Vault), buyback,
             liquidity and creator. A stakers leg is refused until the house coin exists.
+          </li>
+          <li>
+            Optionally name up to 32 wallets that skip the opening tax, for example a team spreading
+            its opening buys. You and your fee recipient are always exempt. The list is public on
+            the chain from the launch transaction on.
           </li>
           <li>
             Optionally make a first buy in the launch transaction. For an ETH launch, any value you
@@ -212,8 +216,8 @@ export default function Docs() {
           <li>Confirm. You pay the launch fee of 0.002 ETH plus your first buy. The fee goes to the house.</li>
         </ol>
         <p>
-          The launch block belongs to you: only the creator can receive tokens in it. Trading opens
-          the next block.
+          Trading opens at once. The first seconds are priced by the{" "}
+          <a href="#opening">opening tax</a>, the same on every launch.
         </p>
         <h3>Presets</h3>
         <div className="doc-table-wrap">
@@ -230,15 +234,15 @@ export default function Docs() {
               </tr>
             </thead>
             <tbody>
-              <tr><td>0</td><td>ETH</td><td className="num">1 ETH</td><td className="num">10 ETH</td><td className="num">4.4 ETH</td><td className="num">9,000 bps</td><td className="num">10% of the raise</td></tr>
-              <tr><td>1</td><td>ETH</td><td className="num">2 ETH</td><td className="num">40 ETH</td><td className="num">16.8 ETH</td><td className="num">9,500 bps</td><td className="num">5% of the raise</td></tr>
-              <tr><td>2</td><td>USDG</td><td className="num">5,000 USDG</td><td className="num">50,000 USDG</td><td className="num">22,000 USDG</td><td className="num">9,000 bps</td><td className="num">10% of the raise</td></tr>
+              <tr><td>0</td><td>ETH</td><td className="num">1.1 ETH</td><td className="num">11.025 ETH</td><td className="num">4.85 ETH</td><td className="num">9,000 bps</td><td className="num">10% of the raise</td></tr>
+              <tr><td>1</td><td>ETH</td><td className="num">2 ETH</td><td className="num">40 ETH</td><td className="num">16.8 ETH</td><td className="num">9,000 bps</td><td className="num">10% of the raise</td></tr>
+              <tr><td>2</td><td>USDG</td><td className="num">5,500 USDG</td><td className="num">55,125 USDG</td><td className="num">24,250 USDG</td><td className="num">9,000 bps</td><td className="num">10% of the raise</td></tr>
             </tbody>
           </table>
         </div>
         <p>
           Every preset: supply 1,000,000,000; 80% on the curve; 20% reserved to seed the pool; trade
-          fee 1%, of which 70 bps to the Bag and 30 bps to the creator. The factory requires at
+          fee 1%, of which 70 bps to the creator and 30 bps to the Bag. The factory requires at
           least 8,000 bps of the raise to go to liquidity. The start cap is the market cap at the
           first token sold; the graduation cap is the market cap when the curve sells out.
         </p>
@@ -250,18 +254,22 @@ export default function Docs() {
         </p>
         <h3>What happens next</h3>
         <ol>
-          <li>Buyers pay the curve, sellers sell back to it. Every trade pays 1%. No penalties apply on the curve.</li>
+          <li>Buyers pay the curve, sellers sell back to it. Every trade pays 1%. Buys in the first seconds also pay the opening tax.</li>
           <li>When the curve sells out it stops trading. Anyone, usually the keeper, calls <code>finalize()</code>.</li>
           <li>
-            The token graduates. The raise, less the graduation fee, and the reserved 20% go into a
+            The token graduates. 90% of the raise and the reserved 20% of supply go into a
             full-range Uniswap v4 pool, priced at the ratio the raise came out at. The position stays
-            in the graduator forever.
+            in the graduator forever. On preset 0 that is about 4.365 ETH.
           </li>
-          <li>The graduation fee goes to the Bag: half to the house, a quarter to the Vault, a quarter as Confetti to the token&apos;s pot.</li>
           <li>
-            From now on the pool charges 1% plus its own 0.3% fee. Anyone can call <code>collect</code>:
-            the token side is burned and the quote side goes to your fee split. Any jeet or whale
-            tax you set at launch applies from here.
+            The other 10% is the graduation fee. It goes to the Bag: 23% to your creator fee
+            recipient as the dev bonus (about 0.11 ETH on preset 0), 77% to the burn clock, which
+            buys the house coin and burns it (about 0.37 ETH on preset 0).
+          </li>
+          <li>
+            From now on the pool charges 1% plus its own 0.3% fee. The 1% splits the same way: 70 bps
+            to your fee split, 30 bps to the Bag. Anyone can call <code>collect</code>: the token
+            side is burned and the quote side goes to your fee split.
           </li>
         </ol>
       </section>
@@ -271,7 +279,7 @@ export default function Docs() {
         <p>
           A direct launch puts the whole supply into a Uniswap v4 pool in the launch transaction.
           The token trades from the first block. A hook on the pool takes the 1% fee, your own tax
-          and any penalties you switch on. Every setting below is fixed at launch and cannot change.
+          and the opening tax. Every setting below is fixed at launch and cannot change.
         </p>
         <h3>Step by step</h3>
         <ol>
@@ -279,41 +287,23 @@ export default function Docs() {
           <li>Enter the name, ticker, image and description. Pick the quote asset: ETH or USDG.</li>
           <li>
             Set your tax, 1% to 10% per side (100 to 1,000 bps). Buyers and sellers pay it on top of
-            the 1%. Set the allocations for it: creator, buyback, dividends to holders, liquidity.
-            They must add up to 100%.
+            the 1%. Set the allocations: creator, buyback, dividends to holders, liquidity. They must
+            add up to 100%. They split your tax and your 70 bps of the 1%.
           </li>
           <li>
-            Set the snipe tax. It starts at the rate you pick and decays quadratically to zero over
-            up to 600 seconds. The app&apos;s default is 50% over 3 seconds. Your tax plus the snipe tax
-            can never exceed 99%.
+            Optionally name up to 32 wallets that skip the opening tax. You and your fee recipient
+            are always exempt. On a direct pool the exemption is keyed on the wallet that sends the
+            swap (<code>tx.origin</code>). The list is public on the chain.
           </li>
-          <li>
-            Set the opening window. For a number of blocks, up to 1,200 (about 2 minutes at 100 ms
-            blocks), no wallet may hold more than your hold cap or buy more than your buy cap. The
-            buy cap is at most 1.1x the hold cap. The default is 30 blocks. Selling is never capped.
-          </li>
-          <li>
-            Set the penalties: a jeet tax of up to 25% on sells within a window of up to 1 hour after
-            the buy, and a whale tax of up to 25% on a sell that moves the price more than your tick
-            limit, up to 2,000 ticks. Choose whether the holders&apos; share of penalties goes to the
-            token&apos;s pot or to the Vault.
-          </li>
-          <li>
-            Optionally switch on king of the hill: up to 50% of the holders&apos; share of every penalty
-            feeds a pot that the last crowned buyer wins 60 seconds after the last crown.
-          </li>
-          <li>
-            Optionally open a sniper auction for the first slot after your launch block: a window
-            of up to 300 blocks in which nobody can buy and bids are taken instead.
-          </li>
-          <li>Optionally set an initial buy. It goes straight through the PoolManager in the launch transaction.</li>
-          <li>Confirm. You pay the launch fee of 0.002 ETH plus your initial buy. The launch block is yours alone.</li>
+          <li>Optionally set an initial buy. It goes straight through the PoolManager in the launch transaction and pays no opening tax.</li>
+          <li>Confirm. You pay the launch fee of 0.002 ETH plus your initial buy. The launch fee goes to the house.</li>
         </ol>
         <h3>Where your tax goes</h3>
         <p>
-          The 1% platform fee splits 30 bps to you and 70 bps to the Bag on every trade. Your own
-          tax lands in the token&apos;s revenue splitter and is split by your allocations. Your creator
-          leg waits for you to claim it on the token page or in your portfolio. The dividends leg
+          The 1% platform fee splits 70 bps to you and 30 bps to the Bag on every trade. Your 70 bps,
+          your own tax and 70% of any opening tax land in the token&apos;s revenue splitter and are
+          split by your allocations. Your creator leg waits for you to claim it on the token page
+          or in your portfolio. The dividends leg
           pays holders through the pot. The buyback leg is spent by a shared module that buys the
           token and burns it. The liquidity leg is pushed into the locked position.
         </p>
@@ -322,13 +312,48 @@ export default function Docs() {
           you have not claimed moves to the holders in the same transaction. That is the creator
           slash. Claim first, and do not sell into your own pool if you want to keep your fees.
         </p>
-        <h3>The sniper auction, in practice</h3>
+        <p>
+          Anyone may buy any amount at any time. There is no per-wallet cap and no reserved launch
+          block. The first seconds are priced by the opening tax instead.
+        </p>
+      </section>
+
+      <section className="panel" id="opening">
+        <h2>The opening tax</h2>
+        <p>
+          Every launch opens the same way, on the curve and on a direct pool. It is not a setting.
+          A buy pays a tax that depends on how many seconds have passed since the launch:
+        </p>
+        <div className="doc-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Second after launch</th>
+                <th className="num">Opening tax on a buy</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>0 (the launch&apos;s own second)</td><td className="num">99%</td></tr>
+              <tr><td>1</td><td className="num">6.18%</td></tr>
+              <tr><td>2</td><td className="num">0.19%</td></tr>
+              <tr><td>3 and later</td><td className="num">0%</td></tr>
+            </tbody>
+          </table>
+        </div>
         <ul>
-          <li>Bids are in your quote asset. For ETH the minimum bid is the launch fee. Each bid must beat the last by 5%.</li>
-          <li>A bidder who is outbid gets the money back at once. If the refund cannot be delivered, it is booked and taken with <code>claimRefund</code>.</li>
-          <li>After the window, the winner alone can receive tokens from the pool for 20 blocks.</li>
-          <li>Anyone can settle after the window. Half of the winning bid goes to your token&apos;s pot for the holders, half to the locker as liquidity.</li>
-          <li>No bids: the pool opens after the window, as if there had been no auction.</li>
+          <li>Buys only. A sell never pays it.</li>
+          <li>It is trading fee and splits like the 1%: 70% to the creator&apos;s split, 30% to the Bag.</li>
+          <li>
+            Exempt: the wallet that launches, the creator fee recipient, and up to 32 more wallets
+            the creator names at launch. The list is public on the chain.
+          </li>
+          <li>Buys made inside the launch transaction never pay it: the creator&apos;s first buy and the team wallets of a Block Zero team launch.</li>
+          <li>
+            On the curve the exemption is keyed on the wallet that receives the tokens. On a direct
+            pool it is keyed on the wallet that sends the swap (<code>tx.origin</code>).
+          </li>
+          <li>On a direct pool the creator&apos;s tax, the 1% and the opening tax together are capped at 99% of a buy.</li>
+          <li>A wallet that pays it lands on the snipers&apos; wall on <Link href="/bag">/bag</Link>.</li>
         </ul>
       </section>
 
@@ -341,34 +366,30 @@ export default function Docs() {
         </p>
         <h3>What a trade costs</h3>
         <ul>
-          <li>1% of the trade, always. 30 bps go to the creator, 70 bps to the Bag.</li>
+          <li>1% of the trade, always. 70 bps go to the creator, 30 bps to the Bag.</li>
           <li>On a direct launch, the creator&apos;s tax on top: 1% to 10% per side, shown on the token page.</li>
           <li>On a graduated pool, the pool&apos;s own 0.3% fee on top.</li>
           <li>
-            Penalties, when they apply and the creator set them: the snipe tax in the first seconds
-            after a direct launch, the jeet tax on a sell soon after your buy, the whale tax on a sell
-            that moves the price too far. Each is at most 25%, except the snipe tax, which starts
-            where the creator set it and falls to zero.
+            A buy in the first three seconds after any launch pays the{" "}
+            <a href="#opening">opening tax</a>: 99%, then 6.18%, then 0.19%. From the third second on
+            it is 0%. Sells never pay it.
           </li>
         </ul>
         <p>
           Read the terms box on the token page before you buy. On a curve launch nothing but the 1%
-          applies until graduation.
+          applies after the first three seconds.
         </p>
         <h3>What you see on the tape</h3>
         <p>
           The tape lists every trade on the token: buy or sell, the wallet, the size in the quote
-          asset, the tokens moved, the price and the time. Fees and penalties are taken inside the
+          asset, the tokens moved, the price and the time. Fees and taxes are taken inside the
           transaction, so the amount you paid is more than the pool received on a buy, and the
           amount you received is less than the pool paid on a sell. The Bag page has a second tape
-          that lists every fee and penalty and where it went.
+          that lists every fee and where it went.
         </p>
         <h3>Things that can make a trade revert</h3>
         <ul>
-          <li>Buying in the launch block: it belongs to the creator.</li>
-          <li>Buying during a sniper auction window, or in the 20 blocks after it if you are not the winner.</li>
-          <li>Buying over the hold cap or the buy cap during the opening window. The hold cap applies to plain transfers too.</li>
-          <li>Selling with an exact output amount on a graduated pool that has penalties. Sell with an exact input instead.</li>
+          <li>Slippage: the price moved past your limit before the trade landed.</li>
           <li>The first sell of a token on a pool may need extra approvals before the swap. The site asks for them one at a time.</li>
         </ul>
       </section>
@@ -382,10 +403,7 @@ export default function Docs() {
         </p>
         <h3>What fills the pot</h3>
         <ul>
-          <li>Confetti, the graduation bonus: a quarter of the graduation fee, paid the moment a curve token graduates. Whoever holds the token at that moment gets a share.</li>
-          <li>80% of every penalty paid on the token, unless the creator sent penalties to the Vault. With king of the hill on, part of that goes to the king pot instead.</li>
-          <li>On a direct launch, the dividends leg of the creator&apos;s tax.</li>
-          <li>On a direct launch with a sniper auction, half of the winning bid.</li>
+          <li>On a direct launch, the dividends leg of the creator&apos;s allocations.</li>
           <li>Payday&apos;s slice for the ten newest launches: up to 10% of every hour&apos;s Payday.</li>
           <li>On a direct launch, the creator slash: the creator&apos;s unclaimed fees when the creator sells.</li>
         </ul>
@@ -412,8 +430,9 @@ export default function Docs() {
       <section className="panel" id="payday">
         <h2>Payday for traders</h2>
         <p>
-          Payday pays traders every hour from 10 bps of every trade and 5% of every penalty. The
-          hour&apos;s money is split by points. You do not claim it: the keeper sends it to your wallet.
+          Payday pays traders every hour from 10 bps of every trade and from the boosts bought for
+          that hour. The hour&apos;s money is split by points. There is no claim button: the keeper
+          sends it to your wallet.
         </p>
         <h3>The hourly payout</h3>
         <ul>
@@ -442,7 +461,7 @@ export default function Docs() {
               <tr><td>Buy</td><td>2 per dollar</td></tr>
               <tr><td>Sell</td><td>1 per dollar</td></tr>
               <tr><td>Lock the house coin</td><td>10 per dollar per 30 days locked, times the lock multiplier (1x to 2.5x)</td></tr>
-              <tr><td>Bounty</td><td>1, for holding a token at the moment a bot paid a penalty on it</td></tr>
+              <tr><td>Bounty</td><td>1, for holding a token at the moment a bot paid the opening tax on it</td></tr>
               <tr><td>Rank</td><td>multiplies the rows above by 1.5x to 5x, set by your 30-day volume</td></tr>
               <tr><td>Referral</td><td>10% of the trading points of a wallet you referred, on top of theirs, not multiplied</td></tr>
               <tr><td>Quest</td><td>the amount on the card, not multiplied</td></tr>
@@ -510,12 +529,9 @@ export default function Docs() {
         </p>
         <h3>What pays in</h3>
         <ul>
-          <li>30 bps of every trade on the site, through the Bag.</li>
-          <li>A quarter of every graduation fee.</li>
-          <li>Half of the house coin&apos;s own trade leg.</li>
+          <li>10 bps of every trade on the site, through the Bag.</li>
+          <li>All 30 bps the Bag takes from the house coin&apos;s own trades.</li>
           <li>The stakers leg of curve launches whose creator chose one.</li>
-          <li>Penalties on tokens whose creator chose &quot;penalties to vault&quot;.</li>
-          <li>Confetti from a graduated launch with no pot.</li>
         </ul>
         <h3>Claim, unstake, demote</h3>
         <ul>
@@ -536,7 +552,8 @@ export default function Docs() {
           A boost puts a token in a paid slot on the board for one hour. There are 4 slots per hour.
           The price is 0.005 ETH by default; the factory owner can set it up to 0.05 ETH. You can buy
           a slot for the current hour or the next one. A token can hold one slot per hour. Every
-          boost payment goes to the house.
+          boost payment goes to the Payday of the hour the boost runs, so the traders of that hour
+          are paid for it.
         </p>
       </section>
 
@@ -550,7 +567,7 @@ export default function Docs() {
         </p>
         <p>
           Separately, the owner can set an on-chain referral cut for a token: a referrer address
-          and a share of at most 5,000 bps of the Bag&apos;s share of that token&apos;s fees. It comes only
+          and a share of at most 5,000 bps of the Bag&apos;s 30 bps of that token&apos;s fees. It comes only
           from the protocol&apos;s side, never from the creator or the holders.
         </p>
       </section>
@@ -577,10 +594,10 @@ export default function Docs() {
         <h2>The Bag page</h2>
         <p>
           <Link href="/bag">/bag</Link> shows what came into the Bag, per asset, and where it went:
-          the house, the Vault, Payday, the burn clock and Confetti. It shows the shares held for the
-          Vault and the burn while the house coin does not exist. It shows the Payday clock for the
-          current hour, the burn clock, the boost slots, the contract addresses and the wall of
-          shame: the wallets that paid penalties.
+          the house, the Vault, Payday, the burn clock and the dev bonuses. It shows the shares held
+          for the Vault and the burn while the house coin does not exist. It shows the Payday clock
+          for the current hour, the burn clock, the boost slots, the contract addresses and the
+          snipers&apos; wall: the wallets that paid the opening tax.
         </p>
         <p>
           &quot;Shown live&quot; means this: every number is read from the Bag&apos;s own events on the
@@ -609,9 +626,10 @@ export default function Docs() {
         <p>No. You need a wallet on Robinhood Chain with some ETH for gas. The site never holds your funds.</p>
         <h3>What does a trade cost?</h3>
         <p>
-          1% of the trade, always: 30 bps to the creator and 70 bps to the Bag. On a direct launch the
+          1% of the trade, always: 70 bps to the creator and 30 bps to the Bag. On a direct launch the
           creator&apos;s tax of 1% to 10% per side comes on top. On a graduated pool the pool&apos;s own
-          0.3% comes on top. Penalties apply only in the cases the creator set.
+          0.3% comes on top. A buy in the first three seconds after a launch also pays the opening
+          tax.
         </p>
         <h3>When do I get paid as a holder?</h3>
         <p>
@@ -620,29 +638,28 @@ export default function Docs() {
         </p>
         <h3>Why did my buy revert?</h3>
         <p>
-          The launch block belongs to the creator. A sniper auction window blocks buys, and only the
-          winner can buy for 20 blocks after it. During the opening window a buy that takes you over
-          the hold cap or the buy cap reverts. The copycat lock reverts a launch, not a buy.
+          Usually slippage: the price moved past your limit before the trade landed. There are no
+          buy caps and no blocked blocks. The copycat lock reverts a launch, not a buy.
         </p>
         <h3>Why was I charged more than 1%?</h3>
         <p>
           A direct launch has the creator&apos;s tax. A graduated pool has the 0.3% pool fee. A buy in
-          the first seconds after a direct launch pays the snipe tax. A sell soon after a buy can pay
-          the jeet tax. A sell that moves the price past the creator&apos;s tick limit can pay the
-          whale tax. The token page lists every one the creator set.
+          the first three seconds after a launch pays the opening tax: 99% in the launch&apos;s own
+          second, 6.18% in the next, 0.19% in the one after. The token page lists the creator&apos;s
+          terms.
         </p>
         <h3>Can the creator change the fees after launch?</h3>
-        <p>No. Fees, taxes, allocations, penalties and options are fixed at launch. Nobody can change them, including us.</p>
+        <p>No. Fees, taxes, allocations, exempt wallets and options are fixed at launch. Nobody can change them, including us.</p>
         <h3>Can anyone take money out of the Bag?</h3>
         <p>
-          No. The Bag has no owner and no withdrawal function. It only pays its four outlets by fixed
+          No. The Bag has no owner and no withdrawal function. It only pays its outlets by fixed
           rules. The house is paid by those rules like everyone else.
         </p>
         <h3>Where is the house coin?</h3>
         <p>
-          It has not launched. The Vault and the burn clock wait for it. Their shares of every fee are
-          held in the Bag and can be released once the coin exists. Nothing here promises it a date
-          or a price.
+          It has not launched. The Vault and the burn clock wait for it. The Vault&apos;s share of every
+          fee is held in the Bag and can be released once the coin exists. The burn clock keeps what
+          it is paid until then. Nothing here promises it a date or a price.
         </p>
         <h3>Are points a token?</h3>
         <p>

@@ -97,8 +97,8 @@ contract AddStockPairs is Script {
                 startCap: startCap,
                 graduationCap: graduationCap,
                 liquidityBps: 9000,
-                protocolFeeBps: 70,
-                creatorFeeBps: 30,
+                protocolFeeBps: 30,
+                creatorFeeBps: 70,
                 poolFee: 3000,
                 tickSpacing: 60,
                 enabled: true

@@ -6,14 +6,14 @@ import {Test} from "forge-std/Test.sol";
 import {HoodBag} from "../src/bag/HoodBag.sol";
 import {HoodPayday} from "../src/bag/HoodPayday.sol";
 import {HoodBurnClock} from "../src/bag/HoodBurnClock.sol";
-import {BagSource, BagOutlet, BagReasons, BagSplits} from "../src/bag/BagTypes.sol";
+import {BagSource, BagOutlet, BagSplits} from "../src/bag/BagTypes.sol";
 import {IHoodBag} from "../src/interfaces/IHoodBag.sol";
 import {PairTransfer} from "../src/libraries/PairTransfer.sol";
 import {
-    BagUSD, MockVault, MockPot, MockBagFactory, ToggleReceiver, ReentrantHouse, MockSink
+    BagUSD, MockVault, MockBagFactory, ToggleReceiver, ReentrantHouse, MockSink
 } from "./mocks/BagMocks.sol";
 
-/// @notice The Bag's four rules, house first, held money, and the payment convention.
+/// @notice The Bag's rules, house first, held money, and the payment convention.
 contract BagTest is Test {
     uint256 internal constant BPS = 10_000;
 
@@ -45,15 +45,15 @@ contract BagTest is Test {
 
     // ---------------------------------------------------------------- helpers
 
-    function _tradeLegs(uint256 amount)
-        internal
-        pure
-        returns (uint256 toVault, uint256 toPayday, uint256 toBurn, uint256 toHouse)
-    {
+    function _tradeLegs(uint256 amount) internal pure returns (uint256 toVault, uint256 toPayday, uint256 toHouse) {
         toVault = (amount * BagSplits.TRADE_VAULT_BPS) / BPS;
         toPayday = (amount * BagSplits.TRADE_PAYDAY_BPS) / BPS;
-        toBurn = (amount * BagSplits.TRADE_BURN_BPS) / BPS;
-        toHouse = amount - toVault - toPayday - toBurn;
+        toHouse = amount - toVault - toPayday;
+    }
+
+    function _gradLegs(uint256 amount) internal pure returns (uint256 toDev, uint256 toBurn) {
+        toDev = (amount * BagSplits.GRAD_DEV_BPS) / BPS;
+        toBurn = amount - toDev;
     }
 
     function _takeTrade(uint256 amount) internal {
@@ -63,9 +63,9 @@ contract BagTest is Test {
 
     // ---------------------------------------------------------------- trades
 
-    function test_trade_fee_native_splits_house_payday_burn_and_holds_the_vault_leg() public {
-        uint256 amount = 7e15;
-        (uint256 toVault, uint256 toPayday, uint256 toBurn, uint256 toHouse) = _tradeLegs(amount);
+    function test_trade_fee_native_splits_house_payday_and_holds_the_vault_leg() public {
+        uint256 amount = 3e15;
+        (uint256 toVault, uint256 toPayday, uint256 toHouse) = _tradeLegs(amount);
         uint64 e = payday.epoch();
 
         vm.expectEmit(true, true, true, true, address(bag));
@@ -76,29 +76,27 @@ contract BagTest is Test {
         emit IHoodBag.Held(BagOutlet.Vault, address(0), toVault);
         _takeTrade(amount);
 
-        assertEq(toVault + toPayday + toBurn + toHouse, amount, "the four legs add up exactly");
+        assertEq(toVault + toPayday + toHouse, amount, "the three legs add up exactly");
         assertEq(address(house).balance, toHouse, "house");
         assertEq(bag.heldForVault(address(0)), toVault, "vault leg held: no house coin yet");
         assertEq(payday.funded(e, address(0)), toPayday, "payday");
-        assertEq(burnClock.balanceOf(address(0)), toBurn, "burn clock");
+        assertEq(burnClock.balanceOf(address(0)), 0, "a trade feeds no burn");
         assertEq(address(bag).balance, toVault, "only the held leg stays in the bag");
-        // the rules in bps of the trade: 30 / 10 / 10 / 20 of the 70
-        assertApproxEqRel(toVault, (amount * 30) / 70, 1e15);
-        assertApproxEqRel(toPayday, (amount * 10) / 70, 1e15);
-        assertApproxEqRel(toBurn, (amount * 10) / 70, 1e15);
-        assertApproxEqRel(toHouse, (amount * 20) / 70, 1e15);
+        // the rules in bps of the trade: 10 / 10 / 10 of the 30
+        assertApproxEqRel(toVault, amount / 3, 1e15);
+        assertApproxEqRel(toPayday, amount / 3, 1e15);
+        assertApproxEqRel(toHouse, amount / 3, 1e15);
 
         assertEq(bag.totalIn(address(0), BagSource.Trade), amount);
         assertEq(bag.totalOut(address(0), BagOutlet.House), toHouse);
         assertEq(bag.totalOut(address(0), BagOutlet.Payday), toPayday);
-        assertEq(bag.totalOut(address(0), BagOutlet.Burn), toBurn);
         assertEq(bag.totalOut(address(0), BagOutlet.Vault), 0, "held is not out");
     }
 
     function test_trade_fee_pays_the_vault_once_the_house_coin_exists() public {
         vault.setHouseToken(coin);
         uint256 amount = 1 ether;
-        (uint256 toVault,,,) = _tradeLegs(amount);
+        (uint256 toVault,,) = _tradeLegs(amount);
         vm.expectEmit(true, true, true, true, address(bag));
         emit IHoodBag.BagOut(BagOutlet.Vault, address(0), toVault, address(vault));
         _takeTrade(amount);
@@ -109,24 +107,35 @@ contract BagTest is Test {
         assertEq(address(bag).balance, 0, "nothing stays behind");
     }
 
+    /// @dev The house coin's own trades: its creator leg pays the house (takeHouseCoinLeg), so the
+    ///      protocol's leg goes to the lockers whole.
+    function test_a_trade_of_the_house_coin_sends_the_whole_leg_to_the_vault() public {
+        vault.setHouseToken(coin);
+        uint64 e = payday.epoch();
+        vm.prank(trader);
+        bag.takeTradeFee{value: 1 ether}(address(0), 1 ether, coin);
+        assertEq(vault.notified(address(0)), 1 ether);
+        assertEq(address(house).balance, 0);
+        assertEq(payday.funded(e, address(0)), 0);
+    }
+
     function test_trade_fee_erc20_splits_the_same_way() public {
-        uint256 amount = 70e6;
-        (uint256 toVault, uint256 toPayday, uint256 toBurn, uint256 toHouse) = _tradeLegs(amount);
+        uint256 amount = 30e6;
+        (uint256 toVault, uint256 toPayday, uint256 toHouse) = _tradeLegs(amount);
         uint64 e = payday.epoch();
         vm.prank(trader);
         bag.takeTradeFee(address(usd), amount, token);
         assertEq(usd.balanceOf(address(house)), toHouse);
         assertEq(bag.heldForVault(address(usd)), toVault);
         assertEq(payday.funded(e, address(usd)), toPayday);
-        assertEq(burnClock.balanceOf(address(usd)), toBurn);
         assertEq(usd.balanceOf(address(bag)), toVault);
         assertEq(bag.totalIn(address(usd), BagSource.Trade), amount);
     }
 
     function test_trade_fee_erc20_pays_the_vault_through_push_then_notify() public {
         vault.setHouseToken(coin);
-        uint256 amount = 70e6;
-        (uint256 toVault,,,) = _tradeLegs(amount);
+        uint256 amount = 30e6;
+        (uint256 toVault,,) = _tradeLegs(amount);
         vm.prank(trader);
         bag.takeTradeFee(address(usd), amount, token);
         assertEq(usd.balanceOf(address(vault)), toVault);
@@ -139,11 +148,7 @@ contract BagTest is Test {
         vm.deal(trader, amount);
         uint64 e = payday.epoch();
         _takeTrade(amount);
-        assertEq(
-            address(house).balance + bag.heldForVault(address(0)) + payday.funded(e, address(0))
-                + burnClock.balanceOf(address(0)),
-            amount
-        );
+        assertEq(address(house).balance + bag.heldForVault(address(0)) + payday.funded(e, address(0)), amount);
     }
 
     // ---------------------------------------------------------------- payment convention
@@ -191,7 +196,7 @@ contract BagTest is Test {
     function test_rejecting_house_is_booked_and_paid_later_by_anyone() public {
         house.setAccept(false);
         uint256 amount = 1 ether;
-        (,,, uint256 toHouse) = _tradeLegs(amount);
+        (,, uint256 toHouse) = _tradeLegs(amount);
 
         vm.expectEmit(true, true, true, true, address(bag));
         emit HoodBag.HouseDeferred(address(0), toHouse);
@@ -231,7 +236,7 @@ contract BagTest is Test {
 
     function test_release_held_vault_money_after_the_house_coin_is_set() public {
         uint256 amount = 1 ether;
-        (uint256 toVault,,,) = _tradeLegs(amount);
+        (uint256 toVault,,) = _tradeLegs(amount);
         _takeTrade(amount);
         assertEq(bag.heldForVault(address(0)), toVault);
 
@@ -256,7 +261,7 @@ contract BagTest is Test {
         vault.setHouseToken(coin);
         vault.setRejectNotify(true);
         uint256 amount = 1 ether;
-        (uint256 toVault,,,) = _tradeLegs(amount);
+        (uint256 toVault,,) = _tradeLegs(amount);
         _takeTrade(amount);
         assertEq(bag.heldForVault(address(0)), toVault, "held, not lost");
         assertEq(vault.notified(address(0)), 0);
@@ -273,8 +278,8 @@ contract BagTest is Test {
     function test_erc20_vault_refusal_holds_the_transfer_too() public {
         vault.setHouseToken(coin);
         vault.setRejectNotify(true);
-        uint256 amount = 70e6;
-        (uint256 toVault,,,) = _tradeLegs(amount);
+        uint256 amount = 30e6;
+        (uint256 toVault,,) = _tradeLegs(amount);
         vm.prank(trader);
         bag.takeTradeFee(address(usd), amount, token);
         assertEq(usd.balanceOf(address(vault)), 0, "the transfer rolled back with the notify");
@@ -290,12 +295,12 @@ contract BagTest is Test {
         HoodBag b2 = new HoodBag(address(house), address(vault), address(payday), address(sink));
         sink.setRejecting(true);
         uint256 amount = 1 ether;
-        (uint256 toVault,, uint256 toBurn,) = _tradeLegs(amount);
+        (, uint256 toBurn) = _gradLegs(amount);
 
         vm.expectEmit(true, true, true, true, address(b2));
         emit IHoodBag.Held(BagOutlet.Burn, address(0), toBurn);
         vm.prank(trader);
-        b2.takeTradeFee{value: amount}(address(0), amount, token);
+        b2.takeGraduationFee{value: amount}(address(0), amount, token, makeAddr("dev"));
         assertEq(b2.heldForBurn(address(0)), toBurn);
         assertEq(sink.balanceOf(address(0)), 0);
 
@@ -304,7 +309,6 @@ contract BagTest is Test {
         assertEq(b2.heldForBurn(address(0)), 0);
         assertEq(sink.balanceOf(address(0)), toBurn);
         assertEq(b2.totalOut(address(0), BagOutlet.Burn), toBurn);
-        assertEq(b2.heldForVault(address(0)), toVault, "the vault leg is still waiting for the coin");
     }
 
     function test_erc20_burn_refusal_leaves_no_allowance_behind() public {
@@ -313,89 +317,109 @@ contract BagTest is Test {
         sink.setRejecting(true);
         vm.prank(trader);
         usd.approve(address(b2), type(uint256).max);
-        uint256 amount = 70e6;
-        (,, uint256 toBurn,) = _tradeLegs(amount);
+        uint256 amount = 100e6;
         vm.prank(trader);
-        b2.takeTradeFee(address(usd), amount, token);
-        assertEq(b2.heldForBurn(address(usd)), toBurn);
+        b2.takeGraduationFee(address(usd), amount, token, address(0));
+        assertEq(b2.heldForBurn(address(usd)), amount, "no dev: the whole fee is the burn's");
         assertEq(usd.allowance(address(b2), address(sink)), 0);
         sink.setRejecting(false);
         b2.releaseHeld(address(usd));
-        assertEq(sink.balanceOf(address(usd)), toBurn);
+        assertEq(sink.balanceOf(address(usd)), amount);
     }
 
     // ---------------------------------------------------------------- graduation
 
-    function test_graduation_fee_is_half_house_quarter_confetti_quarter_vault() public {
-        MockPot pot = new MockPot(token, address(0));
-        uint256 amount = 1 ether;
+    function test_graduation_fee_pays_the_dev_23_and_the_burn_clock_77() public {
+        address dev = makeAddr("dev");
+        uint256 amount = 0.485 ether;
+        (uint256 toDev, uint256 toBurn) = _gradLegs(amount);
         vm.expectEmit(true, true, true, true, address(bag));
         emit IHoodBag.BagIn(BagSource.Graduation, address(0), amount, token);
         vm.expectEmit(true, true, true, true, address(bag));
-        emit IHoodBag.BagOut(BagOutlet.Confetti, address(0), 0.25 ether, address(pot));
+        emit IHoodBag.BagOut(BagOutlet.Dev, address(0), toDev, dev);
         vm.prank(trader);
-        bag.takeGraduationFee{value: amount}(address(0), amount, token, address(pot));
+        bag.takeGraduationFee{value: amount}(address(0), amount, token, dev);
 
-        assertEq(address(house).balance, 0.5 ether);
-        assertEq(pot.totalDeposited(), 0.25 ether);
-        assertEq(pot.lastReason(), BagReasons.CONFETTI);
-        assertEq(pot.lastPayer(), address(bag));
-        assertEq(bag.heldForVault(address(0)), 0.25 ether);
-        assertEq(bag.totalOut(address(0), BagOutlet.Confetti), 0.25 ether);
+        assertEq(dev.balance, toDev);
+        assertApproxEqAbs(toDev, 0.11155 ether, 1, "23% of the standard preset's fee");
+        assertEq(burnClock.balanceOf(address(0)), toBurn);
+        assertEq(address(house).balance, 0, "the house takes nothing from a graduation");
+        assertEq(bag.heldForVault(address(0)), 0);
+        assertEq(bag.totalOut(address(0), BagOutlet.Dev), toDev);
+        assertEq(bag.totalOut(address(0), BagOutlet.Burn), toBurn);
         assertEq(bag.totalIn(address(0), BagSource.Graduation), amount);
+        assertEq(address(bag).balance, 0);
     }
 
-    function test_graduation_fee_erc20_approves_the_pot_and_it_pulls() public {
-        MockPot pot = new MockPot(token, address(usd));
-        vault.setHouseToken(coin);
+    function test_graduation_fee_erc20_pays_the_dev_by_transfer() public {
+        address dev = makeAddr("dev");
         uint256 amount = 100e6;
         vm.prank(trader);
-        bag.takeGraduationFee(address(usd), amount, token, address(pot));
-        assertEq(usd.balanceOf(address(house)), 50e6);
-        assertEq(usd.balanceOf(address(pot)), 25e6);
-        assertEq(pot.lastReason(), BagReasons.CONFETTI);
-        assertEq(vault.notified(address(usd)), 25e6);
+        bag.takeGraduationFee(address(usd), amount, token, dev);
+        assertEq(usd.balanceOf(dev), 23e6);
+        assertEq(burnClock.balanceOf(address(usd)), 77e6);
         assertEq(usd.balanceOf(address(bag)), 0);
     }
 
-    function test_graduation_fee_without_a_pot_folds_confetti_into_the_vault_leg() public {
+    function test_graduation_fee_without_a_dev_goes_whole_to_the_burn() public {
         uint256 amount = 1 ether;
         vm.prank(trader);
         bag.takeGraduationFee{value: amount}(address(0), amount, token, address(0));
-        assertEq(address(house).balance, 0.5 ether);
-        assertEq(bag.heldForVault(address(0)), 0.5 ether);
-        assertEq(bag.totalOut(address(0), BagOutlet.Confetti), 0);
+        assertEq(burnClock.balanceOf(address(0)), amount);
+        assertEq(bag.totalOut(address(0), BagOutlet.Dev), 0);
     }
 
-    function test_graduation_fee_refuses_a_pot_in_another_asset() public {
-        MockPot pot = new MockPot(token, address(usd));
+    function test_a_dev_that_refuses_the_bonus_is_booked_and_paid_later_by_anyone() public {
+        ToggleReceiver dev = new ToggleReceiver();
+        dev.setAccept(false);
+        uint256 amount = 1 ether;
+        (uint256 toDev, uint256 toBurn) = _gradLegs(amount);
+        vm.expectEmit(true, true, true, true, address(bag));
+        emit HoodBag.DevDeferred(address(dev), address(0), toDev);
         vm.prank(trader);
-        vm.expectRevert(HoodBag.PotAssetMismatch.selector);
-        bag.takeGraduationFee{value: 1 ether}(address(0), 1 ether, token, address(pot));
+        bag.takeGraduationFee{value: amount}(address(0), amount, token, address(dev));
+        assertEq(bag.devClaimable(address(dev), address(0)), toDev);
+        assertEq(burnClock.balanceOf(address(0)), toBurn, "the graduation went through");
+
+        dev.setAccept(true);
+        vm.prank(makeAddr("anyone"));
+        bag.claimDev(address(dev), address(0));
+        assertEq(address(dev).balance, toDev);
+        assertEq(bag.devClaimable(address(dev), address(0)), 0);
+        assertEq(bag.totalOut(address(0), BagOutlet.Dev), toDev);
+        vm.expectRevert(HoodBag.NothingToClaim.selector);
+        bag.claimDev(address(dev), address(0));
     }
 
     function test_graduation_legs_add_up_on_odd_amounts() public {
-        MockPot pot = new MockPot(token, address(0));
+        address dev = makeAddr("dev");
         uint256 amount = 1_000_000_000_000_000_003;
         vm.prank(trader);
-        bag.takeGraduationFee{value: amount}(address(0), amount, token, address(pot));
-        assertEq(address(house).balance + pot.totalDeposited() + bag.heldForVault(address(0)), amount);
+        bag.takeGraduationFee{value: amount}(address(0), amount, token, dev);
+        assertEq(dev.balance + burnClock.balanceOf(address(0)), amount);
     }
 
-    // ---------------------------------------------------------------- penalties, house, house coin
+    // ---------------------------------------------------------------- boosts, house, house coin
 
-    function test_penalty_cut_is_half_house_quarter_payday_quarter_burn() public {
-        uint256 amount = 1 ether;
+    function test_a_boost_funds_the_payday_of_the_hour_it_runs() public {
+        vm.warp(1_790_000_000);
         uint64 e = payday.epoch();
         vm.expectEmit(true, true, true, true, address(bag));
-        emit IHoodBag.BagIn(BagSource.Penalty, address(0), amount, token);
+        emit IHoodBag.BagIn(BagSource.Boost, address(0), 0.005 ether, token);
         vm.prank(trader);
-        bag.takePenaltyCut{value: amount}(address(0), amount, token);
-        assertEq(address(house).balance, 0.5 ether);
-        assertEq(payday.funded(e, address(0)), 0.25 ether);
-        assertEq(burnClock.balanceOf(address(0)), 0.25 ether);
-        assertEq(address(bag).balance, 0);
-        assertEq(bag.totalIn(address(0), BagSource.Penalty), amount);
+        bag.takeBoost{value: 0.005 ether}(address(0), 0.005 ether, token, e + 1);
+        assertEq(payday.funded(e + 1, address(0)), 0.005 ether, "next hour's payday");
+        assertEq(payday.funded(e, address(0)), 0);
+        assertEq(address(house).balance, 0, "the house keeps nothing from a boost");
+        assertEq(bag.totalOut(address(0), BagOutlet.Payday), 0.005 ether);
+
+        vm.prank(trader);
+        bag.takeBoost{value: 0.005 ether}(address(0), 0.005 ether, token, e);
+        assertEq(payday.funded(e, address(0)), 0.005 ether, "this hour's");
+
+        vm.prank(trader);
+        vm.expectRevert(HoodPayday.EpochClosed.selector);
+        bag.takeBoost{value: 0.005 ether}(address(0), 0.005 ether, token, e - 1);
     }
 
     function test_house_fee_goes_entirely_to_the_house() public {
@@ -409,15 +433,15 @@ contract BagTest is Test {
         assertEq(address(bag).balance, 0);
     }
 
-    function test_house_coin_leg_is_half_vault_half_burn() public {
+    function test_house_coin_leg_is_half_vault_half_house() public {
         uint256 amount = 1 ether;
         vm.expectEmit(true, true, true, true, address(bag));
         emit IHoodBag.BagIn(BagSource.HouseCoin, address(0), amount, address(0));
         vm.prank(trader);
         bag.takeHouseCoinLeg{value: amount}(address(0), amount);
         assertEq(bag.heldForVault(address(0)), 0.5 ether);
-        assertEq(burnClock.balanceOf(address(0)), 0.5 ether);
-        assertEq(address(house).balance, 0, "the house keeps nothing from its own coin");
+        assertEq(address(house).balance, 0.5 ether);
+        assertEq(burnClock.balanceOf(address(0)), 0);
 
         vault.setHouseToken(coin);
         vm.expectEmit(true, true, true, true, address(bag));
@@ -425,7 +449,7 @@ contract BagTest is Test {
         vm.prank(trader);
         bag.takeHouseCoinLeg{value: amount}(address(0), amount);
         assertEq(vault.notified(address(0)), 0.5 ether);
-        assertEq(burnClock.balanceOf(address(0)), 1 ether);
+        assertEq(address(house).balance, 1 ether);
     }
 
     function test_totals_accumulate_across_sources_per_asset() public {
@@ -438,7 +462,7 @@ contract BagTest is Test {
         assertEq(bag.totalIn(address(0), BagSource.Trade), 3 ether);
         assertEq(bag.totalIn(address(0), BagSource.House), 0.5 ether);
         assertEq(bag.totalIn(address(usd), BagSource.House), 5e6);
-        (,,, uint256 toHouse) = _tradeLegs(3 ether);
+        (,, uint256 toHouse) = _tradeLegs(3 ether);
         assertEq(bag.totalOut(address(0), BagOutlet.House), toHouse + 0.5 ether);
         assertEq(bag.totalOut(address(usd), BagOutlet.House), 5e6);
     }

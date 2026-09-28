@@ -581,8 +581,6 @@ server.registerTool(
       bondValuation: z.number().describe("and what it is worth once it has bonded"),
       buyTaxPct: z.number().min(1).max(10).default(5),
       sellTaxPct: z.number().min(1).max(10).default(5),
-      snipeTaxPct: z.number().min(0).max(89).default(50),
-      snipeDecaySeconds: z.number().default(3),
       creatorPct: z.number().default(25),
       buybackPct: z.number().default(25),
       dividendsPct: z.number().default(40),
@@ -620,9 +618,9 @@ server.registerTool(
       openValuation: z.number(), bondValuation: z.number(),
       buyTaxPct: z.number().min(1).max(10).default(5),
       sellTaxPct: z.number().min(1).max(10).default(5),
-      snipeTaxPct: z.number().min(0).max(89).default(50),
-      snipeDecaySeconds: z.number().default(3),
-      restrictionBlocks: z.number().default(30),
+      exempt: z.array(addr).max(32).default([]).describe(
+        "wallets that pay no opening tax, on top of the launcher and the fee recipient; every launch opens at 99%, 6.18%, 0.19% over its first three seconds",
+      ),
       creatorPct: z.number().default(25), buybackPct: z.number().default(25),
       dividendsPct: z.number().default(40), liquidityPct: z.number().default(10),
       firstBuy: z.string().default("0").describe("quote spent on the creator's own first buy, inside the launch"),
@@ -641,9 +639,7 @@ server.registerTool(
         name: a.name, symbol: a.symbol, logo: a.logo, description: a.description,
         buyTaxBps: Math.round(a.buyTaxPct * 100),
         sellTaxBps: Math.round(a.sellTaxPct * 100),
-        snipeTaxBps: Math.round(a.snipeTaxPct * 100),
-        snipeDecaySeconds: a.snipeDecaySeconds,
-        restrictionBlocks: a.restrictionBlocks,
+        exempt: a.exempt as `0x${string}`[],
         tickStart: tick(a.openValuation),
         tickBond: tick(a.bondValuation),
         allocations: {
@@ -660,7 +656,7 @@ server.registerTool(
 server.registerTool(
   "hood_direct_info",
   {
-    description: "A direct launch's live numbers: the tax right now, the snipe surcharge left, the four buckets, bonded or not.",
+    description: "A direct launch's live numbers: the tax right now, the opening tax left, the four buckets, bonded or not.",
     inputSchema: { token: addr, account: addr.optional() },
   },
   async ({ token, account }) => {

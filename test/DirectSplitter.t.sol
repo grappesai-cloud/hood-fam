@@ -14,7 +14,7 @@ import {RejectNative, MockUSD} from "./mocks/Mocks.sol";
 import {MockBag, PortalStub} from "./mocks/DirectMocks.sol";
 
 /// @notice The four roads the creator's share travels, the pot underneath, and the three rules on
-///         top of it: the slash, the king pot, and the house coin's leg.
+///         top of it: the slash and the house coin's leg.
 contract DirectSplitterTest is Test {
     HoodRevenueSplitter internal splitter;
     HoodLaunchToken internal token;
@@ -35,14 +35,14 @@ contract DirectSplitterTest is Test {
     function setUp() public {
         token = HoodLaunchToken(Clones.clone(address(new HoodLaunchToken())));
         token.initialize(
-            "Hood Fam", "FAM", "", "", Socials("", "", "", "", ""), SUPPLY, creator, 0, 10_000, 10_000
+            "Hood Fam", "FAM", "", "", Socials("", "", "", "", ""), SUPPLY, creator
         );
         splitter = new HoodRevenueSplitter(portal, treasury, buybackModule, address(token), address(0));
         // 25% creator, 25% buyback, 40% dividends, 10% liquidity
         splitter.initialize(creator, locker, Allocations(2_500, 2_500, 4_000, 1_000));
         splitter.setHook(hook);
         splitter.exclude(pool);
-        token.setLaunchAddresses(pool, address(splitter), locker, hook, buybackModule, address(0));
+        token.setLaunchAddresses(pool, address(splitter));
         token.transfer(pool, SUPPLY);
         vm.deal(hook, 100 ether);
     }
@@ -157,27 +157,21 @@ contract DirectSplitterTest is Test {
         assertEq(creator.balance, 2.5 ether);
     }
 
-    function test_the_buyback_pot_only_leaves_towards_the_module_or_the_hook() public {
+    function test_the_buyback_pot_only_leaves_towards_the_module() public {
         _buy(alice, SUPPLY / 2);
         _tax(10 ether);
 
         vm.prank(bob);
         vm.expectRevert(HoodRevenueSplitter.NotBuybackModule.selector);
         splitter.releaseBuyback();
-        vm.prank(bob);
-        vm.expectRevert(HoodRevenueSplitter.NotHook.selector);
-        splitter.releaseBuybackUpTo(1 ether);
-
-        // the hook takes at most what it asked for and the rest stays in the pot
         vm.prank(hook);
-        assertEq(splitter.releaseBuybackUpTo(1 ether), 1 ether);
-        assertEq(splitter.buybackPot(), 1.5 ether);
-        assertEq(hook.balance, 101 ether);
+        vm.expectRevert(HoodRevenueSplitter.NotBuybackModule.selector);
+        splitter.releaseBuyback();
 
         vm.prank(buybackModule);
         uint256 amount = splitter.releaseBuyback();
-        assertEq(amount, 1.5 ether);
-        assertEq(buybackModule.balance, 1.5 ether);
+        assertEq(amount, 2.5 ether);
+        assertEq(buybackModule.balance, 2.5 ether);
     }
 
     function test_the_liquidity_share_goes_to_the_locker_and_anybody_can_send_it() public {
@@ -196,7 +190,7 @@ contract DirectSplitterTest is Test {
         _tax(amount);
 
         uint256 buckets = splitter.creatorClaimable() + splitter.buybackPot() + splitter.liquidityPot()
-            + splitter.dividendsHeld() + splitter.protocolClaimable() + splitter.kingPot();
+            + splitter.dividendsHeld() + splitter.protocolClaimable();
         assertEq(buckets, splitter.accounted());
         assertLe(splitter.accounted(), address(splitter).balance);
         assertEq(address(splitter).balance, amount);
@@ -211,9 +205,9 @@ contract DirectSplitterTest is Test {
         assertEq(splitter.token(), address(token));
 
         vm.expectEmit(true, true, true, true, address(splitter));
-        emit IHoodPot.HoldersPaid(BagReasons.JEET, carol, 1 ether, SUPPLY / 2);
+        emit IHoodPot.HoldersPaid(BagReasons.DIVIDENDS, carol, 1 ether, SUPPLY / 2);
         vm.prank(hook);
-        splitter.depositForHolders{value: 1 ether}(1 ether, BagReasons.JEET, carol);
+        splitter.depositForHolders{value: 1 ether}(1 ether, BagReasons.DIVIDENDS, carol);
 
         assertEq(splitter.totalDeposited(), 1 ether);
         assertEq(splitter.accounted(), 1 ether);
@@ -223,15 +217,15 @@ contract DirectSplitterTest is Test {
 
         // the value must match the amount, either way round
         vm.expectRevert(PairTransfer.WrongValue.selector);
-        splitter.depositForHolders{value: 0.5 ether}(1 ether, BagReasons.JEET, carol);
+        splitter.depositForHolders{value: 0.5 ether}(1 ether, BagReasons.DIVIDENDS, carol);
         vm.expectRevert(PairTransfer.WrongValue.selector);
-        splitter.depositForHolders{value: 1 ether}(0.5 ether, BagReasons.JEET, carol);
+        splitter.depositForHolders{value: 1 ether}(0.5 ether, BagReasons.DIVIDENDS, carol);
     }
 
     function test_a_deposit_lands_on_top_of_unswept_tax_without_touching_it() public {
         _buy(alice, SUPPLY / 2);
         vm.deal(address(splitter), 10 ether); // tax that nobody has swept yet
-        splitter.depositForHolders{value: 1 ether}(1 ether, BagReasons.AUCTION, carol);
+        splitter.depositForHolders{value: 1 ether}(1 ether, BagReasons.SLASH, carol);
         assertApproxEqAbs(splitter.pending(alice), 1 ether, 2, "the deposit is the holders' whole");
         splitter.sweep();
         assertEq(splitter.creatorClaimable(), 2.5 ether, "the tax still follows the creator's split");
@@ -241,18 +235,18 @@ contract DirectSplitterTest is Test {
     function test_the_pot_pulls_an_erc20_quote() public {
         MockUSD usd = new MockUSD();
         HoodLaunchToken t2 = HoodLaunchToken(Clones.clone(address(new HoodLaunchToken())));
-        t2.initialize("Two", "TWO", "", "", Socials("", "", "", "", ""), SUPPLY, creator, 0, 10_000, 10_000);
+        t2.initialize("Two", "TWO", "", "", Socials("", "", "", "", ""), SUPPLY, creator);
         HoodRevenueSplitter s2 = new HoodRevenueSplitter(portal, treasury, buybackModule, address(t2), address(usd));
         s2.initialize(creator, locker, Allocations(2_500, 2_500, 4_000, 1_000));
         s2.exclude(pool);
-        t2.setLaunchAddresses(pool, address(s2), locker, hook, buybackModule, address(0));
+        t2.setLaunchAddresses(pool, address(s2));
         t2.transfer(pool, SUPPLY);
         vm.prank(pool);
         t2.transfer(alice, SUPPLY / 2);
 
         usd.mint(address(this), 100e6);
         usd.approve(address(s2), 100e6);
-        s2.depositForHolders(100e6, BagReasons.SNIPE, bob);
+        s2.depositForHolders(100e6, BagReasons.PAYDAY, bob);
         assertEq(usd.balanceOf(address(s2)), 100e6);
         assertApproxEqAbs(s2.pending(alice), 100e6, 2);
         assertEq(s2.claim(alice), s2.pending(alice) == 0 ? usd.balanceOf(alice) : 0);
@@ -261,7 +255,7 @@ contract DirectSplitterTest is Test {
         // sending value with an ERC-20 quote is a mistake, not a tip
         vm.deal(address(this), 1 ether);
         vm.expectRevert(PairTransfer.WrongValue.selector);
-        s2.depositForHolders{value: 1}(1, BagReasons.SNIPE, bob);
+        s2.depositForHolders{value: 1}(1, BagReasons.PAYDAY, bob);
     }
 
     function test_push_many_pays_over_the_floor_and_skips_a_receiver_that_rejects() public {
@@ -348,53 +342,6 @@ contract DirectSplitterTest is Test {
         assertEq(splitter.creatorClaimable(), 2.5 ether, "only a sell into the pool counts");
     }
 
-    // ---------------------------------------------------------------- king of the hill
-
-    function test_the_crown_moves_with_every_buy_and_the_pot_goes_to_the_last_one_standing() public {
-        vm.prank(bob);
-        vm.expectRevert(HoodRevenueSplitter.NotHook.selector);
-        splitter.crownKing(bob);
-        vm.deal(bob, 1 ether);
-        vm.prank(bob);
-        vm.expectRevert(HoodRevenueSplitter.NotHook.selector);
-        splitter.depositForKing{value: 1 ether}(1 ether);
-
-        // anchored on the cheatcode's clock: under via-IR a local copy of block.timestamp is
-        // re-read after a warp
-        uint256 t0 = vm.getBlockTimestamp();
-        vm.startPrank(hook);
-        splitter.depositForKing{value: 1 ether}(1 ether);
-        assertEq(splitter.kingPot(), 1 ether);
-        assertEq(splitter.accounted(), 1 ether);
-
-        vm.expectEmit(true, true, true, true, address(splitter));
-        emit HoodRevenueSplitter.KingCrowned(alice, 1 ether, uint64(t0) + 60);
-        splitter.crownKing(alice);
-        vm.warp(t0 + 30);
-        splitter.crownKing(bob); // the timer starts again
-        vm.stopPrank();
-        assertEq(splitter.king(), bob);
-        assertEq(splitter.kingEndsAt(), t0 + 90);
-
-        vm.warp(t0 + 89);
-        vm.expectRevert(HoodRevenueSplitter.KingStillReigns.selector);
-        splitter.settleKing();
-
-        vm.warp(t0 + 90);
-        uint256 bobBefore = bob.balance;
-        vm.expectEmit(true, true, true, true, address(splitter));
-        emit HoodRevenueSplitter.KingWon(bob, 1 ether);
-        vm.prank(carol);
-        assertEq(splitter.settleKing(), 1 ether);
-        assertEq(bob.balance - bobBefore, 1 ether);
-        assertEq(splitter.kingPot(), 0);
-        assertEq(splitter.king(), address(0));
-        assertEq(splitter.accounted(), 0);
-
-        vm.expectRevert(HoodRevenueSplitter.Nothing.selector);
-        splitter.settleKing();
-    }
-
     // ---------------------------------------------------------------- the house coin
 
     function test_when_the_bag_is_the_creator_its_leg_goes_into_the_bag_and_anyone_may_send_it() public {
@@ -402,13 +349,13 @@ contract DirectSplitterTest is Test {
         MockBag bag = new MockBag();
         stub.setBag(address(bag));
         HoodLaunchToken t2 = HoodLaunchToken(Clones.clone(address(new HoodLaunchToken())));
-        t2.initialize("House", "HOUSE", "", "", Socials("", "", "", "", ""), SUPPLY, creator, 0, 10_000, 10_000);
+        t2.initialize("House", "HOUSE", "", "", Socials("", "", "", "", ""), SUPPLY, creator);
         vm.startPrank(address(stub));
         HoodRevenueSplitter s2 = new HoodRevenueSplitter(address(stub), treasury, buybackModule, address(t2), address(0));
         s2.initialize(address(bag), locker, Allocations(2_500, 2_500, 4_000, 1_000));
         s2.exclude(pool);
         vm.stopPrank();
-        t2.setLaunchAddresses(pool, address(s2), locker, hook, buybackModule, address(0));
+        t2.setLaunchAddresses(pool, address(s2));
         t2.transfer(pool, SUPPLY);
         vm.prank(pool);
         t2.transfer(alice, SUPPLY / 2);

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
-  createPublicClient, decodeErrorResult, http, isAddress, isHash,
+  createPublicClient, decodeErrorResult, http, isAddress, isHash, zeroAddress,
   type Abi, type Address, type Hex,
 } from "viem";
 import {
@@ -308,7 +308,7 @@ export async function lookupToken(query: string) {
       if (t.hook) {
         reads.push(chain.readContract({ address: t.hook as Address, abi: hoodLaunchHookAbi, functionName: "currentTaxBps", args: [true] }));
         reads.push(chain.readContract({ address: t.hook as Address, abi: hoodLaunchHookAbi, functionName: "currentTaxBps", args: [false] }));
-        reads.push(chain.readContract({ address: t.hook as Address, abi: hoodLaunchHookAbi, functionName: "currentSnipeBps" }));
+        reads.push(chain.readContract({ address: t.hook as Address, abi: hoodLaunchHookAbi, functionName: "currentSnipeTaxBps", args: [zeroAddress] }));
       }
       const r = await Promise.all(reads);
       const live: Record<string, unknown> = {};
@@ -321,7 +321,7 @@ export async function lookupToken(query: string) {
         live.buyTaxNowBps = Number(r[i++]);
         live.sellTaxNowBps = Number(r[i++]);
         live.snipeTaxNowBps = Number(r[i++]);
-        live.note = "buy/sell tax now include the snipe surcharge while it is still decaying";
+        live.note = "buy tax now includes the opening tax (99%, 6.18%, 0.19% over the launch's first three seconds, then none); exempt wallets never pay it";
       }
       out.live = live;
     } catch (e) {

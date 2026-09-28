@@ -155,22 +155,22 @@ contract FeeSplitTest is BaseTest {
         p.configId = freeConfig;
         (address token, HoodCurve curve) = _launch(_toStakers(), p, LAUNCH_FEE);
         assertEq(curve.creatorFeeBps(), 0);
-        assertEq(curve.protocolFeeBps(), 70);
+        assertEq(curve.protocolFeeBps(), 30);
 
         uint256 bagBefore = address(bag).balance;
         _buy(curve, alice, 1 ether);
         assertEq(router.accrued(token), 0, "nothing is ever booked when the creator leg is zero");
         // the protocol's leg is booked on the curve and pulled into the bag by anybody
-        assertApproxEqRel(curve.protocolClaimable(), 0.007 ether, 0.01e18);
+        assertApproxEqRel(curve.protocolClaimable(), 0.003 ether, 0.01e18);
         curve.claimProtocol();
-        assertApproxEqRel(address(bag).balance - bagBefore, 0.007 ether, 0.01e18);
+        assertApproxEqRel(address(bag).balance - bagBefore, 0.003 ether, 0.01e18);
     }
 
     // ---------------------------------------------------------------- the house coin
 
     /// @dev The house coin names the Bag as its creator. Its creator leg is not a payout to a
     ///      wallet: it goes in through the Bag's own door for it, so the Bag can split it (half
-    ///      Vault, half burn) and the tape can say where it came from.
+    ///      Vault, half house) and the tape can say where it came from.
     function test_the_house_coins_creator_leg_goes_through_the_bags_door() public {
         LaunchParams memory p = _params(_toCreator());
         p.creatorFeeRecipient = address(bag);

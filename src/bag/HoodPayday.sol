@@ -46,6 +46,7 @@ contract HoodPayday is IHoodPayday, ReentrancyGuard {
     error NotKeeper();
     error WrongValue();
     error EpochOpen();
+    error EpochClosed();
     error AlreadyPaid();
     error LengthMismatch();
     error TooManyWallets();
@@ -83,6 +84,20 @@ contract HoodPayday is IHoodPayday, ReentrancyGuard {
         uint64 e = epoch();
         funded[e][asset] += amount;
         emit Funded(e, asset, amount);
+    }
+
+    /// @inheritdoc IHoodPayday
+    /// @dev A closed epoch cannot be funded: it may already be paid, and money booked to a paid
+    ///      epoch would never leave. The current epoch and any later one are open.
+    function fundEpoch(address asset, uint256 amount, uint64 epoch_) external payable {
+        if (epoch_ < epoch()) revert EpochClosed();
+        if (amount == 0) {
+            if (msg.value != 0) revert WrongValue();
+            return;
+        }
+        PairTransfer.pull(asset, msg.sender, amount, msg.value);
+        funded[epoch_][asset] += amount;
+        emit Funded(epoch_, asset, amount);
     }
 
     // ---------------------------------------------------------------- money out

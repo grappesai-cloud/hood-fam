@@ -11,18 +11,12 @@ import { tickJob } from "./jobs/tick.js";
 import { paydayJob } from "./jobs/payday.js";
 import { burnJob } from "./jobs/burn.js";
 import { pushJob } from "./jobs/push.js";
-import { kingJob } from "./jobs/king.js";
-import { auctionJob } from "./jobs/auction.js";
-import { buybackJob } from "./jobs/buyback.js";
 
-/// The keeper. One wallet, one write queue, seven loops on their own clocks:
+/// The keeper. One wallet, one write queue, four loops on their own clocks:
 ///   tick      every KEEPER_INTERVAL_MS (20 s)   finalize, collect, claim, flush, direct sweeps
 ///   payday    every 60 s                        pay the closed hour by points
 ///   burn      every 60 s                        buy the house coin with the burn share, burn it
 ///   push      every KEEPER_PUSH_EVERY_MS (5 m)  push every pot's dividends to wallets
-///   king      every 20 s                        settle king-of-the-hill rounds whose timer ran out
-///   auction   every 20 s                        settle opening auctions whose end block passed
-///   buyback   every 20 s                        run the buyback module for tokens that asked
 /// Most jobs are permissionless. Curve-fee buybacks, payday and the burn clock need the Safe to
 /// appoint this wallet; until it does they log and wait, they never crash the process.
 /// KEEPER_DRY_RUN=1 simulates every write and says what it would send, without sending.
@@ -120,7 +114,6 @@ const ctx: Ctx = {
   payday: addressEnv("HOOD_PAYDAY"),
   burnClock: addressEnv("HOOD_BURN_CLOCK"),
   boosts: addressEnv("HOOD_BOOSTS"),
-  openingAuction: addressEnv("HOOD_OPENING_AUCTION"),
   bag: addressEnv("HOOD_BAG"),
   buybacksAppointed: false,
   knobs,
@@ -150,12 +143,10 @@ const jobLine = (name: string, addr: Address | undefined, what: string) =>
   log("boot", addr ? `${name}: ${addr}, ${what}` : `${name}: no address in env, job off`);
 jobLine("payday (HOOD_PAYDAY)", ctx.payday, "pays the closed hour every 60 s");
 jobLine("burn clock (HOOD_BURN_CLOCK)", ctx.burnClock, "burns the house coin every 60 s");
-jobLine("opening auction (HOOD_OPENING_AUCTION)", ctx.openingAuction, "settles ended auctions every 20 s");
 log("boot", ctx.boosts ? `boosts (HOOD_BOOSTS): ${ctx.boosts}, read only, users buy slots themselves` : "boosts (HOOD_BOOSTS): no address in env, nothing to do here anyway");
 log("boot", ctx.bag ? `bag (HOOD_BAG): ${ctx.bag}` : "bag (HOOD_BAG): no address in env");
-log("boot", direct ? `direct machine: portal ${process.env.HOOD_PORTAL}, buyback module ${process.env.HOOD_BUYBACK_MODULE}` : "direct machine: HOOD_PORTAL not set, direct launches and buyback-wanted off");
+log("boot", direct ? `direct machine: portal ${process.env.HOOD_PORTAL}, buyback module ${process.env.HOOD_BUYBACK_MODULE}` : "direct machine: HOOD_PORTAL not set, direct launches off");
 log("boot", `push payouts: every pot, every ${knobs.pushEveryMs}ms, floor ${knobs.pushFloorWei} wei`);
-log("boot", `king of the hill: every 20 s for launches with king_bps > 0`);
 
 // ---------------------------------------------------------------------------------------- loops
 
@@ -183,8 +174,5 @@ loop("tick", knobs.tickEveryMs, tickJob(ctx));
 loop("payday", 60_000, paydayJob(ctx));
 loop("burn", 60_000, burnJob(ctx));
 loop("push", knobs.pushEveryMs, pushJob(ctx));
-loop("king", 20_000, kingJob(ctx));
-loop("auction", 20_000, auctionJob(ctx));
-loop("buyback", 20_000, buybackJob(ctx));
 
 process.on("unhandledRejection", (e) => logError("process", `unhandled rejection: ${message(e)}`));

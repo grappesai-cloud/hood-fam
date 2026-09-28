@@ -17,9 +17,8 @@ import {HoodLaunchHook} from "../src/direct/HoodLaunchHook.sol";
 import {HoodLocker} from "../src/direct/HoodLocker.sol";
 import {HoodRevenueSplitter} from "../src/direct/HoodRevenueSplitter.sol";
 import {HoodBuybackModule} from "../src/direct/HoodBuybackModule.sol";
-import {HoodOpeningAuction} from "../src/direct/HoodOpeningAuction.sol";
 import {Allocations, DirectConfig, Socials} from "../src/direct/DirectTypes.sol";
-import {BagSplits, PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {BagSplits} from "../src/bag/BagTypes.sol";
 import {ExactInputSingleParams, PoolKey as RhPoolKey, V4Actions} from "../src/interfaces/IExternal.sol";
 import {HoodFactory} from "../src/HoodFactory.sol";
 import {HoodDeployer} from "../src/HoodDeployer.sol";
@@ -108,7 +107,6 @@ contract ForkDirectTest is Test {
         vm.startPrank(owner);
         portal.setBuybackModule(address(buyback));
         portal.setBag(address(bag));
-        portal.setAuction(address(new HoodOpeningAuction(address(portal))));
         vm.stopPrank();
 
         vm.deal(creator, 100 ether);
@@ -148,16 +146,10 @@ contract ForkDirectTest is Test {
         DirectConfig memory config = DirectConfig({
             buyTaxBps: 500,
             sellTaxBps: 500,
-            snipeTaxBps: 5_000,
-            snipeDecaySeconds: 3,
-            restrictionBlocks: 30,
-            maxHoldBps: 500,
-            maxBuyBps: 550,
             tickStart: TICK_START,
             tickBond: TICK_BOND,
             allocations: Allocations(2_500, 2_500, 4_000, 1_000),
-            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
-            auctionBlocks: 0
+            exempt: new address[](0)
         });
 
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
@@ -195,8 +187,7 @@ contract ForkDirectTest is Test {
         });
     }
 
-    /// @dev The pool opens at about ten ETH of fully diluted value, so a 5% hold cap is about half
-    ///      an ETH of buying while the window is open. Past it, size is unrestricted.
+    /// @dev Past the opening tax (three seconds, SnipeSchedule) and into a later block.
     function _pastTheWindow() internal {
         vm.roll(block.number + 31);
         vm.warp(block.timestamp + 10);
@@ -238,7 +229,7 @@ contract ForkDirectTest is Test {
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(actions, params);
 
-        vm.prank(who);
+        vm.prank(who, who);
         IUR(UNIVERSAL_ROUTER).execute{value: amountIn}(commands, inputs, block.timestamp);
     }
 
@@ -272,18 +263,17 @@ contract ForkDirectTest is Test {
             freshPortal.setBuybackModule(address(new HoodBuybackModule(POOL_MANAGER, address(freshPortal))));
             freshPortal.setRegistry(address(factory));
             freshPortal.setBag(address(bag));
-            freshPortal.setAuction(address(new HoodOpeningAuction(address(freshPortal))));
             vm.stopPrank();
             factory.setPortal(address(freshPortal));
 
             bytes32 salt2 = _mineSaltFor(d2);
             DirectConfig memory config = DirectConfig({
-                buyTaxBps: 500, sellTaxBps: 500, snipeTaxBps: 0, snipeDecaySeconds: 0,
-                restrictionBlocks: 0, maxHoldBps: 10_000, maxBuyBps: 10_000,
-                tickStart: TICK_START, tickBond: TICK_BOND,
+                buyTaxBps: 500,
+                sellTaxBps: 500,
+                tickStart: TICK_START,
+                tickBond: TICK_BOND,
                 allocations: Allocations(2_500, 2_500, 4_000, 1_000),
-            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
-            auctionBlocks: 0
+                exempt: new address[](0)
             });
             HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
                 name: "Shared", symbol: "SHARED", logo: "ipfs://shared", description: "one registry",
@@ -302,6 +292,7 @@ contract ForkDirectTest is Test {
 
             // and a trade on it feeds the same ticker lock a curve launch would feed
             assertTrue(factory.isSymbolAvailable("SHARED"));
+            vm.warp(block.timestamp + 3); // past the opening tax, so the whole buy is volume
             _buyOn(out.token, out.hook, bob, 2 ether);
             assertFalse(factory.isSymbolAvailable("SHARED"), "volume from a hook locks a ticker too");
             assertFalse(factory.isSymbolAvailable("shared"), "and case does not get you around it");
@@ -343,12 +334,12 @@ contract ForkDirectTest is Test {
         }
 
         DirectConfig memory config = DirectConfig({
-            buyTaxBps: 500, sellTaxBps: 500, snipeTaxBps: 0, snipeDecaySeconds: 0,
-            restrictionBlocks: 0, maxHoldBps: 10_000, maxBuyBps: 10_000,
-            tickStart: openTick, tickBond: bondTick,
+            buyTaxBps: 500,
+            sellTaxBps: 500,
+            tickStart: openTick,
+            tickBond: bondTick,
             allocations: Allocations(2_500, 2_500, 4_000, 1_000),
-            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
-            auctionBlocks: 0
+            exempt: new address[](0)
         });
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
             name: "Dollar", symbol: "USDFAM", logo: "", description: "",
@@ -373,14 +364,15 @@ contract ForkDirectTest is Test {
         usd.approve(PERMIT2, type(uint256).max);
         IPermit2(PERMIT2).approve(address(usd), UNIVERSAL_ROUTER, type(uint160).max, type(uint48).max);
         vm.stopPrank();
+        vm.warp(block.timestamp + 3); // past the opening tax
         _buyWith(address(usd), out.token, out.hook, tokenIsZero, alice, 1_000e6);
         HoodLaunchHook(payable(out.hook)).flushClaims();
 
-        // 5% creator tax plus the 30 bps creator leg of the platform fee, on both buys, in dollars
-        assertApproxEqRel(usd.balanceOf(out.splitter), 79.5e6, 0.02e18, "five percent and thirty bps of both buys");
+        // 5% creator tax plus the 70 bps creator leg of the platform fee, on both buys, in dollars
+        assertApproxEqRel(usd.balanceOf(out.splitter), 85.5e6, 0.02e18, "five percent and seventy bps of both buys");
         HoodRevenueSplitter(payable(out.splitter)).sweep();
         assertEq(usd.balanceOf(treasury), 0, "nothing reaches the treasury by hand: the platform's share is the Bag's");
-        assertApproxEqRel(bag.total(bag.TRADE(), address(usd)), 10.5e6, 0.02e18, "70 bps of both buys, in dollars, in the Bag");
+        assertApproxEqRel(bag.total(bag.TRADE(), address(usd)), 4.5e6, 0.02e18, "30 bps of both buys, in dollars, in the Bag");
         assertGt(HoodRevenueSplitter(payable(out.splitter)).pendingDividends(alice), 0);
 
         // the buyback module's ERC-20 branch
@@ -409,7 +401,7 @@ contract ForkDirectTest is Test {
         bytes memory commands = abi.encodePacked(V4Actions.CMD_V4_SWAP);
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(actions, params);
-        vm.prank(who);
+        vm.prank(who, who);
         IUR(UNIVERSAL_ROUTER).execute(commands, inputs, block.timestamp);
     }
 
@@ -436,7 +428,7 @@ contract ForkDirectTest is Test {
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(actions, params);
         vm.deal(who, amountIn + 1 ether);
-        vm.prank(who);
+        vm.prank(who, who);
         IUR(UNIVERSAL_ROUTER).execute{value: amountIn}(commands, inputs, block.timestamp);
     }
 
@@ -474,34 +466,39 @@ contract ForkDirectTest is Test {
         assertGt(token.balanceOf(alice), before);
     }
 
-    function test_fork_the_launch_block_belongs_to_the_creator() public {
-        // the atomic first buy already landed, inside the launch transaction, with the creator
+    /// @dev Nothing gates the open: in the launch block a stranger may buy, and pays the opening tax;
+    ///      the creator, exempt as the launcher, does not.
+    function test_fork_the_open_is_priced_not_gated() public {
         uint256 firstBuy = token.balanceOf(creator);
         assertGt(firstBuy, 0, "the creator's first buy is in the launch transaction");
         assertEq(IERC20(address(token)).balanceOf(address(portal)), 0, "and nothing stayed in the portal");
 
-        vm.expectRevert();
-        _buy(alice, 0.1 ether);
+        vm.warp(hook.launchTime()); // the launch's own second
+        hook.flushClaims();
+        // bob is nobody here (alice is this launch's fee recipient, and exempt like the creator)
+        _buy(bob, 0.1 ether);
+        assertGt(token.balanceOf(bob), 0, "a stranger may buy in the launch block");
+        assertApproxEqRel(hook.claimsHeld(), 0.099 ether, 0.01e18, "and pays 99% for it");
+        hook.flushClaims();
 
         _buy(creator, 0.1 ether);
         assertGt(token.balanceOf(creator), firstBuy);
+        assertApproxEqRel(hook.claimsHeld(), 0.006 ether, 0.02e18, "the launcher pays the schedule only");
     }
 
-    function test_fork_the_creators_first_buy_is_first_dibs_not_the_whole_open() public {
-        // control: a first buy inside the cap goes through on a fresh launch
+    function test_fork_a_first_buy_of_any_size_goes_through() public {
         _launchWithFirstBuy(bytes32(uint256(8)), 1_000_000, 0.3 ether, false);
-        // and one the cap cannot allow reverts the whole launch, not just the buy
-        _launchWithFirstBuy(bytes32(uint256(9)), 2_000_000, 5 ether, true);
+        _launchWithFirstBuy(bytes32(uint256(9)), 2_000_000, 5 ether, false);
     }
 
     function _launchWithFirstBuy(bytes32 tokenSalt, uint256 saltStart, uint256 amount, bool expectFail) internal {
         DirectConfig memory config = DirectConfig({
-            buyTaxBps: 500, sellTaxBps: 500, snipeTaxBps: 0, snipeDecaySeconds: 0,
-            restrictionBlocks: 30, maxHoldBps: 500, maxBuyBps: 550,
-            tickStart: TICK_START, tickBond: TICK_BOND,
+            buyTaxBps: 500,
+            sellTaxBps: 500,
+            tickStart: TICK_START,
+            tickBond: TICK_BOND,
             allocations: Allocations(2_500, 2_500, 4_000, 1_000),
-            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
-            auctionBlocks: 0
+            exempt: new address[](0)
         });
         HoodPortal.LaunchInput memory input = HoodPortal.LaunchInput({
             name: "Greedy", symbol: expectFail ? "GREED" : "FAIR", logo: "", description: "",
@@ -536,18 +533,6 @@ contract ForkDirectTest is Test {
         assertEq(progress1, 10_000);
     }
 
-    function test_fork_the_hold_cap_stops_one_wallet_taking_the_open() public {
-        vm.roll(block.number + 1);
-        vm.warp(block.timestamp + 10);
-
-        // about 5% of the supply is all one wallet may hold while the window is open
-        _buy(alice, 0.3 ether);
-        assertGt(token.balanceOf(alice), 0);
-
-        vm.expectRevert();
-        _buy(alice, 5 ether);
-    }
-
     function test_fork_a_buy_pays_the_tax_in_the_quote_asset() public {
         _pastTheWindow();
 
@@ -561,8 +546,8 @@ contract ForkDirectTest is Test {
         assertApproxEqRel(hook.claimsHeld(), 0.06 ether, 0.02e18, "six percent, held as a claim");
         hook.flushClaims();
         uint256 taxed = address(splitter).balance - before;
-        // the splitter gets the creator's road: the 5% tax and the platform fee's 30 bps
-        assertApproxEqRel(taxed, 0.053 ether, 0.02e18, "the creator's 5.3% of the trade, in ETH");
+        // the splitter gets the creator's road: the 5% tax and the platform fee's 70 bps
+        assertApproxEqRel(taxed, 0.057 ether, 0.02e18, "the creator's 5.7% of the trade, in ETH");
         assertEq(hook.claimsHeld(), 0);
 
         // and the next swap flushes on its own, no call needed
@@ -612,27 +597,25 @@ contract ForkDirectTest is Test {
         uint256 received = alice.balance - aliceEthBefore;
         uint256 taxed = address(splitter).balance - splitterBefore;
         assertGt(received, 0, "she got ETH back");
-        // the gross is what she got plus everything taken: the creator's 5.3% (to the splitter) and
-        // the Bag's 0.7%, so what she got is 94% of it
+        // the gross is what she got plus everything taken: the creator's 5.7% (to the splitter) and
+        // the Bag's 0.3%, so what she got is 94% of it
         uint256 creatorBps = 500 + BagSplits.PLATFORM_CREATOR_BPS;
         uint256 gross = received * 10_000 / (10_000 - 500 - BagSplits.PLATFORM_FEE_BPS);
-        assertApproxEqRel(taxed, gross * creatorBps / 10_000, 0.02e18, "the creator's 5.3% of the gross, taken on the way out");
+        assertApproxEqRel(taxed, gross * creatorBps / 10_000, 0.02e18, "the creator's 5.7% of the gross, taken on the way out");
         assertEq(hook.claimsHeld(), 0, "an output-side tax is taken directly, not held as a claim");
     }
 
-    function test_fork_the_snipe_tax_is_brutal_at_the_open_and_gone_in_seconds() public {
-        vm.roll(block.number + 1);
-
-        uint256 atOpen = hook.currentTaxBps(true);
-        assertGt(atOpen, 5_000, "the first second is expensive");
-
-        vm.warp(block.timestamp + 1);
-        uint256 afterOne = hook.currentTaxBps(true);
-        assertLt(afterOne, atOpen);
-
-        vm.warp(block.timestamp + 5);
-        assertEq(hook.currentTaxBps(true), 500 + BagSplits.PLATFORM_FEE_BPS, "and then it is just the launch tax and the platform fee");
-        assertEq(hook.currentSnipeBps(), 0);
+    function test_fork_the_opening_tax_runs_the_pons_schedule() public {
+        uint256 start = hook.launchTime();
+        vm.warp(start);
+        assertEq(hook.currentTaxBps(true), 9_900, "the launch's own second is 99% all in");
+        vm.warp(start + 1);
+        assertEq(hook.currentTaxBps(true), 500 + BagSplits.PLATFORM_FEE_BPS + 618);
+        vm.warp(start + 2);
+        assertEq(hook.currentTaxBps(true), 500 + BagSplits.PLATFORM_FEE_BPS + 19);
+        vm.warp(start + 3);
+        assertEq(hook.currentTaxBps(true), 500 + BagSplits.PLATFORM_FEE_BPS, "and then it is the launch tax and the fee");
+        assertEq(hook.currentSnipeTaxBps(alice), 0);
     }
 
     function test_fork_the_price_walks_up_and_the_latch_holds() public {
@@ -667,7 +650,7 @@ contract ForkDirectTest is Test {
         hook.flushClaims();
         splitter.sweep();
 
-        assertGt(bag.total(bag.TRADE(), address(0)), 0, "the platform's 70 bps went into the Bag");
+        assertGt(bag.total(bag.TRADE(), address(0)), 0, "the platform's 30 bps went into the Bag");
         assertEq(treasury.balance, 0, "nothing reaches the treasury by hand");
         assertGt(splitter.creatorClaimable(), 0);
         assertGt(splitter.buybackPot(), 0);
@@ -724,38 +707,13 @@ contract ForkDirectTest is Test {
         assertEq(address(locker).balance, 0);
     }
 
-    /// @dev The surcharge and the opening window are the two things a launch can set that reach
-    ///      every later trade, and both are uint32 fields. Unbounded, "an opening surcharge that
-    ///      decays in seconds" becomes a 99% sell tax for a century and "a window that expires by
-    ///      itself" becomes a token nobody may ever hold a hundredth of a percent of. Both are
-    ///      refused at the door; the interface's own sliders are well inside these.
-    function test_fork_a_launch_cannot_set_a_surcharge_that_never_decays() public {
+    /// @dev A named list longer than the cap is refused at the door, like on the curve.
+    function test_fork_a_launch_cannot_exempt_more_than_32_wallets() public {
         HoodPortal.LaunchInput memory input = _honeypotInput();
-        input.config.snipeDecaySeconds = 601;
+        input.config.exempt = new address[](33);
         bytes32 salt = _freeHookSalt();
         vm.prank(creator);
-        vm.expectRevert(HoodLaunchHook.BadTax.selector);
-        portal.createLaunch{value: 0.002 ether}(input, salt);
-
-        input.config.snipeDecaySeconds = type(uint32).max;
-        vm.prank(creator);
-        vm.expectRevert(HoodLaunchHook.BadTax.selector);
-        portal.createLaunch{value: 0.002 ether}(input, salt);
-    }
-
-    function test_fork_a_launch_cannot_set_a_window_that_never_ends() public {
-        HoodPortal.LaunchInput memory input = _honeypotInput();
-        input.config.restrictionBlocks = 1_201;
-        bytes32 salt = _freeHookSalt();
-        vm.prank(creator);
-        vm.expectRevert(HoodPortal.BadWindow.selector);
-        portal.createLaunch{value: 0.002 ether}(input, salt);
-
-        input.config.restrictionBlocks = type(uint32).max;
-        input.config.maxHoldBps = 1;
-        input.config.maxBuyBps = 1;
-        vm.prank(creator);
-        vm.expectRevert(HoodPortal.BadWindow.selector);
+        vm.expectRevert(HoodPortal.ExemptionListTooLong.selector);
         portal.createLaunch{value: 0.002 ether}(input, salt);
     }
 
@@ -772,12 +730,12 @@ contract ForkDirectTest is Test {
             socials: Socials("", "", "", "", ""), quote: address(0), creatorFeeRecipient: address(0), supply: SUPPLY,
             poolFee: POOL_FEE, tickSpacing: SPACING,
             config: DirectConfig({
-                buyTaxBps: 100, sellTaxBps: 100, snipeTaxBps: 9_800, snipeDecaySeconds: 3,
-                restrictionBlocks: 30, maxHoldBps: 500, maxBuyBps: 550,
-                tickStart: TICK_START, tickBond: TICK_BOND,
+                buyTaxBps: 100,
+                sellTaxBps: 100,
+                tickStart: TICK_START,
+                tickBond: TICK_BOND,
                 allocations: Allocations(10_000, 0, 0, 0),
-                penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
-                auctionBlocks: 0
+                exempt: new address[](0)
             }),
             salt: bytes32(uint256(999)), initialBuy: 0
         });
@@ -840,20 +798,14 @@ contract ForkDirectTest is Test {
     address internal t2 = makeAddr("t2");
     address internal t3 = makeAddr("t3");
 
-    function _teamInput(string memory sym, uint32 restrictionBlocks) internal pure returns (HoodPortal.LaunchInput memory) {
+    function _teamInput(string memory sym) internal pure returns (HoodPortal.LaunchInput memory) {
         DirectConfig memory config = DirectConfig({
             buyTaxBps: 500,
             sellTaxBps: 500,
-            snipeTaxBps: 5_000,
-            snipeDecaySeconds: 3,
-            restrictionBlocks: restrictionBlocks,
-            maxHoldBps: 500,
-            maxBuyBps: 550,
             tickStart: TICK_START,
             tickBond: TICK_BOND,
             allocations: Allocations(2_500, 2_500, 4_000, 1_000),
-            penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
-            auctionBlocks: 0
+            exempt: new address[](0)
         });
         return HoodPortal.LaunchInput({
             name: "Team Fam",
@@ -891,7 +843,7 @@ contract ForkDirectTest is Test {
         bytes32 salt = _mineHookSalt(5_000_000);
         vm.prank(creator);
         HoodPortal.Addresses memory out =
-            portal.createTeamLaunch{value: 0.002 ether + 0.5 ether + 0.005 ether}(_teamInput("TEAMD", 30), salt, _legs());
+            portal.createTeamLaunch{value: 0.002 ether + 0.5 ether + 0.005 ether}(_teamInput("TEAMD"), salt, _legs());
         HoodLaunchToken t = HoodLaunchToken(out.token);
 
         assertGt(t.balanceOf(t1), 0);
@@ -901,38 +853,27 @@ contract ForkDirectTest is Test {
         assertEq(lockOwner, t2);
         assertGt(amount, 0);
         assertEq(t1.balance, 0.005 ether, "gas went with the tokens");
-        // The portal swapped, so the hook took no surcharge from the team.
-        assertEq(HoodLaunchHook(payable(out.hook)).snipeClaims(), 0);
+        // The portal swapped, so the hook took no opening tax from the team. Each leg's swap flushed
+        // the one before it, so what is still held is the last leg's 5% tax plus the 1% fee.
+        assertApproxEqRel(HoodLaunchHook(payable(out.hook)).claimsHeld(), 0.006 ether, 0.02e18);
         assertEq(t.balanceOf(address(portal)), 0, "nothing left in the portal");
         assertEq(address(portal).balance, 0);
     }
 
-    function test_the_hold_cap_still_applies_to_a_team_wallet() public {
+    function test_a_team_wallet_may_take_any_size_at_the_open() public {
         _wireLock();
         TeamBuy[] memory legs = new TeamBuy[](1);
-        // about 10 ETH of FDV at the open, 5% hold cap: two ETH is far past it
         legs[0] = TeamBuy({wallet: t1, pairIn: 2 ether, minTokensOut: 0, lock: 0, gas: 0});
         bytes32 salt = _mineHookSalt(6_000_000);
         vm.prank(creator);
-        vm.expectRevert(HoodLaunchToken.HoldsTooMuch.selector);
-        portal.createTeamLaunch{value: 0.002 ether + 2 ether}(_teamInput("CAPD", 30), salt, legs);
-    }
-
-    function test_a_locked_leg_may_exceed_the_hold_cap_because_the_lock_is_not_a_wallet() public {
-        _wireLock();
-        TeamBuy[] memory legs = new TeamBuy[](1);
-        legs[0] = TeamBuy({wallet: t2, pairIn: 2 ether, minTokensOut: 0, lock: 90 days, gas: 0});
-        bytes32 salt = _mineHookSalt(7_000_000);
-        vm.prank(creator);
-        HoodPortal.Addresses memory out =
-            portal.createTeamLaunch{value: 0.002 ether + 2 ether}(_teamInput("LOCKD", 30), salt, legs);
-        assertGt(IERC20(out.token).balanceOf(address(tokenLock)), 0);
+        HoodPortal.Addresses memory out = portal.createTeamLaunch{value: 0.002 ether + 2 ether}(_teamInput("BIGD"), salt, legs);
+        assertGt(IERC20(out.token).balanceOf(t1), 0);
     }
 
     function test_team_launch_refusals() public {
         _wireLock();
         bytes32 salt = _mineHookSalt(8_000_000);
-        HoodPortal.LaunchInput memory input = _teamInput("NOPE", 30);
+        HoodPortal.LaunchInput memory input = _teamInput("NOPE");
         vm.startPrank(creator);
         vm.expectRevert(HoodPortal.NoLegs.selector);
         portal.createTeamLaunch{value: 0.002 ether}(input, salt, new TeamBuy[](0));

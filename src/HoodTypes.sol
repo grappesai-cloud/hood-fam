@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {PenaltyConfig} from "./bag/BagTypes.sol";
 
 /// @notice Where the creator leg of the trading fee goes. Chosen at launch, locked forever.
 /// @dev An allocation rather than a choice: the four legs are spent pro rata on every flush and
@@ -53,17 +52,6 @@ struct CurveConfig {
     bool enabled; // whether new launches may still pick this preset
 }
 
-/// @notice The curve's opening rules, picked per launch and fixed in the curve as immutables.
-/// @dev The same two tools the direct machine has: a surcharge on buys that decays to nothing, and
-///      a per-wallet buy cap for the first blocks. Buys made inside the launch transaction itself
-///      (the creator's first buy, a block-zero team) are exempt, and nothing else is.
-struct CurveGuard {
-    uint16 snipeTaxBps; // surcharge on buys at the open, decaying quadratically to zero; paid to holders
-    uint32 snipeDecaySeconds; // how long it takes to decay away
-    uint32 restrictionBlocks; // how many blocks after the launch the per-wallet buy cap holds
-    uint16 maxBuyBps; // per-wallet buy cap while restricted, in bps of the total supply
-}
-
 /// @notice Everything a creator picks for one launch.
 struct LaunchParams {
     string name;
@@ -81,13 +69,10 @@ struct LaunchParams {
     uint64 firstBuyLock; // seconds the first buy is locked in the staking vault; 0 = not locked
     bytes32 salt; // vanity salt, namespaced by the caller
     bytes32 econ; // economics hash pinned by the caller; see HoodFactory.previewLaunchEconomics
-    // The sell-side penalties this launch runs after graduation (jeet tax, whale dump tax, king
-    // of the hill, lockers eat the jeets). Fixed at launch; the graduation hook reads them off
-    // the factory. All zero means none of them. Appended last so the call encodes the same way
-    // for every field before it.
-    PenaltyConfig penalties;
-    // The opening rules. All zero means an open curve, the way every launch before v4 opened.
-    CurveGuard guard;
+    // Wallets that pay no opening tax (SnipeSchedule), on top of the ones that never do: the
+    // wallet that launches and the creator fee recipient. At most SnipeSchedule.MAX_EXEMPT. They
+    // are on chain from the launch transaction on, like everything else here.
+    address[] exempt;
 }
 
 /// @notice The registry row for a launched token.

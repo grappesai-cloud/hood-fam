@@ -144,10 +144,9 @@ const params = {
   feeSplit: { stakersBps: 0, buybackBps: 3000, liquidityBps: 2000, creatorBps: 5000 },
   creatorFeeRecipient: zeroAddress, firstBuy: 0n, firstBuyLock: 0n,
   salt: `0x${"ab".repeat(32)}`, econ,
-  penalties: { jeetTaxBps: 0, jeetWindowSeconds: 0, whaleTaxBps: 0, whaleTickLimit: 0, kingBps: 0, penaltiesToVault: false },
-  // The opening rules: half the buy at second zero over 600 s (long enough to see it on anvil,
-  // whose clock only moves when a block is mined), 5% per wallet for 1,000 blocks.
-  guard: { snipeTaxBps: 5000, snipeDecaySeconds: 600, restrictionBlocks: 1000, maxBuyBps: 500 },
+  // The opening tax is not a setting (SnipeSchedule): the launcher and the fee recipient never pay
+  // it, and a launch may name more wallets. This one names none.
+  exempt: [],
 };
 
 const hash = await leadClient.writeContract({
@@ -168,14 +167,19 @@ check("the curve sold exactly the team's tokens", sold === launched.args.tokens,
 const balances = await Promise.all(team.map((w) => publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [w] })));
 check("unlocked wallets hold their tokens", balances[0] > 0n && balances[2] > 0n && balances[4] > 0n);
 check("every team wallet got its gas", (await Promise.all(team.map((w) => publicClient.getBalance({ address: w })))).every((b) => b === GAS));
-check("the team's legs paid no opening tax", (await publicClient.readContract({ address: curve, abi: hoodCurveAbi, functionName: "penaltyClaimable" })) === 0n);
+check("the team's legs paid no opening tax", parseEventLogs({ abi: hoodCurveAbi, logs: receipt.logs, eventName: "Sniped" }).length === 0);
+check("the launcher is exempt from the opening tax", await publicClient.readContract({ address: curve, abi: hoodCurveAbi, functionName: "snipeExempt", args: [lead.address] }));
 check("locked wallets hold nothing in hand", balances[1] === 0n && balances[3] === 0n);
 const lock1 = await publicClient.readContract({ address: locker, abi: hoodTokenLockAbi, functionName: "locks", args: [legLogs[1].args.lockId] });
 check("the 30 day lock belongs to its wallet", lock1[1].toLowerCase() === team[1].toLowerCase() && lock1[2] === legLogs[1].args.tokens);
 const recipient = await publicClient.readContract({ address: factory, abi: hoodFactoryAbi, functionName: "creatorFeeRecipient", args: [token] });
 check("the fee stream is the launcher's", recipient.toLowerCase() === lead.address.toLowerCase());
 
-// An outsider's buy, one transaction later, pays more per token than the first team wallet did.
+// An outsider's buy, one second after the launch block, pays the second second's 6.18% and more
+// per token than the first team wallet did. Anvil's clock is pinned for it: the block timestamp is
+// whole seconds and the schedule is a table keyed on them.
+const launchBlock = await publicClient.getBlock({ blockNumber: receipt.blockNumber });
+await publicClient.request({ method: "evm_setNextBlockTimestamp", params: [`0x${(launchBlock.timestamp + 1n).toString(16)}`] });
 const outsider = privateKeyToAccount(generatePrivateKey());
 await publicClient.request({ method: "anvil_setBalance", params: [outsider.address, "0x56BC75E2D63100000"] });
 const outsiderClient = createWalletClient({ account: outsider, chain, transport: http(RPC) });
@@ -184,7 +188,8 @@ const buyHash = await outsiderClient.writeContract({
 });
 const buyReceipt = await publicClient.waitForTransactionReceipt({ hash: buyHash });
 const sniped = parseEventLogs({ abi: hoodCurveAbi, logs: buyReceipt.logs, eventName: "Sniped" });
-check("the outsider paid the opening tax", sniped.length === 1 && sniped[0].args.penalty > 0n, sniped[0] ? String(sniped[0].args.penalty) : "none");
+const expectedTax = (parseEther("0.4") * 618n + 9_999n) / 10_000n;
+check("the outsider paid the opening tax, 6.18% one second in", sniped.length === 1 && sniped[0].args.tax > 0n && sniped[0].args.tax <= expectedTax, sniped[0] ? `${sniped[0].args.tax} <= ${expectedTax}` : "none");
 const outsiderGot = await publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [outsider.address] });
 check("the first outside buy gets less than the first team wallet for the same money", outsiderGot < balances[0], `${outsiderGot} < ${balances[0]}`);
 
@@ -203,17 +208,19 @@ const waveHash = await leadClient.writeContract({
 });
 check("a second wave under its line goes through", (await publicClient.waitForTransactionReceipt({ hash: waveHash })).status === "success");
 
-// The SDK's own launch (the MCP and agents use it) against the v4 factory: penalties and guard ride along.
+// The SDK's own launch (the MCP and agents use it) against the v4 factory: named wallets ride along.
 const sdk = createHoodClient({
   publicClient, walletClient: leadClient,
   addresses: { factory, feeRouter: env.HOOD_FEE_ROUTER, staking: env.HOOD_STAKING, graduator: env.HOOD_GRADUATOR, bridgeFactory: env.HOOD_BRIDGE_FACTORY },
 });
+const named = privateKeyToAccount(generatePrivateKey()).address;
 const { hash: sdkHash } = await sdk.launch({
-  name: "SDK Launch", symbol: "SDKL", configId, firstBuy: parseEther("0.01"),
-  guard: { snipeTaxBps: 2000, snipeDecaySeconds: 5, restrictionBlocks: 0, maxBuyBps: 0 },
+  name: "SDK Launch", symbol: "SDKL", configId, firstBuy: parseEther("0.01"), exempt: [named],
 });
 const sdkReceipt = await publicClient.waitForTransactionReceipt({ hash: sdkHash });
-check("the SDK launches on the v4 factory with a guard", sdkReceipt.status === "success");
+check("the SDK launches on the v4 factory with named wallets", sdkReceipt.status === "success");
+const [sdkLaunched] = parseEventLogs({ abi: hoodFactoryAbi, logs: sdkReceipt.logs, eventName: "Launched" });
+check("the named wallet pays no opening tax", await publicClient.readContract({ address: sdkLaunched.args.curve, abi: hoodCurveAbi, functionName: "snipeExempt", args: [named] }));
 
 // ---------------------------------------------------------------- the indexer and the api
 
@@ -227,7 +234,7 @@ const detail = await api(`/tokens/${token}`);
 check("the token is indexed", detail.status === 200);
 check("the row names the launcher as creator", detail.body?.creator === lead.address.toLowerCase(), detail.body?.creator);
 check("the row counts six team legs, the second wave included", detail.body?.team_legs === 6, String(detail.body?.team_legs));
-check("the row carries the curve's opening rules", detail.body?.snipe_tax_bps === 5000 && detail.body?.max_buy_bps === 500, `${detail.body?.snipe_tax_bps}/${detail.body?.max_buy_bps}`);
+check("the row carries the opening tax schedule", JSON.stringify(detail.body?.opening_tax_bps) === JSON.stringify([9900, 618, 19]), JSON.stringify(detail.body?.opening_tax_bps));
 check("the fee recipient is the launcher", detail.body?.fee_recipient === lead.address.toLowerCase(), detail.body?.fee_recipient);
 
 const teamApi = await api(`/tokens/${token}/team`);
@@ -249,7 +256,7 @@ check("a locked leg's trade is handed to its wallet", Boolean(lockedTrade), lock
 
 const penaltiesRes = await api(`/tokens/${token}/penalties`);
 const penaltyRows = penaltiesRes.body?.rows ?? [];
-check("the snipe is on the penalty wall", Array.isArray(penaltyRows) && penaltyRows.some((p) => p.kind === "snipe" && p.payer === outsider.address.toLowerCase()), `${penaltiesRes.status}`);
+check("the snipe is on the snipers' wall", Array.isArray(penaltyRows) && penaltyRows.some((p) => p.kind === "snipe" && p.payer === outsider.address.toLowerCase()), `${penaltiesRes.status}`);
 
 await new Promise((r) => setTimeout(r, 1500 + Number(process.env.TEAM_ALERT_BATCH_SECONDS ?? 1) * 1000));
 const apiLog = readFileSync(join(runDir, "api.log"), "utf8");

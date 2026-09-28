@@ -15,7 +15,6 @@ const ROWS: { key: keyof BagAddresses; label: string; note: string; unset: strin
   { key: "vault", label: "The Vault", note: "house-coin lockers earn per block", unset: "not deployed yet" },
   { key: "house", label: "The house", note: "the treasury Safe, paid first on every flush", unset: "not set" },
   { key: "graduationHook", label: "Graduation hook", note: "the 1% on every graduated pool", unset: "not deployed yet" },
-  { key: "openingAuction", label: "Opening auction", note: "the first slot after the creator's block", unset: "not deployed yet" },
   { key: "houseCoin", label: "House coin", note: "the Vault and the burn clock take it once", unset: "not launched yet" },
 ];
 

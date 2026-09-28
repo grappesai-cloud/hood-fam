@@ -2,7 +2,7 @@
 ///
 /// Every number here is the contract's own arithmetic, ported: `CurveMath.priceAt`, `cost` and
 /// `tokensForPair` from `src/libraries/CurveMath.sol`, the two fee helpers from `HoodCurve.sol`,
-/// and the surcharge decay from `HoodLaunchHook.currentSnipeBps`. Ported, not approximated, and in
+/// and the opening tax from `SnipeSchedule.bpsAt`. Ported, not approximated, and in
 /// bigint with the same rounding, so what the wizard promises a buyer will get is to the wei what
 /// the buyer gets. A simulator that is merely close is a simulator that argues with the chain.
 
@@ -78,10 +78,12 @@ export function raiseTarget(p0: bigint, p1: bigint, supply: bigint): bigint {
   return curveCost(p0, p1, supply, 0n, supply, false);
 }
 
-/// The opening surcharge, `t` seconds in. Quadratic: it is nearly gone by half the window, which
-/// is the point, a bot pays it and a person a minute late does not.
-export function snipeBpsAt(snipeTaxBps: number, windowSeconds: number, t: number): number {
-  if (windowSeconds <= 0 || snipeTaxBps <= 0 || t >= windowSeconds) return 0;
-  const remaining = windowSeconds - Math.max(0, t);
-  return (snipeTaxBps * remaining * remaining) / (windowSeconds * windowSeconds);
+/// The opening tax every launch runs, `t` whole seconds after its launch block, in bps of a buy
+/// (SnipeSchedule.sol): 99% in the launch's own second, 6.18%, 0.19%, then nothing. The same on
+/// both machines and not a setting. Exempt wallets pay none of it.
+export const SNIPE_SCHEDULE_BPS = [9_900, 618, 19] as const;
+export const SNIPE_WINDOW_SECONDS = SNIPE_SCHEDULE_BPS.length;
+export function snipeBpsAt(t: number): number {
+  const s = Math.max(0, Math.floor(t));
+  return s < SNIPE_WINDOW_SECONDS ? SNIPE_SCHEDULE_BPS[s]! : 0;
 }

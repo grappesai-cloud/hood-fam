@@ -114,7 +114,7 @@ contract ForkBridgeInvariant is StdInvariant, BagRig {
         bridge = new HoodBridgeFactory(owner, address(factory), LZ_ENDPOINT);
         (HoodBag bag,,) = _bagStack(address(factory), treasury, address(staking), POOL_MANAGER);
         HoodGraduationHook hook =
-            _graduationHook(POOL_MANAGER, address(factory), address(bag), address(feeRouter), address(staking));
+            _graduationHook(POOL_MANAGER, address(factory), address(bag), address(feeRouter));
 
         vm.startPrank(owner);
         factory.setModules(address(feeRouter), address(staking), address(graduator));

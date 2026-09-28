@@ -24,8 +24,8 @@ import {GraduationHookDeploy} from "./lib/GraduationHookDeploy.sol";
 ///         Production uses script/Deploy.s.sol, which points at the real ones.
 /// @dev What is here: the curve machine on a mock graduator, the Bag with its two clocks, the
 ///      boosts board and the graduation hook (mined, so the address rule is exercised even though
-///      nothing swaps through it without a pool manager). What is not: the direct machine and the
-///      opening auction, which cannot stand without Uniswap v4; their env keys stay empty and the
+///      nothing swaps through it without a pool manager). What is not: the direct machine, which
+///      cannot stand without Uniswap v4; their env keys stay empty and the
 ///      pages that need them say so.
 ///
 ///      forge script script/DeployLocal.s.sol --rpc-url http://127.0.0.1:8545 --broadcast --private-key <key>
@@ -76,7 +76,7 @@ contract DeployLocal is Script {
         book.burnClock = address(new HoodBurnClock(book.factory, address(0)));
         book.bag = address(new HoodBag(deployer, book.staking, book.payday, book.burnClock));
         book.boosts = address(new HoodBoosts(book.factory, book.bag));
-        book.graduationHook = GraduationHookDeploy.deploy(address(0), book.factory, book.bag, book.feeRouter, book.staking);
+        book.graduationHook = GraduationHookDeploy.deploy(address(0), book.factory, book.bag, book.feeRouter);
 
         factory.setModules(book.feeRouter, book.staking, book.graduator);
         factory.setBag(book.bag);
@@ -89,11 +89,11 @@ contract DeployLocal is Script {
                 pairToken: address(0),
                 totalSupply: 1_000_000_000e18,
                 curveSupplyBps: 8000,
-                startCap: 1 ether,
-                graduationCap: 10 ether,
+                startCap: 1.1 ether,
+                graduationCap: 11.025 ether,
                 liquidityBps: 9000,
-                protocolFeeBps: 70,
-                creatorFeeBps: 30,
+                protocolFeeBps: 30,
+                creatorFeeBps: 70,
                 poolFee: 3000,
                 tickSpacing: 60,
                 enabled: true

@@ -83,23 +83,10 @@ export const launchParamsSchema = z.object({
   salt: z.string().optional(),
   /// Economics hash read with previewLaunchEconomics. Zero skips the check.
   econ: z.string().optional(),
-  /// The sell-side penalties after graduation (v3 factory on). All off unless given.
-  penalties: z.object({
-    jeetTaxBps: z.number().int().min(0).max(2_500),
-    jeetWindowSeconds: z.number().int().min(0).max(3_600),
-    whaleTaxBps: z.number().int().min(0).max(2_500),
-    whaleTickLimit: z.number().int().min(0).max(2_000),
-    kingBps: z.number().int().min(0).max(5_000),
-    penaltiesToVault: z.boolean(),
-  }).default({ jeetTaxBps: 0, jeetWindowSeconds: 0, whaleTaxBps: 0, whaleTickLimit: 0, kingBps: 0, penaltiesToVault: false }),
-  /// The curve's opening rules (v4 factory): the decaying surcharge and the per-wallet cap. An open
-  /// curve unless given, which is what every launch before v4 was.
-  guard: z.object({
-    snipeTaxBps: z.number().int().min(0).max(9_000),
-    snipeDecaySeconds: z.number().int().min(0).max(600),
-    restrictionBlocks: z.number().int().min(0).max(1_200),
-    maxBuyBps: z.number().int().min(0).max(BPS),
-  }).default({ snipeTaxBps: 0, snipeDecaySeconds: 0, restrictionBlocks: 0, maxBuyBps: 0 }),
+  /// Wallets that pay no opening tax, on top of the launcher and the fee recipient (at most 32).
+  /// Every launch opens on the same schedule: 99% of a buy in its own second, 6.18% in the next,
+  /// 0.19% in the one after, then nothing.
+  exempt: z.array(addressSchema).max(32).default([]),
 });
 
 export type LaunchParamsInput = z.input<typeof launchParamsSchema>;

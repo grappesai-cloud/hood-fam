@@ -28,13 +28,12 @@ import {HoodLaunchToken} from "../src/direct/HoodLaunchToken.sol";
 import {HoodRevenueSplitter} from "../src/direct/HoodRevenueSplitter.sol";
 import {HoodBuybackModule} from "../src/direct/HoodBuybackModule.sol";
 import {Allocations, Socials} from "../src/direct/DirectTypes.sol";
-import {PenaltyConfig, BagReasons} from "../src/bag/BagTypes.sol";
-import {IHoodPot} from "../src/interfaces/IHoodPot.sol";
+import {SnipeSchedule} from "../src/libraries/SnipeSchedule.sol";
 import {MockBag, MockVault, PortalStub, LockerStub} from "./mocks/DirectMocks.sol";
 
 /// @notice A direct launch against a real PoolManager, with no chain underneath. The test contract
-///         plays the portal: it wires the machine and it is the address the hook exempts from the
-///         opening surcharge. Suites that need penalties on override `_penalties`.
+///         plays the portal: it wires the machine and it is the address the hook never charges the
+///         opening tax. The creator is on the hook's exempt list, the way the portal names them.
 abstract contract DirectPoolBase is Test {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
@@ -49,14 +48,13 @@ abstract contract DirectPoolBase is Test {
     uint256 internal constant SUPPLY = 1_000_000_000e18;
     uint256 internal constant BUY_TAX = 500;
     uint256 internal constant SELL_TAX = 500;
-    uint256 internal constant SNIPE_TAX = 5_000;
-    uint32 internal constant SNIPE_WINDOW = 3;
+    uint32 internal constant SNIPE_WINDOW = uint32(SnipeSchedule.WINDOW);
     uint256 internal constant BPS = 10_000;
-    /// @dev The schedule a trader pays on top of the creator's rate: 30 bps ride with the creator's
-    ///      leg, 70 bps go to the Bag.
-    uint256 internal constant CREATOR_BUY = BUY_TAX + 30;
-    uint256 internal constant CREATOR_SELL = SELL_TAX + 30;
-    uint256 internal constant BAG_BPS = 70;
+    /// @dev The schedule a trader pays on top of the creator's rate: 70 bps ride with the creator's
+    ///      leg, 30 bps go to the Bag.
+    uint256 internal constant CREATOR_BUY = BUY_TAX + 70;
+    uint256 internal constant CREATOR_SELL = SELL_TAX + 70;
+    uint256 internal constant BAG_BPS = 30;
     // A real PoolManager reads a hook's permissions off its address: the low fourteen bits have
     // to be 0xCC (beforeSwap, afterSwap and both return deltas), so the hook is etched there.
     address internal constant HOOK_ADDRESS = address(uint160(0x444400CC));
@@ -88,17 +86,13 @@ abstract contract DirectPoolBase is Test {
 
     receive() external payable {}
 
-    function _penalties() internal view virtual returns (PenaltyConfig memory) {
-        return PenaltyConfig(0, 0, 0, 0, 0, false);
-    }
-
     function setUp() public virtual {
         pm = IPoolManager(deployCode(POOL_MANAGER_ARTIFACT, abi.encode(address(this))));
         swapRouter = new PoolSwapTest(pm);
         lpRouter = new PoolModifyLiquidityTest(pm);
 
         token = HoodLaunchToken(Clones.clone(address(new HoodLaunchToken())));
-        token.initialize("Hood Fam", "FAM", "", "", Socials("", "", "", "", ""), SUPPLY, creator, 0, 10_000, 10_000);
+        token.initialize("Hood Fam", "FAM", "", "", Socials("", "", "", "", ""), SUPPLY, creator);
 
         portalStub = new PortalStub();
         locker = new LockerStub();
@@ -119,6 +113,8 @@ abstract contract DirectPoolBase is Test {
 
         deployCodeTo("HoodLaunchHook.sol:HoodLaunchHook", abi.encode(pm, address(this)), HOOK_ADDRESS);
         hook = HoodLaunchHook(payable(HOOK_ADDRESS));
+        address[] memory exempt = new address[](1);
+        exempt[0] = creator;
         hook.initialize(
             HoodLaunchHook.InitParams({
                 token: address(token),
@@ -130,10 +126,8 @@ abstract contract DirectPoolBase is Test {
                 tokenIsZero: false,
                 buyTaxBps: uint16(BUY_TAX),
                 sellTaxBps: uint16(SELL_TAX),
-                snipeTaxBps: uint16(SNIPE_TAX),
-                snipeDecaySeconds: SNIPE_WINDOW,
                 tickBond: TICK_BOND,
-                penalties: _penalties(),
+                exempt: exempt,
                 key: key
             })
         );
@@ -141,7 +135,7 @@ abstract contract DirectPoolBase is Test {
         splitter.initialize(creator, address(locker), Allocations(2_500, 2_500, 4_000, 1_000));
         splitter.setHook(address(hook));
         splitter.exclude(address(pm));
-        token.setLaunchAddresses(address(pm), address(splitter), address(locker), address(hook), address(module), address(0));
+        token.setLaunchAddresses(address(pm), address(splitter));
         portalStub.set(address(token), address(hook), address(splitter), address(locker));
         locker.setKey(key);
 
@@ -269,27 +263,13 @@ abstract contract DirectPoolBase is Test {
         revert("no Taxed event");
     }
 
-    struct PenaltyLog {
-        bytes32 reason;
-        address payer;
-        uint256 amount;
-        uint256 toHolders;
-        uint256 toBag;
-        bool isBuy;
-        bool found;
-    }
-
-    /// @dev The last `Penalty` event with `reason`, if any.
-    function _penaltyLog(Vm.Log[] memory logs, bytes32 reason) internal view returns (PenaltyLog memory p) {
-        bytes32 sig = keccak256("Penalty(bytes32,address,uint256,uint256,uint256,bool)");
+    /// @dev The opening tax on the last `Sniped` event, and who paid it; zero when there was none.
+    function _sniped(Vm.Log[] memory logs) internal view returns (address payer, uint256 tax) {
+        bytes32 sig = keccak256("Sniped(address,uint256)");
         for (uint256 i = logs.length; i > 0; --i) {
             Vm.Log memory l = logs[i - 1];
-            if (l.emitter == address(hook) && l.topics[0] == sig && l.topics[1] == reason) {
-                p.reason = reason;
-                p.payer = address(uint160(uint256(l.topics[2])));
-                (p.amount, p.toHolders, p.toBag, p.isBuy) = abi.decode(l.data, (uint256, uint256, uint256, bool));
-                p.found = true;
-                return p;
+            if (l.emitter == address(hook) && l.topics[0] == sig) {
+                return (address(uint160(uint256(l.topics[1]))), abi.decode(l.data, (uint256)));
             }
         }
     }
@@ -324,7 +304,7 @@ contract DirectSwapTest is DirectPoolBase {
     function test_exact_input_buy_holds_the_tax_as_a_claim_until_the_next_swap_or_a_flush() public {
         _pastTheWindow();
         assertEq(hook.currentTaxBps(true), BUY_TAX + 100, "the creator's rate plus the platform's percent");
-        uint256 fee = _schedule(1 ether, true); // 0.06 ETH: 5.3% to the creator's leg, 0.7% to the Bag
+        uint256 fee = _schedule(1 ether, true); // 0.06 ETH: 5.7% to the creator's leg, 0.3% to the Bag
         uint256 aliceBefore = alice.balance;
 
         BalanceDelta d = _buyExactIn(alice, 1 ether);
@@ -344,8 +324,8 @@ contract DirectSwapTest is DirectPoolBase {
         emit HoodLaunchHook.ClaimsFlushed(fee);
         _buyExactIn(bob, 0.5 ether);
         uint256 fee2 = _schedule(0.5 ether, true);
-        assertEq(address(splitter).balance, _creatorFee(1 ether, true), "the creator's leg, platform's 30 bps included");
-        assertEq(bag.total(bag.TRADE(), address(0)), _bagFee(1 ether), "the Bag took its 70 bps as a trade fee");
+        assertEq(address(splitter).balance, _creatorFee(1 ether, true), "the creator's leg, platform's 70 bps included");
+        assertEq(bag.total(bag.TRADE(), address(0)), _bagFee(1 ether), "the Bag took its 30 bps as a trade fee");
         assertEq(address(bag).balance, _bagFee(1 ether));
         assertEq(hook.claimsHeld(), fee2, "only this swap's slice is still a claim");
         assertEq(pm.balanceOf(address(hook), NATIVE_ID), fee2);
@@ -415,7 +395,7 @@ contract DirectSwapTest is DirectPoolBase {
         assertFalse(isBuy);
         assertGt(received, 0);
         assertEq(toSplitter, _creatorFee(volume, false), "the creator's leg landed in the splitter inside the swap");
-        assertEq(toBag, _bagFee(volume), "and the Bag's 70 bps landed in the Bag inside the swap");
+        assertEq(toBag, _bagFee(volume), "and the Bag's 30 bps landed in the Bag inside the swap");
         assertEq(fee, toSplitter + toBag);
         assertEq(volume, received + fee, "volume is the gross the pool paid out");
         assertEq(uint256(uint128(d.amount0())), received, "the delta is the net of the tax");
@@ -467,66 +447,93 @@ contract DirectSwapTest is DirectPoolBase {
         assertGt(grossForTheSameTokens, quoteOut + fee / 2, "and clearly more than quoteOut");
     }
 
-    // ---------------------------------------------------------------- 5. the opening surcharge
+    // ---------------------------------------------------------------- 5. the opening tax
 
-    function test_the_opening_surcharge_hits_traders_but_not_the_portal_or_the_buyback() public {
+    function test_the_opening_tax_hits_traders_but_not_the_named_the_portal_or_the_buyback() public {
         uint256 start = hook.launchTime();
         assertEq(block.timestamp, start, "the first instant of the launch");
-        assertEq(hook.currentTaxBps(true), BUY_TAX + 100 + SNIPE_TAX);
+        assertEq(hook.currentTaxBps(true), 9_900, "99% all in: the opening tax fills the room under the cap");
 
-        // a trader at the open: the schedule plus the whole surcharge, and the surcharge is a
-        // penalty: 80% for the holders, 20% for the Bag, named on its own event
+        // a trader at the open: everything up to 99%, and the opening tax is trading fee, split
+        // 70/30 between the creator's leg and the Bag like the platform's percent
+        uint256 snipeRate = 9_900 - CREATOR_BUY - BAG_BPS;
+        uint256 snipe = (1 ether * snipeRate) / BPS;
+        uint256 snipeToCreator = (snipe * 70) / 100;
         vm.recordLogs();
         _buyExactIn(alice, 1 ether);
-        PenaltyLog memory snipe = _penaltyLog(vm.getRecordedLogs(), BagReasons.SNIPE);
-        assertTrue(snipe.found);
-        assertEq(snipe.payer, alice);
-        assertEq(snipe.amount, 0.5 ether, "the surcharge, 50% of the trade");
-        assertEq(snipe.toHolders, 0.4 ether);
-        assertEq(snipe.toBag, 0.1 ether);
-        assertTrue(snipe.isBuy);
-        assertEq(hook.claimsHeld(), _schedule(1 ether, true) + 0.5 ether, "56% of the trade");
-        assertEq(hook.snipeClaims(), 0.5 ether);
+        (address payer, uint256 tax) = _sniped(vm.getRecordedLogs());
+        assertEq(payer, alice);
+        assertEq(tax, snipe, "93% of the trade, the room left under 99%");
+        assertEq(hook.claimsHeld(), _schedule(1 ether, true) + snipe, "99% of the trade");
+        assertEq(hook.bagClaims(), _bagFee(1 ether) + snipe - snipeToCreator);
         hook.flushClaims();
-        assertEq(splitter.totalDeposited(), 0.4 ether, "the holders' 80% is in the pot");
-        assertEq(bag.total(bag.PENALTY(), address(0)), 0.1 ether, "the Bag's 20% is a penalty cut");
-        assertEq(address(splitter).balance, _creatorFee(1 ether, true) + 0.4 ether);
+        assertEq(address(splitter).balance, _creatorFee(1 ether, true) + snipeToCreator);
+        assertEq(bag.total(bag.TRADE(), address(0)), _bagFee(1 ether) + snipe - snipeToCreator, "the Bag's share is a trade fee");
+        assertEq(splitter.totalDeposited(), 0, "nothing goes to the pot: it is fee, not a penalty");
 
-        // the portal at the open, straight against the manager: the schedule, no surcharge
+        // the creator, named at launch, at the open: the schedule and no opening tax
+        vm.deal(creator, 10 ether);
+        _buyExactIn(creator, 1 ether);
+        assertEq(hook.claimsHeld(), _schedule(1 ether, true), "6%, the creator is exempt");
+        hook.flushClaims();
+
+        // the portal at the open, straight against the manager: the schedule, no opening tax
         uint256 before = token.balanceOf(address(this));
         _swapAsPortal(_buyExactInParams(1 ether));
         assertGt(token.balanceOf(address(this)), before);
-        assertEq(hook.claimsHeld(), _schedule(1 ether, true), "6%, the portal is not a snipe but pays the platform");
-        assertEq(hook.snipeClaims(), 0);
+        assertEq(hook.claimsHeld(), _schedule(1 ether, true), "6%, the portal is the launch's own buy");
         hook.flushClaims();
 
-        // the buyback module at the open, from the pot the two buys just filled: the base rate
-        // only, no surcharge and no platform fee
+        // the buyback module at the open, from the pot the buys just filled: the base rate only
         splitter.sweep();
         uint256 pot = splitter.buybackPot();
-        assertEq(pot, (2 * _creatorFee(1 ether, true) * 2_500) / BPS, "a quarter of the creator's leg");
+        assertGt(pot, 0);
         uint256 supplyBefore = token.totalSupply();
         uint256 burned = module.run(address(token), 0);
         assertGt(burned, 0);
         assertEq(token.totalSupply(), supplyBefore - burned);
-        assertEq(module.carried(address(token)), 0, "the whole pot fit under the impact cap");
-        assertEq(address(module).balance, 0);
-        assertEq(hook.claimsHeld(), pot * BUY_TAX / BPS, "5%, the buyback is the launch buying itself");
+        uint256 spent = pot - module.carried(address(token));
+        assertEq(hook.claimsHeld(), (spent * BUY_TAX) / BPS, "5%, the buyback is the launch buying itself");
         assertEq(hook.bagClaims(), 0);
         hook.flushClaims();
 
-        // one second in, two thirds of the window remain and the surcharge is (2/3)^2 of itself
+        // one second in: 6.18% on top of the schedule
         vm.warp(start + 1);
-        assertEq(hook.currentTaxBps(true), BUY_TAX + 100 + SNIPE_TAX * 4 / 9);
+        assertEq(hook.currentTaxBps(true), BUY_TAX + 100 + 618);
         _buyExactIn(bob, 1 ether);
-        assertEq(hook.claimsHeld(), _schedule(1 ether, true) + 1 ether * (SNIPE_TAX * 4 / 9) / BPS, "28.22%");
+        assertEq(hook.claimsHeld(), _schedule(1 ether, true) + (1 ether * 618) / BPS);
+        hook.flushClaims();
+
+        // two seconds in: 0.19%
+        vm.warp(start + 2);
+        _buyExactIn(bob, 1 ether);
+        assertEq(hook.claimsHeld(), _schedule(1 ether, true) + (1 ether * 19) / BPS);
         hook.flushClaims();
 
         // three seconds in, the same buy pays the schedule and nothing else
         vm.warp(start + SNIPE_WINDOW);
-        assertEq(hook.currentSnipeBps(), 0);
+        assertEq(hook.currentSnipeTaxBps(bob), 0);
+        vm.recordLogs();
         _buyExactIn(bob, 1 ether);
+        (, uint256 none) = _sniped(vm.getRecordedLogs());
+        assertEq(none, 0, "no Sniped event once the window is over");
         assertEq(hook.claimsHeld(), _schedule(1 ether, true), "6%");
+    }
+
+    /// @dev Sells never pay the opening tax, even in the launch's own second.
+    function test_a_sell_at_the_open_pays_the_schedule_only() public {
+        _swapAsPortal(_buyExactInParams(1 ether));
+        hook.flushClaims();
+        token.transfer(alice, token.balanceOf(address(this)));
+        uint256 splitterBefore = address(splitter).balance;
+        uint256 bagBefore = address(bag).balance;
+        vm.recordLogs();
+        _sellExactIn(alice, token.balanceOf(alice) / 2);
+        (bool isBuy, uint256 fee, uint256 volume) = _lastTaxed(vm.getRecordedLogs());
+        assertFalse(isBuy);
+        assertEq(fee, _schedule(volume, false));
+        assertEq(address(splitter).balance - splitterBefore, _creatorFee(volume, false));
+        assertEq(address(bag).balance - bagBefore, _bagFee(volume));
     }
 
     // ---------------------------------------------------------------- 6. one hook, one pool
@@ -599,7 +606,7 @@ contract DirectSwapTest is DirectPoolBase {
         _buyExactIn(alice, 2 ether);
         hook.flushClaims();
         splitter.sweep();
-        uint256 leg = _creatorFee(2 ether, true); // 0.106 ETH
+        uint256 leg = _creatorFee(2 ether, true); // 0.114 ETH
         assertEq(address(splitter).balance, leg);
         assertEq(splitter.PROTOCOL_BPS(), 0);
         assertEq(splitter.protocolClaimable(), 0, "nothing is booked for the protocol any more");
@@ -692,8 +699,12 @@ contract DirectSwapTest is DirectPoolBase {
         used = before - gasleft();
     }
 
+    /// @dev Bought by the portal (which pays no opening tax) and handed over, so the sell gas tests
+    ///      at the open start from a real balance rather than from the crumbs a 99% buy leaves.
     function _holdTokens(address who) internal {
-        _buyExactIn(who, 1 ether);
+        uint256 before = token.balanceOf(address(this));
+        _swapAsPortal(_buyExactInParams(1 ether));
+        token.transfer(who, token.balanceOf(address(this)) - before);
         hook.flushClaims();
         vm.prank(who);
         token.approve(address(swapRouter), type(uint256).max);

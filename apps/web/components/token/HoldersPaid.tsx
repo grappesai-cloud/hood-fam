@@ -13,16 +13,10 @@ import { Figure, Prov } from "@/components/Provenance";
 /// the API predates pots, null means the launch has none, and the route decides the rest.
 
 const REASONS: { key: PotReason; label: string }[] = [
-  { key: "snipe", label: "snipe tax" },
-  { key: "jeet", label: "jeet tax" },
-  { key: "whale", label: "whale dump tax" },
-  { key: "confetti", label: "confetti at bonding" },
-  { key: "slash", label: "creator slash" },
-  { key: "auction", label: "sniper auction" },
-  { key: "payday", label: "payday slice" },
   { key: "dividends", label: "creator's dividends leg" },
+  { key: "payday", label: "payday slice" },
+  { key: "slash", label: "creator slash" },
   { key: "lp_fees", label: "pool fees" },
-  { key: "king", label: "king pot" },
 ];
 
 export function HoldersPaid({ token, pot, paidToHolders, decimals, symbol }: {
@@ -67,7 +61,7 @@ export function HoldersPaid({ token, pot, paidToHolders, decimals, symbol }: {
             ) : total != null && total > 0n ? (
               <>Nothing has been pushed to wallets yet. The keeper pays every pot above the dust floor every five minutes.</>
             ) : (
-              <>Nothing has been booked for holders yet. A sniper, a jeet or a graduation puts money here.</>
+              <>Nothing has been booked for holders yet. The creator's dividends leg, a Payday slice or a creator slash puts money here.</>
             )}
           </div>
         )}

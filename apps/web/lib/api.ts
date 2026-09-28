@@ -202,5 +202,8 @@ export interface TokenDetail extends TokenRow {
   /// Everything ever booked for this token's holders, in the quote's smallest unit: the sum of the
   /// pot's deposits. Null when the launch has no pot; absent from an API that predates pots.
   paid_to_holders?: string | null;
+  /// The sell-side penalties of a launch printed before v5. Launches from then on have none.
   penalties?: PenaltyConfig | null;
+  /// The opening tax every v5 launch runs, in bps of a buy at elapsed seconds 0, 1 and 2.
+  opening_tax_bps?: number[];
 }

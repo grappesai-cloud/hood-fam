@@ -58,7 +58,7 @@ export function BurnClock({ burn, missing }: { burn: BagBurn | null | undefined;
           </span>
         </div>
       </div>
-      <p className="bag-fine">A tenth of every trade&apos;s Bag share and a twentieth of every penalty&apos;s buy the house coin and burn it. The buy is capped by price impact, so a thin hour does not move the pool.</p>
+      <p className="bag-fine">77% of every graduation fee buys the house coin and burns it, and so does a quarter of every house-coin trade, through its own buyback. The buy is capped by price impact, so a thin hour does not move the pool.</p>
     </section>
   );
 }

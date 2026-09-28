@@ -10,19 +10,21 @@ import {BagSource, BagOutlet} from "../bag/BagTypes.sol";
 ///      for `amount` and the Bag pulls it (PairTransfer.pull). `token` is the launch the money
 ///      relates to, or address(0) when it relates to none.
 interface IHoodBag {
-    /// @notice 70 bps of a trade: 30 Vault, 10 Payday, 10 burn, 20 house (in bps of the trade).
+    /// @notice 30 bps of a trade: 10 Vault, 10 Payday, 10 house (in bps of the trade). When
+    ///         `token` is the house coin all of it goes to the Vault.
     function takeTradeFee(address asset, uint256 amount, address token) external payable;
-    /// @notice A curve's graduation fee: 50 house, 25 Confetti into `pot`, 25 Vault.
-    function takeGraduationFee(address asset, uint256 amount, address token, address pot) external payable;
-    /// @notice The Bag's 20% of a penalty: 10 house, 5 Payday, 5 burn (in bps of the penalty).
-    function takePenaltyCut(address asset, uint256 amount, address token) external payable;
-    /// @notice Launch fees and boost slots: all to the house.
+    /// @notice A curve's graduation fee: 23% to the launch's creator fee recipient (`dev`), 77% to
+    ///         the burn clock, which buys the house coin with it and burns it.
+    function takeGraduationFee(address asset, uint256 amount, address token, address dev) external payable;
+    /// @notice A boost slot's price, all of it to the Payday of the hour the boost runs.
+    function takeBoost(address asset, uint256 amount, address token, uint64 epoch) external payable;
+    /// @notice Launch fees: all to the house.
     function takeHouseFee(address asset, uint256 amount, address token) external payable;
-    /// @notice The house coin's own creator leg: half Vault, half burn.
+    /// @notice The house coin's own creator leg: half Vault, half house.
     function takeHouseCoinLeg(address asset, uint256 amount) external payable;
 
-    /// @notice Vault and burn shares are held here until the house coin exists; then anyone
-    ///         can release them.
+    /// @notice Vault, burn and dev shares that could not leave yet are held here; anyone can
+    ///         release them once they can (the Vault needs the house coin to exist).
     function releaseHeld(address asset) external;
 
     function house() external view returns (address);

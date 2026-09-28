@@ -41,7 +41,6 @@ const PAYDAY = (process.env.HOOD_PAYDAY ?? "").toLowerCase() as Address;
 const BURN_CLOCK = (process.env.HOOD_BURN_CLOCK ?? "").toLowerCase() as Address;
 const BOOSTS = (process.env.HOOD_BOOSTS ?? "").toLowerCase() as Address;
 const GRADUATION_HOOK = (process.env.HOOD_GRADUATION_HOOK ?? "").toLowerCase() as Address;
-const OPENING_AUCTION = (process.env.HOOD_OPENING_AUCTION ?? "").toLowerCase() as Address;
 /// The season airdrop: one contract for every season, each row of a season's list paid on a claim.
 /// Optional like the Bag's machines: unset, it matches no log.
 const SEASON_DROP = (process.env.HOOD_SEASON_DROP ?? "").toLowerCase() as Address;
@@ -75,11 +74,11 @@ const events = {
   // The wallets a launch named as exempt from the opening tax, said by the curve or the direct
   // hook as it is set up, one log index before the factory names the token that market belongs to.
   snipeExempt: parseAbiItem("event SnipeExempt(address[] wallets)"),
-  // The curve's opening rules (v4 factory) and the surcharge a buy paid under them.
-  launchGuard: parseAbiItem(
-    "event LaunchGuard(address indexed token, (uint16 snipeTaxBps, uint32 snipeDecaySeconds, uint32 restrictionBlocks, uint16 maxBuyBps) guard)",
-  ),
-  sniped: parseAbiItem("event Sniped(address indexed buyer, address indexed to, uint256 penalty, uint256 toHolders, uint256 toBag)"),
+  // The opening tax a buy paid (SnipeSchedule). It is trading fee, already inside the trade's own
+  // fee; this line only says who paid how much of it, for the snipers' wall. The curve names the
+  // wallet that got the tokens, the direct hook the wallet that sent the swap.
+  sniped: parseAbiItem("event Sniped(address indexed buyer, address indexed to, uint256 tax)"),
+  directSniped: parseAbiItem("event Sniped(address indexed payer, uint256 tax)"),
   teamLeg: parseAbiItem(
     "event TeamLeg(address indexed token, address indexed wallet, uint256 index, uint256 pairSpent, uint256 tokens, uint256 lockId, uint64 unlockAt)",
   ),
@@ -102,7 +101,7 @@ const events = {
   transfer: parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)"),
   // the direct machine
   directLaunched: parseAbiItem(
-    "event DirectLaunched(address indexed token, address indexed creator, address indexed quote, address hook, address splitter, address locker, uint256 positionId, uint64 restrictionsEndBlock, uint256 initialBuy)",
+    "event DirectLaunched(address indexed token, address indexed creator, address indexed quote, address hook, address splitter, address locker, uint256 positionId, uint256 initialBuy)",
   ),
   claimsFlushed: parseAbiItem("event ClaimsFlushed(uint256 amount)"),
   directMetadata: parseAbiItem(
@@ -110,7 +109,7 @@ const events = {
   ),
   // the pool's shape, published by the portal right after DirectLaunched so nobody has to ask the hook
   poolOpened: parseAbiItem(
-    "event PoolOpened(address indexed token, bytes32 indexed poolId, uint24 fee, int24 tickSpacing, int24 tickStart, int24 tickBond, uint16 buyTaxBps, uint16 sellTaxBps, uint16 snipeTaxBps, uint32 snipeDecaySeconds, uint16 maxHoldBps, uint16 maxBuyBps)",
+    "event PoolOpened(address indexed token, bytes32 indexed poolId, uint24 fee, int24 tickSpacing, int24 tickStart, int24 tickBond, uint16 buyTaxBps, uint16 sellTaxBps)",
   ),
   taxed: parseAbiItem("event Taxed(bool isBuy, uint256 fee, uint256 volume)"),
   bondedEvent: parseAbiItem("event Bonded(uint64 at, int24 tick)"),
@@ -140,8 +139,6 @@ const events = {
   // a launch's pot (a HoodPot, or the splitter on a direct launch)
   holdersPaid: parseAbiItem("event HoldersPaid(bytes32 indexed reason, address indexed payer, uint256 amount, uint256 eligibleSupply)"),
   pushed: parseAbiItem("event Pushed(address indexed account, uint256 amount)"),
-  kingCrowned: parseAbiItem("event KingCrowned(address indexed king, uint256 pot, uint64 endsAt)"),
-  kingWon: parseAbiItem("event KingWon(address indexed king, uint256 amount)"),
   creatorSlashed: parseAbiItem("event CreatorSlashed(address indexed creator, uint256 amount)"),
   // Payday
   paydayFunded: parseAbiItem("event Funded(uint64 indexed epoch, address indexed asset, uint256 amount)"),
@@ -155,41 +152,22 @@ const events = {
   // boosts
   boostBought: parseAbiItem("event BoostBought(address indexed token, address indexed buyer, uint64 indexed hourEpoch, uint8 slot, uint256 paid)"),
   slotPriceSet: parseAbiItem("event SlotPriceSet(uint256 price)"),
-  // the direct hook's sell side: no token on the log, the hook is the token's
-  directPenalty: parseAbiItem("event Penalty(bytes32 indexed reason, address indexed payer, uint256 amount, uint256 toHolders, uint256 toBag, bool isBuy)"),
-  buybackTriggered: parseAbiItem("event BuybackTriggered(uint256 spent, uint256 burned)"),
-  buybackWanted: parseAbiItem("event BuybackWanted(address token)"),
-  // the graduation hook: one hook for every graduated pool, so the log names the token
-  poolPenalty: parseAbiItem("event Penalty(bytes32 indexed reason, address indexed payer, address indexed token, uint256 amount, uint256 toHolders, uint256 toBag)"),
-  // ...and the pool it takes over at graduation, so the pool's swaps can be read like a direct launch's
-  poolRegistered: parseAbiItem(
-    "event PoolRegistered(bytes32 indexed id, address indexed token, address indexed pot, (uint16 jeetTaxBps, uint32 jeetWindowSeconds, uint16 whaleTaxBps, uint24 whaleTickLimit, uint16 kingBps, bool penaltiesToVault) penalties)",
-  ),
-  // the sniper auction
-  auctionBid: parseAbiItem("event Bid(address indexed token, address indexed bidder, uint256 amount, uint64 endBlock)"),
-  auctionSettled: parseAbiItem("event Settled(address indexed token, address indexed winner, uint256 amount, uint256 toHolders, uint256 toLiquidity)"),
+  // the graduation hook: the pool it takes over at graduation, so the pool's swaps can be read like
+  // a direct launch's
+  poolRegistered: parseAbiItem("event PoolRegistered(bytes32 indexed id, address indexed token, address indexed pot)"),
   // the Vault being fed, per asset
   rewardNotified: parseAbiItem("event RewardNotified(address indexed asset, uint256 amount)"),
-  // The portal's penalty switches and the auction window, said right after PoolOpened. The
-  // factory's penaltiesOf answers zero for a direct launch, so this log is the only place they are.
-  launchRules: parseAbiItem(
-    "event LaunchRules(address indexed token, uint16 jeetTaxBps, uint32 jeetWindowSeconds, uint16 whaleTaxBps, uint24 whaleTickLimit, uint16 kingBps, bool penaltiesToVault, uint32 auctionBlocks, uint64 auctionEndBlock)",
-  ),
-  auctionRegistered: parseAbiItem("event Registered(address indexed token, uint64 endBlock, uint256 minBid)"),
-  // The factory's two lines after Launched: the pot it deployed and the switches it stored. The
-  // same facts launchExtras reads back, here straight off the log.
+  // The factory's line after Launched: the pot it deployed. The same fact launchExtras reads back,
+  // here straight off the log.
   potDeployed: parseAbiItem("event PotDeployed(address indexed token, address indexed pot)"),
-  launchPenalties: parseAbiItem(
-    "event LaunchPenalties(address indexed token, (uint16 jeetTaxBps, uint32 jeetWindowSeconds, uint16 whaleTaxBps, uint24 whaleTickLimit, uint16 kingBps, bool penaltiesToVault) penalties)",
-  ),
   // Payday could not deliver a share and booked it; the wallet took it later
   paydayOwed: parseAbiItem("event Owed(address indexed wallet, address indexed asset, uint256 amount)"),
   paydayOwedClaimed: parseAbiItem("event OwedClaimed(address indexed wallet, address indexed asset, uint256 amount)"),
+  // a graduating launch's dev bonus could not be delivered and waits in the Bag
+  devDeferred: parseAbiItem("event DevDeferred(address indexed dev, address indexed asset, uint256 amount)"),
   // the house's leg could not be delivered and waits in the Bag; the house took it later
   houseDeferred: parseAbiItem("event HouseDeferred(address indexed asset, uint256 amount)"),
   houseClaimed: parseAbiItem("event HouseClaimed(address indexed asset, uint256 amount)"),
-  // the king pot took its slice of a penalty
-  kingPotFed: parseAbiItem("event KingPotFed(uint256 amount, uint256 pot)"),
   // the graduation hook let go of the platform fee it held: the creator's leg and the Bag's
   poolClaimsFlushed: parseAbiItem("event ClaimsFlushed(bytes32 indexed id, address indexed token, uint256 toCreator, uint256 toBag)"),
   // The season airdrop (HoodSeasonDrop): a season's list published and funded in one call, then
@@ -205,13 +183,10 @@ const DROPS_ABI = [parseAbiItem(
   "function drops(uint256 season) view returns (bytes32 root, address asset, uint256 total, uint256 claimed, uint64 opensAt, uint64 deadline, bool swept)",
 )];
 
-/// The factory as the Bag left it: the registry row ends in the pot, and the penalty switches have
-/// a view of their own. Read with a try around each, because an older factory answers neither.
+/// The factory as the Bag left it: the registry row ends in the pot. Read with a try, because an
+/// older factory does not answer it.
 const LAUNCH_WITH_POT_ABI = [parseAbiItem(
   "function getLaunch(address token) view returns ((address curve, address creator, address creatorFeeRecipient, address pairToken, uint256 configId, (uint16 stakersBps, uint16 buybackBps, uint16 liquidityBps, uint16 creatorBps) feeSplit, bytes32 symbolHash, bytes32 imageHash, uint64 launchedAt, bool exists, uint8 mode, uint256 firstBuyLocked, uint64 firstBuyUnlockAt, address hook, address splitter, address locker, address pot))",
-)];
-const PENALTIES_ABI = [parseAbiItem(
-  "function penaltiesOf(address token) view returns ((uint16 jeetTaxBps, uint32 jeetWindowSeconds, uint16 whaleTaxBps, uint24 whaleTickLimit, uint16 kingBps, bool penaltiesToVault))",
 )];
 const LAUNCH_FEE_ABI = [parseAbiItem("function launchFee() view returns (uint256)")];
 
@@ -409,10 +384,9 @@ async function onLaunched(log: Log & { args: Record<string, unknown> }) {
   // nothing, or printing junk becomes the cheapest way to farm a season.
 }
 
-/// What the Bag added to a launch row: its pot, its penalty switches and the fee it paid to exist.
-/// Every read is its own try: the factory that answers `getLaunch` with a pot and `penaltiesOf`
-/// is newer than the one some deployments still run, and a launch on an older factory must still
-/// index, with these columns null rather than the row missing.
+/// What the Bag added to a launch row: its pot and the fee it paid to exist. Every read is its own
+/// try: a launch on an older factory must still index, with these columns null rather than the
+/// row missing.
 async function launchExtras(
   token: string, mode: "curve" | "direct",
   from: { pot?: string; hook?: string; splitter?: string; block: bigint },
@@ -434,19 +408,6 @@ async function launchExtras(
     await pool.query(`update launches set pot = $2 where token = $1`, [token, pot]);
     remember(token, { pot });
   }
-  // The switches, from the factory's own view. A direct launch's are not there (the factory
-  // answers zero for it): the portal says them in LaunchRules, which follows in the same
-  // transaction and is the only source for that machine.
-  if (mode === "curve") {
-    try {
-      const p = (await client.readContract({
-        address: FACTORY, abi: PENALTIES_ABI, functionName: "penaltiesOf", args: [token as Address],
-      })) as PenaltyArgs;
-      await writePenalties(token, p);
-    } catch {
-      // an older factory: the switches stay null, which the app reads as "not told"
-    }
-  }
   // The fee to exist, as the machine priced it in the launch block. A node serves a recent block's
   // state; when it will not, the column stays null rather than carrying today's price for a launch
   // that paid yesterday's.
@@ -460,22 +421,6 @@ async function launchExtras(
   }
 }
 
-interface PenaltyArgs {
-  jeetTaxBps: number | bigint; jeetWindowSeconds: number | bigint; whaleTaxBps: number | bigint;
-  whaleTickLimit: number | bigint; kingBps: number | bigint; penaltiesToVault: boolean;
-}
-
-/// The six switches on the launch row. Fixed at launch, so writing them twice writes the same thing.
-async function writePenalties(token: string, p: PenaltyArgs) {
-  await pool.query(
-    `update launches set jeet_tax_bps = $2, jeet_window_seconds = $3, whale_tax_bps = $4, whale_tick_limit = $5,
-            king_bps = $6, penalties_to_vault = $7
-     where token = $1`,
-    [token, Number(p.jeetTaxBps), Number(p.jeetWindowSeconds), Number(p.whaleTaxBps), Number(p.whaleTickLimit),
-     Number(p.kingBps), Boolean(p.penaltiesToVault)],
-  );
-}
-
 /// The factory said where the pot is. Emitted after Launched in the same transaction, so the row
 /// is there; on an older factory this never fires and launchExtras has already asked the registry.
 async function onPotDeployed(log: Log & { args: Record<string, unknown> }) {
@@ -484,42 +429,6 @@ async function onPotDeployed(log: Log & { args: Record<string, unknown> }) {
   if (pot === zeroAddress) return;
   await pool.query(`update launches set pot = $2 where token = $1`, [token, pot]);
   remember(token, { pot });
-}
-
-/// The factory said the switches, as a struct on the log: the second source for a curve launch.
-async function onLaunchPenalties(log: Log & { args: Record<string, unknown> }) {
-  await writePenalties(lower(log.args.token), log.args.penalties as PenaltyArgs);
-}
-
-/// The portal's word on a direct launch: the switches, and the auction window when there is one.
-/// Follows DirectLaunched in the same transaction, so the row exists. An auction is opened here
-/// as a row with its end block and nothing in the book yet; the bids fill it in.
-async function onLaunchRules(log: Log & { args: Record<string, unknown> }) {
-  const a = log.args;
-  const token = lower(a.token);
-  if (!tokens.has(token)) return;
-  const blocks = Number(a.auctionBlocks);
-  await writePenalties(token, a as unknown as PenaltyArgs);
-  await pool.query(`update launches set auction_blocks = $2 where token = $1`, [token, blocks]);
-  if (blocks > 0) await openAuction(token, (a.auctionEndBlock as bigint).toString());
-}
-
-/// The auction contract's own word on the window. Same transaction as LaunchRules, same row.
-async function onAuctionRegistered(log: Log & { args: Record<string, unknown> }) {
-  const a = log.args;
-  const token = lower(a.token);
-  if (!tokens.has(token)) return;
-  await openAuction(token, (a.endBlock as bigint).toString());
-}
-
-/// An auction row with its end block. Only the end block is set on a row that exists, so a
-/// re-read of the launch block never empties a book the bids have since filled.
-async function openAuction(token: string, endBlock: string) {
-  await pool.query(
-    `insert into auctions (token, end_block, bids, settled, updated_at) values ($1,$2,0,false,now())
-     on conflict (token) do update set end_block = excluded.end_block, updated_at = now()`,
-    [token, endBlock],
-  );
 }
 
 /// The creator's own first buy, staked in their name in the same transaction as the launch. Only
@@ -626,20 +535,6 @@ async function onTeamLaunched(log: Log & { args: Record<string, unknown> }, mach
     [token, lower(a.launcher), feeRecipient, BLOCK_ZERO],
   );
   payees.delete(token);
-}
-
-/// The curve's opening rules, in the same columns the direct machine's live in.
-async function onLaunchGuard(log: Log & { args: Record<string, unknown> }) {
-  const g = log.args.guard as { snipeTaxBps: number; snipeDecaySeconds: number; restrictionBlocks: number; maxBuyBps: number };
-  await pool.query(
-    `update launches set snipe_tax_bps = $2, snipe_decay_seconds = $3, max_buy_bps = $4, restrictions_end_block = $5
-      where token = $1`,
-    [
-      lower(log.args.token), Number(g.snipeTaxBps), Number(g.snipeDecaySeconds),
-      Number(g.restrictionBlocks) === 0 ? null : Number(g.maxBuyBps),
-      (log.blockNumber! + BigInt(g.restrictionBlocks)).toString(),
-    ],
-  );
 }
 
 async function onTrade(log: Log & { args: Record<string, unknown> }, side: "buy" | "sell") {
@@ -837,15 +732,15 @@ async function onDirectLaunched(log: Log & { args: Record<string, unknown> }) {
   // router, it is split in its own splitter, and that allocation lands in alloc_*_bps below.
   const { rows: created } = await pool.query<{ token: string }>(
     `insert into launches (token, curve, creator, fee_recipient, pair_token, config_id,
-       name, symbol, launched_at, block, tx, mode, hook, splitter, locker, restrictions_end_block,
+       name, symbol, launched_at, block, tx, mode, hook, splitter, locker,
        total_supply, burned, pair_symbol, pair_decimals)
-     values ($1,$2,$3,$4,$5,0,'','',$6,$7,$8,'direct',$9,$10,$11,$12,$13,$14,$15,$16)
+     values ($1,$2,$3,$4,$5,0,'','',$6,$7,$8,'direct',$9,$10,$11,$12,$13,$14,$15)
      on conflict (token) do nothing
      returning token`,
     [
       token, zeroAddress, (a.creator as string).toLowerCase(), feeRecipient, quote, when,
       log.blockNumber!.toString(), log.transactionHash, hook, splitter, locker,
-      (a.restrictionsEndBlock as bigint).toString(), (minted - burned).toString(), burned.toString(),
+      (minted - burned).toString(), burned.toString(),
       // The direct machine takes the same quotes as the curve, so its rows need the same scale on
       // them: six decimals for the dollar, eighteen for a share, and the board has to know which.
       quoteMeta.symbol, quoteMeta.decimals,
@@ -897,13 +792,11 @@ async function onPoolOpened(log: Log & { args: Record<string, unknown> }) {
   const price = priceFromTick(tickStart, token < quote);
   await pool.query(
     `update launches set pool_id = $2, pool_fee = $3, tick_spacing = $4, tick_start = $5, tick_bond = $6,
-            last_tick = $5, price = $7, buy_tax_bps = $8, sell_tax_bps = $9, snipe_tax_bps = $10,
-            snipe_decay_seconds = $11, max_hold_bps = $12, max_buy_bps = $13
+            last_tick = $5, price = $7, buy_tax_bps = $8, sell_tax_bps = $9
      where token = $1`,
     [
       token, poolId, Number(a.fee), Number(a.tickSpacing), tickStart, Number(a.tickBond), price.toString(),
-      Number(a.buyTaxBps), Number(a.sellTaxBps), Number(a.snipeTaxBps), Number(a.snipeDecaySeconds),
-      Number(a.maxHoldBps), Number(a.maxBuyBps),
+      Number(a.buyTaxBps), Number(a.sellTaxBps),
     ],
   );
   registerPool(poolId, token, quote);
@@ -923,10 +816,8 @@ async function shapeFromHook(token: string, quote: string, hook: string) {
       parseAbiItem("function tickBond() view returns (int24)"),
       parseAbiItem("function buyTaxBps() view returns (uint16)"),
       parseAbiItem("function sellTaxBps() view returns (uint16)"),
-      parseAbiItem("function snipeTaxBps() view returns (uint16)"),
-      parseAbiItem("function snipeDecaySeconds() view returns (uint32)"),
     ];
-    const [tickBond, tickStartRaw, buyTax, sellTax, snipeTax, snipeDecay] = await client.multicall({
+    const [tickBond, tickStartRaw, buyTax, sellTax] = await client.multicall({
       allowFailure: false,
       contracts: [
         { address: hook as Address, abi: hookAbi, functionName: "tickBond" },
@@ -938,17 +829,15 @@ async function shapeFromHook(token: string, quote: string, hook: string) {
         },
         { address: hook as Address, abi: hookAbi, functionName: "buyTaxBps" },
         { address: hook as Address, abi: hookAbi, functionName: "sellTaxBps" },
-        { address: hook as Address, abi: hookAbi, functionName: "snipeTaxBps" },
-        { address: hook as Address, abi: hookAbi, functionName: "snipeDecaySeconds" },
       ],
-    }) as unknown as [number, number, number, number, number, number];
+    }) as unknown as [number, number, number, number];
     const tickStart = Number(tickStartRaw);
     const price = priceFromTick(tickStart, token < quote);
     await pool.query(
       `update launches set tick_start = $2, tick_bond = $3, last_tick = $2, price = $4,
-              buy_tax_bps = $5, sell_tax_bps = $6, snipe_tax_bps = $7, snipe_decay_seconds = $8
+              buy_tax_bps = $5, sell_tax_bps = $6
        where token = $1`,
-      [token, tickStart, Number(tickBond), price.toString(), Number(buyTax), Number(sellTax), Number(snipeTax), Number(snipeDecay)],
+      [token, tickStart, Number(tickBond), price.toString(), Number(buyTax), Number(sellTax)],
     );
   } catch (err) {
     console.warn(`direct launch ${token}: could not read its shape yet`, err instanceof Error ? err.message : err);
@@ -1204,13 +1093,13 @@ async function directFeeEvent(
 
 /// Where money came from and where it went, as the Bag's two enums name it. The contract emits the
 /// index; the tape stores the word, so a row reads on its own.
-const BAG_SOURCES = ["trade", "graduation", "penalty", "house", "house_coin"] as const;
-const BAG_OUTLETS = ["house", "vault", "payday", "burn", "confetti"] as const;
+const BAG_SOURCES = ["trade", "graduation", "boost", "house", "house_coin"] as const;
+const BAG_OUTLETS = ["house", "vault", "payday", "burn", "dev"] as const;
 const sourceName = (i: unknown) => BAG_SOURCES[Number(i)] ?? String(i);
 const outletName = (i: unknown) => BAG_OUTLETS[Number(i)] ?? String(i);
 
 /// A pot says why it was paid as the hash of a word (BagReasons); this turns it back into the word.
-const REASONS = ["snipe", "jeet", "whale", "confetti", "slash", "auction", "payday", "dividends", "lp_fees", "king"] as const;
+const REASONS = ["slash", "payday", "dividends", "lp_fees"] as const;
 const reasonByHash = new Map<string, string>(REASONS.map((r) => [keccak256(stringToHex(r)).toLowerCase(), r]));
 const reasonName = (hash: unknown) => reasonByHash.get(String(hash).toLowerCase()) ?? String(hash);
 
@@ -1219,7 +1108,7 @@ const assetOf = (token: string) => quotes.get(token) ?? zeroAddress;
 const lower = (v: unknown) => String(v).toLowerCase();
 
 /// The token a pot-side contract speaks for: a HoodPot, a splitter (the pot of a direct launch,
-/// and where the king and the slash are announced) or the direct hook.
+/// and where the slash is announced) or the direct hook.
 const launchOf = (address: string) => pots.get(address) ?? splitters.get(address) ?? hooks.get(address);
 
 interface TapeRow {
@@ -1308,35 +1197,23 @@ async function onHeld(log: Log & { args: Record<string, unknown> }) {
   await tape(log, { kind: "held", asset: lower(a.asset), amount: a.amount as bigint, extra: { outlet: outletName(a.outlet) } });
 }
 
-/// A penalty from either machine: the direct hook's (no token on the log, the hook is the token's)
-/// or the graduation hook's (one hook for every pool, so the log names the token). Both split the
-/// same way, 80 to the pot and 20 into the Bag, and both feed the wall of shame.
-async function onPenalty(log: Log & { args: Record<string, unknown> }, token: string) {
-  const a = log.args;
-  const reason = reasonName(a.reason);
-  const payer = lower(a.payer);
-  const amount = a.amount as bigint;
-  const toHolders = a.toHolders as bigint;
-  const toBag = a.toBag as bigint;
+/// A buy paid the opening tax (SnipeSchedule). It is trading fee and already sits inside the
+/// trade's own fee on the machine's books; this row is the snipers' wall: who paid, how much, and
+/// how many holders there were when they did. Nothing is split here and nobody is paid by it.
+async function onSniped(log: Log & { args: Record<string, unknown> }, token: string, payer: string) {
+  const amount = log.args.tax as bigint;
   const asset = assetOf(token);
   const when = await blockTime(log.blockNumber!);
   const holders = await holderCount(token);
   const { rows: written } = await pool.query<{ id: string }>(
     `insert into penalties (token, kind, payer, asset, amount, to_holders, to_bag, holders, block, tx, log_index, ts)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) on conflict (tx, log_index) do nothing
+     values ($1,'snipe',$2,$3,$4,0,0,$5,$6,$7,$8,$9) on conflict (tx, log_index) do nothing
      returning id`,
-    [token, reason, payer, asset, amount.toString(), toHolders.toString(), toBag.toString(), holders,
-     log.blockNumber!.toString(), log.transactionHash, log.logIndex, when],
+    [token, payer, asset, amount.toString(), holders, log.blockNumber!.toString(), log.transactionHash, log.logIndex, when],
   );
-  await tape(log, {
-    kind: "penalty", token, asset, amount,
-    extra: {
-      reason, payer, to_holders: toHolders.toString(), to_bag: toBag.toString(), holders,
-      ...(typeof a.isBuy === "boolean" ? { is_buy: a.isBuy } : {}),
-    },
-  });
+  await tape(log, { kind: "sniped", token, asset, amount, extra: { payer, holders } });
   // The bounty's own refs make it idempotent, but a re-read would still walk the holders for
-  // nothing, so it only runs when the penalty itself was new.
+  // nothing, so it only runs when the row itself was new.
   if (written[0]) await bounty(token, payer, log, when);
 }
 
@@ -1398,61 +1275,6 @@ async function onPushed(log: Log & { args: Record<string, unknown> }, token: str
     [token, holder, asset, amount.toString(), log.blockNumber!.toString(), log.transactionHash, log.logIndex, when],
   );
   await tape(log, { kind: "pushed", token, asset, amount, recipient: holder, extra: { wallet: holder } });
-}
-
-/// King of the hill. A crown is every buy while the round is open: the same row moves to the new
-/// king with the new pot and the new timer, so one row is one round from first crown to win.
-async function onKingCrowned(log: Log & { args: Record<string, unknown> }, token: string) {
-  const a = log.args;
-  const king = lower(a.king);
-  const potAmount = a.pot as bigint;
-  const endsAt = new Date(Number(a.endsAt) * 1000);
-  const asset = assetOf(token);
-  const written = await tape(log, {
-    kind: "king_crowned", token, asset, amount: potAmount, extra: { king, ends_at: endsAt.toISOString() },
-  });
-  if (!written) return;
-  const { rows } = await pool.query<{ id: string }>(
-    `update king_rounds set king = $2, pot = $3, ends_at = $4, tx = $5, log_index = $6
-     where id = (select id from king_rounds where token = $1 and won_at is null order by id desc limit 1)
-     returning id`,
-    [token, king, potAmount.toString(), endsAt, log.transactionHash, log.logIndex],
-  );
-  if (!rows[0]) {
-    await pool.query(
-      `insert into king_rounds (token, king, pot, ends_at, tx, log_index) values ($1,$2,$3,$4,$5,$6)
-       on conflict (tx, log_index) do nothing`,
-      [token, king, potAmount.toString(), endsAt, log.transactionHash, log.logIndex],
-    );
-  }
-  await notify("king", { token, king, pot: potAmount.toString(), ends_at: endsAt });
-}
-
-async function onKingWon(log: Log & { args: Record<string, unknown> }, token: string) {
-  const a = log.args;
-  const king = lower(a.king);
-  const amount = a.amount as bigint;
-  const when = await blockTime(log.blockNumber!);
-  const written = await tape(log, {
-    kind: "king_won", token, asset: assetOf(token), amount, recipient: king, extra: { king },
-  });
-  if (!written) return;
-  const { rows } = await pool.query<{ id: string }>(
-    `update king_rounds set won_amount = $2, won_at = $3, king = $4
-     where id = (select id from king_rounds where token = $1 and won_at is null order by id desc limit 1)
-     returning id`,
-    [token, amount.toString(), when, king],
-  );
-  if (!rows[0]) {
-    // A win with no crown on record (the crown was before the indexer's start): the round is
-    // written from the win alone, so the page still says who won what.
-    await pool.query(
-      `insert into king_rounds (token, king, pot, ends_at, won_amount, won_at, tx, log_index)
-       values ($1,$2,$3,$4,$3,$4,$5,$6) on conflict (tx, log_index) do nothing`,
-      [token, king, amount.toString(), when, log.transactionHash, log.logIndex],
-    );
-  }
-  await notify("king", { token, king, pot: "0", ends_at: null, won: { king, amount: amount.toString() } });
 }
 
 async function onPaydayFunded(log: Log & { args: Record<string, unknown> }) {
@@ -1562,66 +1384,6 @@ async function onBoostBought(log: Log & { args: Record<string, unknown> }) {
   await tape(log, { kind: "boost", token, asset: zeroAddress, amount: paid, extra: { epoch: Number(hour), slot, buyer } });
 }
 
-async function onBuybackTriggered(log: Log & { args: Record<string, unknown> }, token: string) {
-  const a = log.args;
-  const spent = a.spent as bigint;
-  const burned = a.burned as bigint;
-  await tape(log, {
-    kind: "buyback", token, asset: assetOf(token), amount: spent, extra: { spent: spent.toString(), burned: burned.toString() },
-  });
-}
-
-/// The hook could not buy in the same transaction and asks the keeper to. The tape row is what the
-/// keeper polls for.
-async function onBuybackWanted(log: Log & { args: Record<string, unknown> }, token: string) {
-  await tape(log, { kind: "buyback_wanted", token, asset: assetOf(token), amount: 0n });
-}
-
-async function onAuctionBid(log: Log & { args: Record<string, unknown> }) {
-  const a = log.args;
-  const token = lower(a.token);
-  if (!tokens.has(token)) return;
-  const bidder = lower(a.bidder);
-  const amount = a.amount as bigint;
-  const endBlock = (a.endBlock as bigint).toString();
-  const written = await tape(log, {
-    kind: "auction_bid", token, asset: assetOf(token), amount, extra: { bidder, end_block: Number(endBlock) },
-  });
-  if (!written) return; // the bid count is a running sum
-  await pool.query(
-    `insert into auctions (token, end_block, top_bidder, top_bid, bids, updated_at) values ($1,$2,$3,$4,1,now())
-     on conflict (token) do update set
-       end_block = excluded.end_block,
-       top_bidder = case when excluded.top_bid >= auctions.top_bid then excluded.top_bidder else auctions.top_bidder end,
-       top_bid = greatest(auctions.top_bid, excluded.top_bid),
-       bids = auctions.bids + 1,
-       updated_at = now()`,
-    [token, endBlock, bidder, amount.toString()],
-  );
-}
-
-async function onAuctionSettled(log: Log & { args: Record<string, unknown> }) {
-  const a = log.args;
-  const token = lower(a.token);
-  if (!tokens.has(token)) return;
-  const winner = lower(a.winner);
-  const amount = a.amount as bigint;
-  const toHolders = a.toHolders as bigint;
-  const toLiquidity = a.toLiquidity as bigint;
-  await tape(log, {
-    kind: "auction_settled", token, asset: assetOf(token), amount, recipient: winner,
-    extra: { winner, to_holders: toHolders.toString(), to_liquidity: toLiquidity.toString() },
-  });
-  await pool.query(
-    `insert into auctions (token, top_bidder, top_bid, settled, winner, to_holders, to_liquidity, updated_at)
-     values ($1,$2,$3,true,$2,$4,$5,now())
-     on conflict (token) do update set
-       settled = true, winner = excluded.winner, top_bid = greatest(auctions.top_bid, excluded.top_bid),
-       to_holders = excluded.to_holders, to_liquidity = excluded.to_liquidity, updated_at = now()`,
-    [token, winner, amount.toString(), toHolders.toString(), toLiquidity.toString()],
-  );
-}
-
 /// The Vault was fed. One row per asset per feeding, which is what the lock page sums.
 async function onRewardNotified(log: Log & { args: Record<string, unknown> }) {
   const a = log.args;
@@ -1693,6 +1455,12 @@ async function onPaydayOwedClaimed(log: Log & { args: Record<string, unknown> })
   });
 }
 
+/// A graduating launch's dev bonus could not be delivered; the Bag holds it for claimDev.
+async function onDevDeferred(log: Log & { args: Record<string, unknown> }) {
+  const a = log.args;
+  await tape(log, { kind: "dev_deferred", asset: lower(a.asset), amount: a.amount as bigint, recipient: lower(a.dev) });
+}
+
 /// The house's leg could not be delivered and waits in the Bag, then the house took it. Neither
 /// moves the totals (BagOut said the outlet when the leg was cut); the tape says where it sat.
 async function onHouseDeferred(log: Log & { args: Record<string, unknown> }) {
@@ -1705,18 +1473,8 @@ async function onHouseClaimed(log: Log & { args: Record<string, unknown> }) {
   await tape(log, { kind: "house_claimed", asset: lower(a.asset), amount: a.amount as bigint });
 }
 
-/// The king pot took its slice of a penalty. The pot after the feed rides along, so the tape can
-/// say what the crown is worth without asking the splitter.
-async function onKingPotFed(log: Log & { args: Record<string, unknown> }, token: string) {
-  const a = log.args;
-  const amount = a.amount as bigint;
-  await tape(log, {
-    kind: "king_fed", token, asset: assetOf(token), amount, extra: { pot: (a.pot as bigint).toString() },
-  });
-}
-
 /// The graduation hook let go of the platform fee it had been holding for a pool: the creator's
-/// thirty basis points and the Bag's seventy, in one line.
+/// seventy basis points and the Bag's thirty, in one line.
 async function onPoolClaimsFlushed(log: Log & { args: Record<string, unknown> }) {
   const a = log.args;
   const token = lower(a.token);
@@ -1799,18 +1557,11 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
       break;
     case "TeamGas": if ((BLOCK_ZERO && address === BLOCK_ZERO) || address === PORTAL) await onTeamGas(l); break;
     case "SnipeExempt": await onSnipeExempt(l); break;
-    case "LaunchGuard": if (address === FACTORY) await onLaunchGuard(l); break;
     case "Sniped": {
-      const curve = curves.get(address);
-      if (curve) {
-        await onPenalty({
-          ...l,
-          args: {
-            reason: keccak256(stringToHex("snipe")), payer: l.args.to, amount: l.args.penalty,
-            toHolders: l.args.toHolders, toBag: l.args.toBag, isBuy: true,
-          },
-        } as typeof l, curve.token);
-      }
+      // The curve names the wallet the tokens went to (that is who the exemption is keyed on);
+      // the direct hook names the wallet that sent the swap.
+      const token = curves.get(address)?.token ?? hooks.get(address);
+      if (token) await onSniped(l, token, lower(typeof l.args.to === "string" ? l.args.to : l.args.payer));
       break;
     }
     case "Bought": await onTrade(l, "buy"); break;
@@ -1967,8 +1718,6 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
     case "Held": if (BAG && address === BAG) await onHeld(l); break;
     case "HoldersPaid": { const token = pots.get(address); if (token) await onHoldersPaid(l, token); break; }
     case "Pushed": { const token = pots.get(address); if (token) await onPushed(l, token); break; }
-    case "KingCrowned": { const token = launchOf(address); if (token) await onKingCrowned(l, token); break; }
-    case "KingWon": { const token = launchOf(address); if (token) await onKingWon(l, token); break; }
     case "CreatorSlashed": { const token = launchOf(address); if (token) await onCreatorSlashed(l, token); break; }
     case "Funded":
       // Two contracts say Funded with different shapes; the epoch is only on Payday's.
@@ -1986,28 +1735,12 @@ async function handle(log: Log & { eventName?: string; args?: Record<string, unk
     case "SlotPriceSet":
       if (BOOSTS && address === BOOSTS) console.log(`bag: a boost slot now costs ${String(l.args.price)} wei`);
       break;
-    case "Penalty":
-      // Same name from two hooks: the graduation hook names the token, the direct hook is the token's.
-      if (GRADUATION_HOOK && address === GRADUATION_HOOK && typeof l.args.token === "string") {
-        const token = lower(l.args.token);
-        if (tokens.has(token)) await onPenalty(l, token);
-      } else if (hooks.has(address)) {
-        await onPenalty(l, hooks.get(address)!);
-      }
-      break;
-    case "BuybackTriggered": if (hooks.has(address)) await onBuybackTriggered(l, hooks.get(address)!); break;
-    case "BuybackWanted": if (hooks.has(address)) await onBuybackWanted(l, hooks.get(address)!); break;
-    case "Bid": if (OPENING_AUCTION && address === OPENING_AUCTION) await onAuctionBid(l); break;
-    case "Settled": if (OPENING_AUCTION && address === OPENING_AUCTION) await onAuctionSettled(l); break;
-    case "Registered": if (OPENING_AUCTION && address === OPENING_AUCTION) await onAuctionRegistered(l); break;
-    case "LaunchRules": if (address === PORTAL) await onLaunchRules(l); break;
     case "PotDeployed": if (address === FACTORY) await onPotDeployed(l); break;
-    case "LaunchPenalties": if (address === FACTORY) await onLaunchPenalties(l); break;
     case "Owed": if (PAYDAY && address === PAYDAY) await onPaydayOwed(l); break;
     case "OwedClaimed": if (PAYDAY && address === PAYDAY) await onPaydayOwedClaimed(l); break;
     case "HouseDeferred": if (BAG && address === BAG) await onHouseDeferred(l); break;
+    case "DevDeferred": if (BAG && address === BAG) await onDevDeferred(l); break;
     case "HouseClaimed": if (BAG && address === BAG) await onHouseClaimed(l); break;
-    case "KingPotFed": { const token = launchOf(address); if (token) await onKingPotFed(l, token); break; }
     case "ClaimsFlushed":
       // Same name from two hooks: the graduation hook names the token and both legs; the direct
       // hook's one-number flush is visible in its splitter's Swept and is not written here.

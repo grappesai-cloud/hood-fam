@@ -10,8 +10,6 @@ interface IHoodCurve {
     function graduationHandler() external view returns (address);
     /// @notice The Bag every protocol leg of this curve is paid into, pinned at launch.
     function bag() external view returns (address);
-    /// @notice The launch's pot, which takes the Confetti share of the graduation fee.
-    function pot() external view returns (address);
     function sold() external view returns (uint256);
     function reserve() external view returns (uint256);
     function bonus() external view returns (uint256);
@@ -20,6 +18,13 @@ interface IHoodCurve {
     function lpSupply() external view returns (uint256);
 
     function quoteBuy(uint256 pairIn) external view returns (uint256 tokensOut, uint256 pairSpent, uint256 fee);
+    /// @notice Same, with the tokens going to `to` (an exempt wallet pays no opening tax).
+    function quoteBuyFor(uint256 pairIn, address to)
+        external
+        view
+        returns (uint256 tokensOut, uint256 pairSpent, uint256 fee);
+    /// @notice The opening tax on a buy whose tokens go to `recipient`, in bps (SnipeSchedule).
+    function currentSnipeTaxBps(address recipient) external view returns (uint256);
     function quoteSell(uint256 tokensIn) external view returns (uint256 pairOut, uint256 fee);
 
     function buy(uint256 pairIn, uint256 minTokensOut, address to) external payable returns (uint256 tokensOut);

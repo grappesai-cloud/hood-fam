@@ -77,36 +77,3 @@ export const bagAbi = parseAbi([
   "event BagOut(uint8 indexed outlet, address indexed asset, uint256 amount, address indexed to)",
   "event Held(uint8 indexed outlet, address indexed asset, uint256 amount)",
 ]);
-
-/// King of the hill, on the direct machine's revenue splitter: src/direct/HoodRevenueSplitter.sol.
-/// `kingEndsAt` is a unix timestamp; past it, with a pot, `settleKing` pays the king.
-export const kingAbi = parseAbi([
-  "function king() view returns (address)",
-  "function kingPot() view returns (uint256)",
-  "function kingEndsAt() view returns (uint64)",
-  "function KING_TIMER() view returns (uint64)",
-  "function settleKing() returns (uint256 amount)",
-  "event KingCrowned(address indexed king, uint256 pot, uint64 endsAt)",
-  "event KingWon(address indexed king, uint256 amount)",
-  "event KingPotFed(uint256 amount, uint256 pot)",
-  "event CreatorSlashed(address indexed creator, uint256 amount)",
-]);
-
-/// The shared opening auction, keyed by token: src/direct/HoodOpeningAuction.sol. The keeper only
-/// settles; `auctionOf` is the book it can check a stale list against.
-export const openingAuctionAbi = parseAbi([
-  "function settle(address token)",
-  "function auctionOf(address token) view returns ((address quote, address splitter, address locker, uint64 endBlock, uint256 minBid, address bidder, uint256 amount, bool settled))",
-  "event Registered(address indexed token, uint64 endBlock, uint256 minBid)",
-  "event Bid(address indexed token, address indexed bidder, uint256 amount, uint64 endBlock)",
-  "event Settled(address indexed token, address indexed winner, uint256 amount, uint256 toHolders, uint256 toLiquidity)",
-  "event RefundBooked(address indexed asset, address indexed bidder, uint256 amount)",
-  "event RefundClaimed(address indexed asset, address indexed bidder, uint256 amount)",
-]);
-
-/// The direct machine's per-launch hook asks for a buyback out loud (worker C3).
-export const launchHookBagAbi = parseAbi([
-  "event Penalty(bytes32 indexed reason, address indexed payer, uint256 amount, uint256 toHolders, uint256 toBag, bool isBuy)",
-  "event BuybackTriggered(uint256 spent, uint256 burned)",
-  "event BuybackWanted(address token)",
-]);

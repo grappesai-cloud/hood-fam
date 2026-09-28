@@ -10,8 +10,8 @@ import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodFeeRouter} from "../src/HoodFeeRouter.sol";
 import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodTokenLock} from "../src/HoodTokenLock.sol";
-import {CurveConfig, CurveGuard, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
-import {PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
+import {SnipeSchedule} from "../src/libraries/SnipeSchedule.sol";
 import {MockBag, MockGraduator, MockUSD} from "./mocks/Mocks.sol";
 
 /// @notice Shared rig: one launchpad, one preset, helpers to launch and to trade.
@@ -73,24 +73,12 @@ contract BaseTest is Test {
             startCap: 1 ether, // fully diluted valuation at the first token
             graduationCap: 10 ether, // and at the last curve token
             liquidityBps: 9000,
-            // The 1% platform fee: 70 bps into the Bag, 30 bps down the creator's split.
-            protocolFeeBps: 70,
-            creatorFeeBps: 30,
+            // The 1% platform fee: 30 bps into the Bag, 70 bps down the creator's split.
+            protocolFeeBps: 30,
+            creatorFeeBps: 70,
             poolFee: 3000,
             tickSpacing: 60,
             enabled: true
-        });
-    }
-
-    /// @notice No jeet tax, no whale tax, no king pot: what most launches pick.
-    function _noPenalties() internal pure returns (PenaltyConfig memory) {
-        return PenaltyConfig({
-            jeetTaxBps: 0,
-            jeetWindowSeconds: 0,
-            whaleTaxBps: 0,
-            whaleTickLimit: 0,
-            kingBps: 0,
-            penaltiesToVault: false
         });
     }
 
@@ -142,8 +130,7 @@ contract BaseTest is Test {
             firstBuyLock: 0,
             salt: bytes32(uint256(1)),
             econ: bytes32(0),
-            penalties: _noPenalties(),
-            guard: CurveGuard(0, 0, 0, 0)
+            exempt: new address[](0)
         });
     }
 
@@ -162,6 +149,9 @@ contract BaseTest is Test {
         p.feeSplit = split;
         vm.prank(creator);
         (address t, address c,) = factory.launch{value: value}(p);
+        // Past the opening tax (SnipeSchedule): the suites that are about the open anchor themselves
+        // to the curve's `launchedAt` and warp back to it.
+        vm.warp(block.timestamp + SnipeSchedule.WINDOW);
         return (t, HoodCurve(payable(c)));
     }
 

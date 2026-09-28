@@ -43,12 +43,12 @@ contract CurveTest is BaseTest {
         assertEq(curve.sold(), out);
         assertGt(curve.price(), 1e9);
 
-        // 1% total fee, split 70/30 between the protocol and the creator leg. The protocol's leg is
+        // 1% total fee, split 30/70 between the protocol and the creator leg. The protocol's leg is
         // booked rather than sent: a Bag that cannot take a transfer must not be able to stop a
         // trade, and this one is an immutable.
         assertEq(address(bag).balance, bagBefore, "nothing is pushed at the bag on a trade");
-        assertApproxEqRel(curve.protocolClaimable(), 0.007 ether, 0.01e18);
-        assertApproxEqRel(router.accrued(token), 0.003 ether, 0.01e18);
+        assertApproxEqRel(curve.protocolClaimable(), 0.003 ether, 0.01e18);
+        assertApproxEqRel(router.accrued(token), 0.007 ether, 0.01e18);
         // everything the buyer paid is either reserve or fee
         assertEq(address(curve).balance, curve.reserve() + curve.protocolClaimable());
         assertApproxEqRel(curve.reserve(), 0.99 ether, 0.001e18);
@@ -146,14 +146,14 @@ contract CurveTest is BaseTest {
         assertEq(tokenReserve, curve.lpSupply());
         assertEq(pairReserve, (reserve * 9000) / 10_000);
         // The remaining tenth is the graduation fee. Not booked: it goes into the Bag inside this
-        // very call, through the graduation door, with the pot named so Confetti can land there.
+        // very call, through the graduation door, naming the creator fee recipient for the dev bonus.
         uint256 fee = reserve - pairReserve;
         assertEq(address(bag).balance - bagBefore, fee, "the fee is in the bag already");
         assertEq(bag.totalIn(address(0), BagSource.Graduation), fee);
         MockBag.Take memory take = bag.lastTake();
         assertEq(uint8(take.source), uint8(BagSource.Graduation));
         assertEq(take.token, token);
-        assertEq(take.pot, curve.pot(), "the bag is told which pot gets the Confetti");
+        assertEq(take.pot, factory.getLaunch(token).creatorFeeRecipient, "the bag is told who the dev is");
         assertEq(take.from, address(curve));
         assertEq(curve.protocolClaimable(), tradeLegs, "finalize books nothing on top of the trade legs");
 
@@ -168,7 +168,7 @@ contract CurveTest is BaseTest {
     ///      a transfer between them, another deposit: each one is paid for what they held when the
     ///      money came in, not for what they hold now.
     function test_the_pot_tracks_balances_through_transfers() public {
-        IHoodPot pot = IHoodPot(curve.pot());
+        IHoodPot pot = IHoodPot(factory.getLaunch(token).pot);
         assertEq(pot.token(), token);
         assertEq(pot.asset(), address(0), "paid in the launch's quote");
 
@@ -179,7 +179,7 @@ contract CurveTest is BaseTest {
         assertGt(a, b, "alice bought first, cheaper");
 
         vm.deal(address(this), 2 ether);
-        pot.depositForHolders{value: 1 ether}(1 ether, BagReasons.CONFETTI, address(this));
+        pot.depositForHolders{value: 1 ether}(1 ether, BagReasons.PAYDAY, address(this));
         uint256 pa = pot.pending(alice);
         uint256 pb = pot.pending(bob);
         assertApproxEqAbs(pa, (1 ether * a) / (a + b), 2, "alice's share of the first deposit");
@@ -189,7 +189,7 @@ contract CurveTest is BaseTest {
         // alice hands half of hers to bob, and the next deposit follows the new balances
         vm.prank(alice);
         IERC20(token).transfer(bob, a / 2);
-        pot.depositForHolders{value: 1 ether}(1 ether, BagReasons.JEET, bob);
+        pot.depositForHolders{value: 1 ether}(1 ether, BagReasons.DIVIDENDS, bob);
         assertApproxEqAbs(pot.pending(alice) - pa, (1 ether * (a - a / 2)) / (a + b), 2, "alice earns on what she kept");
         assertApproxEqAbs(pot.pending(bob) - pb, (1 ether * (b + a / 2)) / (a + b), 2, "bob earns on what he got");
         assertEq(pot.totalDeposited(), 2 ether);
@@ -209,19 +209,19 @@ contract CurveTest is BaseTest {
     ///      graduation. Neither is a holder; a deposit that paid them would be a deposit that paid
     ///      nobody, and it goes to the people instead.
     function test_excluded_addresses_do_not_earn_from_the_pot() public {
-        IHoodPot pot = IHoodPot(curve.pot());
+        IHoodPot pot = IHoodPot(factory.getLaunch(token).pot);
         _buy(curve, alice, 1 ether);
         assertGt(IERC20(token).balanceOf(address(curve)), IERC20(token).balanceOf(alice), "the curve holds more");
 
         vm.deal(address(this), 2 ether);
-        pot.depositForHolders{value: 1 ether}(1 ether, BagReasons.SNIPE, address(this));
+        pot.depositForHolders{value: 1 ether}(1 ether, BagReasons.PAYDAY, address(this));
         assertEq(pot.pending(address(curve)), 0, "the curve is not a holder");
         assertApproxEqAbs(pot.pending(alice), 1 ether, 2, "the only holder gets all of it");
 
         _graduate(curve);
         assertGt(IERC20(token).balanceOf(address(graduator)), 0, "the graduator holds the pool side");
         uint256 aliceBefore = pot.pending(alice);
-        pot.depositForHolders{value: 1 ether}(1 ether, BagReasons.WHALE, address(this));
+        pot.depositForHolders{value: 1 ether}(1 ether, BagReasons.LP_FEES, address(this));
         assertEq(pot.pending(address(graduator)), 0, "the graduator is not a holder either");
         assertEq(pot.pending(address(curve)), 0);
         assertApproxEqAbs(
@@ -250,7 +250,7 @@ contract CurveTest is BaseTest {
     }
 
     function test_reserve_covers_every_holder_selling_back(uint256 a, uint256 b, uint256 c) public {
-        // the whole curve raises about 4.4 ETH, so keep the three buys under it
+        // the whole curve raises about 4.85 ETH, so keep the three buys under it
         a = bound(a, 0.001 ether, 1 ether);
         b = bound(b, 0.001 ether, 1 ether);
         c = bound(c, 0.001 ether, 1 ether);

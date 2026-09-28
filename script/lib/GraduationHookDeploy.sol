@@ -18,12 +18,12 @@ contract HoodGraduationHookDeployer {
         owner = msg.sender;
     }
 
-    function deploy(bytes32 salt, IPoolManager manager, address factory, address bag, address feeRouter, address vault)
+    function deploy(bytes32 salt, IPoolManager manager, address factory, address bag, address feeRouter)
         external
         returns (address)
     {
         if (msg.sender != owner) revert NotOwner();
-        return address(new HoodGraduationHook{salt: salt}(manager, factory, bag, feeRouter, vault));
+        return address(new HoodGraduationHook{salt: salt}(manager, factory, bag, feeRouter));
     }
 }
 
@@ -40,21 +40,21 @@ library GraduationHookDeploy {
     address internal constant CREATE2_PROXY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     uint160 internal constant FLAGS = 0xCC;
 
-    function deploy(address poolManager, address factory, address bag, address feeRouter, address vault)
+    function deploy(address poolManager, address factory, address bag, address feeRouter)
         internal
         returns (address hook)
     {
-        bytes memory args = abi.encode(IPoolManager(poolManager), factory, bag, feeRouter, vault);
+        bytes memory args = abi.encode(IPoolManager(poolManager), factory, bag, feeRouter);
         address predicted;
         if (CREATE2_PROXY.code.length != 0) {
             bytes32 salt;
             (predicted, salt) = HookMiner.find(CREATE2_PROXY, FLAGS, type(HoodGraduationHook).creationCode, args);
-            hook = address(new HoodGraduationHook{salt: salt}(IPoolManager(poolManager), factory, bag, feeRouter, vault));
+            hook = address(new HoodGraduationHook{salt: salt}(IPoolManager(poolManager), factory, bag, feeRouter));
         } else {
             HoodGraduationHookDeployer deployer = new HoodGraduationHookDeployer();
             bytes32 salt;
             (predicted, salt) = HookMiner.find(address(deployer), FLAGS, type(HoodGraduationHook).creationCode, args);
-            hook = deployer.deploy(salt, IPoolManager(poolManager), factory, bag, feeRouter, vault);
+            hook = deployer.deploy(salt, IPoolManager(poolManager), factory, bag, feeRouter);
         }
         require(hook == predicted, "graduation hook landed off its mined address");
         require(uint160(hook) & 0x3FFF == FLAGS, "graduation hook address lacks the permission bits");

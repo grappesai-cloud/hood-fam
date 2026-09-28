@@ -7,7 +7,7 @@ import {BaseTest} from "./Base.t.sol";
 import {HoodBlockZero} from "../src/HoodBlockZero.sol";
 import {HoodCurve} from "../src/HoodCurve.sol";
 import {HoodTokenLock} from "../src/HoodTokenLock.sol";
-import {CurveConfig, CurveGuard, LaunchParams} from "../src/HoodTypes.sol";
+import {CurveConfig, LaunchParams} from "../src/HoodTypes.sol";
 import {TeamBuy} from "../src/TeamTypes.sol";
 
 contract BlockZeroTest is BaseTest {
@@ -84,6 +84,28 @@ contract BlockZeroTest is BaseTest {
         p.creatorFeeRecipient = treasury;
         (address token,) = _go(p, _legs3(), LAUNCH_FEE + 1 ether);
         assertEq(factory.creatorFeeRecipient(token), treasury);
+    }
+
+    /// @dev The factory exempts its caller (the periphery) and the fee recipient from the opening
+    ///      tax; the periphery names the wallet that launched through it on top, so the launcher
+    ///      is never the one outsider in their own launch.
+    function test_the_launcher_is_exempt_even_when_the_fee_goes_elsewhere() public {
+        LaunchParams memory p = _teamParams();
+        p.creatorFeeRecipient = treasury;
+        (, HoodCurve curve) = _go(p, _legs3(), LAUNCH_FEE + 1 ether);
+        assertTrue(curve.snipeExempt(lead), "the launcher");
+        assertTrue(curve.snipeExempt(treasury), "the fee recipient");
+        assertTrue(curve.snipeExempt(address(zero)), "the periphery that called the factory");
+        assertFalse(curve.snipeExempt(w1), "a leg wallet is not exempt after the launch unless named");
+
+        (, HoodCurve plain) = _go(_symbol(_teamParams(), "PLAIN"), _legs3(), LAUNCH_FEE + 1 ether);
+        assertTrue(plain.snipeExempt(lead), "as the default fee recipient");
+    }
+
+    function _symbol(LaunchParams memory p, string memory sym) internal pure returns (LaunchParams memory) {
+        p.symbol = sym;
+        p.salt = keccak256(bytes(sym));
+        return p;
     }
 
     function test_a_locked_leg_opens_only_for_its_wallet_and_only_on_time() public {

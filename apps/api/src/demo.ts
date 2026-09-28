@@ -684,31 +684,14 @@ export async function seedDemo(options: SeedOptions = {}): Promise<SeedSummary> 
 
 // ---------------------------------------------------------------- the Bag
 
-/// The sell-side switches a creator turned on, per launch. Most are off, the way the wizard
-/// defaults them; three direct launches carry penalties so the wall of shame has something to say.
-interface Switches {
-  jeet: number; jeetWindow: number; whale: number; whaleTicks: number; king: number; toVault: boolean; auctionBlocks: number | null;
-}
-const OFF: Switches = { jeet: 0, jeetWindow: 0, whale: 0, whaleTicks: 0, king: 0, toVault: false, auctionBlocks: null };
-const SWITCHES: Record<string, Switches> = {
-  TAPE: { jeet: 300, jeetWindow: 900, whale: 200, whaleTicks: 1200, king: 1000, toVault: false, auctionBlocks: null },
-  QUIET: { jeet: 500, jeetWindow: 1800, whale: 0, whaleTicks: 0, king: 0, toVault: false, auctionBlocks: 20 },
-  BLOCK: { jeet: 250, jeetWindow: 600, whale: 300, whaleTicks: 800, king: 0, toVault: false, auctionBlocks: null },
-  ENVL: { jeet: 400, jeetWindow: 600, whale: 0, whaleTicks: 0, king: 0, toVault: true, auctionBlocks: null },
-};
-
-/// Who paid what, on which launch, how long ago. Bots are wallets nobody printed with; one of them
-/// (70) keeps coming back, which is what a wall of shame is for.
-const PENALTIES: { symbol: string; kind: "snipe" | "jeet" | "whale"; bot: number; eth: number; minutesAgo: number }[] = [
-  { symbol: "TAPE", kind: "snipe", bot: 70, eth: 0.42, minutesAgo: 14 * 24 * 60 - 3 },
-  { symbol: "TAPE", kind: "snipe", bot: 71, eth: 0.27, minutesAgo: 14 * 24 * 60 - 5 },
-  { symbol: "TAPE", kind: "jeet", bot: 70, eth: 0.09, minutesAgo: 13 * 24 * 60 },
-  { symbol: "TAPE", kind: "whale", bot: 72, eth: 0.31, minutesAgo: 6 * 24 * 60 },
-  { symbol: "QUIET", kind: "snipe", bot: 73, eth: 0.35, minutesAgo: 9 * 24 * 60 - 2 },
-  { symbol: "QUIET", kind: "jeet", bot: 70, eth: 0.06, minutesAgo: 2 * 24 * 60 },
-  { symbol: "QUIET", kind: "jeet", bot: 74, eth: 0.045, minutesAgo: 5 },
-  { symbol: "BLOCK", kind: "snipe", bot: 71, eth: 0.22, minutesAgo: 7 * 24 * 60 - 4 },
-  { symbol: "BLOCK", kind: "whale", bot: 75, eth: 0.18, minutesAgo: 40 },
+/// Who paid the opening tax, on which launch, how long ago. Bots are wallets nobody printed with;
+/// one of them (70) keeps coming back, which is what the snipers' wall is for.
+const SNIPES: { symbol: string; bot: number; eth: number; minutesAgo: number }[] = [
+  { symbol: "TAPE", bot: 70, eth: 0.42, minutesAgo: 14 * 24 * 60 - 3 },
+  { symbol: "TAPE", bot: 71, eth: 0.27, minutesAgo: 14 * 24 * 60 - 5 },
+  { symbol: "QUIET", bot: 73, eth: 0.35, minutesAgo: 9 * 24 * 60 - 2 },
+  { symbol: "QUIET", bot: 70, eth: 0.06, minutesAgo: 9 * 24 * 60 - 3 },
+  { symbol: "BLOCK", bot: 71, eth: 0.22, minutesAgo: 7 * 24 * 60 - 4 },
 ];
 
 /// Many rows in one statement. The tape is a few thousand rows and a round trip per row is the
@@ -785,9 +768,8 @@ async function seedBag(built: Built[], wallets: string[], now: number, head: num
     vault.push([zeroAddress, amount.toString(), blockOf(at), tx, nextLog(tx), new Date(at)]);
     line("vault_reward", null, amount, at, tx, {}, STAKING);
   };
-  const fundPayday = (amount: bigint, at: number, tx: string) => {
+  const fundPayday = (amount: bigint, at: number, tx: string, epoch = Math.floor(at / HOUR)) => {
     if (amount <= 0n) return;
-    const epoch = Math.floor(at / HOUR);
     funded.set(epoch, (funded.get(epoch) ?? 0n) + amount);
     line("payday_funded", null, amount, at, tx, { epoch });
   };
@@ -811,7 +793,7 @@ async function seedBag(built: Built[], wallets: string[], now: number, head: num
     line("holders_paid", b.token, amount, at, tx, { reason, payer, eligible_supply: h.eligible.toString(), holders: h.count });
     depositedOf.set(b.token, (depositedOf.get(b.token) ?? 0n) + amount);
   };
-  /// The wall of shame pays the room, the payer excepted, through the same award the indexer uses.
+  /// The snipers' wall pays the room, the payer excepted, through the same award the indexer uses.
   const bounty = async (b: Built, payer: string, tx: string, logIndex: number, at: number) => {
     const h = await holdersOf(b.token);
     for (const holder of h.people.slice(0, 500)) {
@@ -821,87 +803,65 @@ async function seedBag(built: Built[], wallets: string[], now: number, head: num
     }
   };
 
-  // Every launch paid to exist, and carries its switches and its pot from that moment.
+  // Every launch paid to exist, and carries its pot from that moment.
   for (const b of built) {
     const at = b.launchedAt.getTime();
     intake("house", b.token, LAUNCH_FEE, [["house", HOUSE, LAUNCH_FEE]], at, b.tx);
-    const s = SWITCHES[b.spec.symbol] ?? OFF;
-    await pool.query(
-      `update launches set pot = $2, launch_fee = $3, jeet_tax_bps = $4, jeet_window_seconds = $5, whale_tax_bps = $6,
-              whale_tick_limit = $7, king_bps = $8, penalties_to_vault = $9, auction_blocks = $10
-       where token = $1`,
-      [b.token, potOf(b), LAUNCH_FEE.toString(), s.jeet, s.jeetWindow, s.whale, s.whaleTicks, s.king, s.toVault, s.auctionBlocks],
-    );
+    await pool.query(`update launches set pot = $2, launch_fee = $3 where token = $1`, [b.token, potOf(b), LAUNCH_FEE.toString()]);
   }
 
-  // The 70 bps of every trade: 30 Vault, 10 Payday, 10 burn, 20 house, in the order they happened.
-  // The house coin's own trades send their creator leg in as well, half Vault and half burn.
+  // The Bag's 30 bps of every trade: 10 Vault, 10 Payday, 10 house, in the order they happened.
+  // The house coin's own trades send all 30 to the Vault, and its creator leg comes in as well:
+  // 20 bps of the trade, half Vault and half house.
   const trades = built.flatMap((b) => b.trades.map((t) => ({ b, t }))).sort((x, y) => x.t.ts.getTime() - y.t.ts.getTime());
   for (const { b, t } of trades) {
     const at = t.ts.getTime();
-    const bagIn = (t.pairAmount * 70n) / 10_000n;
+    const bagIn = (t.pairAmount * 30n) / 10_000n;
     if (bagIn <= 0n) continue;
-    const toVault = (bagIn * 4286n) / 10_000n;
-    const toPayday = (bagIn * 1429n) / 10_000n;
-    const toBurn = (bagIn * 1429n) / 10_000n;
-    const toHouse = bagIn - toVault - toPayday - toBurn;
+    if (b.spec.house) {
+      intake("trade", b.token, bagIn, [["vault", STAKING, bagIn]], at, t.tx);
+      feedVault(bagIn, at, t.tx);
+      const leg = (t.pairAmount * 20n) / 10_000n;
+      const half = leg / 2n;
+      intake("house_coin", b.token, leg, [["house", HOUSE, leg - half], ["vault", STAKING, half]], at, t.tx);
+      feedVault(half, at, t.tx);
+      continue;
+    }
+    const toVault = (bagIn * 3333n) / 10_000n;
+    const toPayday = (bagIn * 3333n) / 10_000n;
+    const toHouse = bagIn - toVault - toPayday;
     intake("trade", b.token, bagIn, [
-      ["house", HOUSE, toHouse], ["vault", STAKING, toVault], ["payday", PAYDAY, toPayday], ["burn", BURN_CLOCK, toBurn],
+      ["house", HOUSE, toHouse], ["vault", STAKING, toVault], ["payday", PAYDAY, toPayday],
     ], at, t.tx);
     feedVault(toVault, at, t.tx);
     fundPayday(toPayday, at, t.tx);
-    fundBurn(toBurn, at, t.tx);
-    if (b.spec.house) {
-      const leg = (t.pairAmount * 30n) / 10_000n;
-      const half = leg / 2n;
-      intake("house_coin", b.token, leg, [["vault", STAKING, half], ["burn", BURN_CLOCK, leg - half]], at, t.tx);
-      feedVault(half, at, t.tx);
-      fundBurn(leg - half, at, t.tx);
-    }
   }
 
-  // Every graduation: a tenth of the raise, 50 house, 25 Confetti into that token's pot, 25 Vault.
+  // Every graduation: a tenth of the raise, 23% to the launch's dev, 77% to the burn clock.
   for (const b of built.filter((x) => x.spec.machine === "curve" && x.graduatedAt)) {
     const at = b.graduatedAt!.getTime();
     const tx = txOf(`graduation:${b.spec.symbol}`);
     const fee = b.reserve / 10n;
     if (fee <= 0n) continue;
-    const toHouse = fee / 2n;
-    const confetti = fee / 4n;
-    const toVault = fee - toHouse - confetti;
-    intake("graduation", b.token, fee, [["house", HOUSE, toHouse], ["confetti", potOf(b), confetti], ["vault", STAKING, toVault]], at, tx);
-    await deposit(b, "confetti", BAG, confetti, at, tx);
-    feedVault(toVault, at, tx);
+    const toDev = (fee * 2300n) / 10_000n;
+    intake("graduation", b.token, fee, [["dev", b.creator, toDev], ["burn", BURN_CLOCK, fee - toDev]], at, tx);
+    fundBurn(fee - toDev, at, tx);
     await pool.query(`update launches set graduation_fee = $2 where token = $1`, [b.token, fee.toString()]);
   }
 
-  // Penalties: 80 to the pot (less the king's slice where the creator turned that on), 20 into the
-  // Bag as 10 house, 5 Payday, 5 burn. Everyone holding the token when the bot paid gets a point.
-  let kingPot = 0n;
-  for (const [i, p] of PENALTIES.entries()) {
+  // The opening tax: bots that bought in a launch's first seconds. It is trading fee and sits in the
+  // trades' own fee already; these rows are the snipers' wall. Everyone holding the token when the
+  // bot paid gets a point.
+  for (const [i, p] of SNIPES.entries()) {
     const b = bySymbol.get(p.symbol)!;
     const bot = wallets[p.bot]!;
     const at = now - p.minutesAgo * 60_000;
-    const tx = txOf(`penalty:${p.symbol}:${i}`);
+    const tx = txOf(`snipe:${p.symbol}:${i}`);
     const amount = eth(p.eth);
-    const toHolders = (amount * 8000n) / 10_000n;
-    const toBag = amount - toHolders;
-    const s = SWITCHES[p.symbol] ?? OFF;
-    const king = (toHolders * BigInt(s.king)) / 10_000n;
     const h = await holdersOf(b.token);
     const logIndex = nextLog(tx);
-    penalties.push([b.token, p.kind, bot, zeroAddress, amount.toString(), toHolders.toString(), toBag.toString(), h.count, blockOf(at), tx, logIndex, new Date(at)]);
-    line("penalty", b.token, amount, at, tx, {
-      reason: p.kind, payer: bot, to_holders: toHolders.toString(), to_bag: toBag.toString(), holders: h.count, is_buy: p.kind === "snipe",
-    });
-    await deposit(b, p.kind, bot, toHolders - king, at, tx);
-    kingPot += king;
-    const toHouse = toBag / 2n;
-    const toPayday = toBag / 4n;
-    const toBurn = toBag - toHouse - toPayday;
-    intake("penalty", b.token, toBag, [["house", HOUSE, toHouse], ["payday", PAYDAY, toPayday], ["burn", BURN_CLOCK, toBurn]], at, tx);
-    fundPayday(toPayday, at, tx);
-    fundBurn(toBurn, at, tx);
+    penalties.push([b.token, "snipe", bot, zeroAddress, amount.toString(), "0", "0", h.count, blockOf(at), tx, logIndex, new Date(at)]);
+    line("sniped", b.token, amount, at, tx, { payer: bot, holders: h.count });
     await bounty(b, bot, tx, logIndex, at);
   }
 
@@ -919,64 +879,24 @@ async function seedBag(built: Built[], wallets: string[], now: number, head: num
     await bounty(b, b.creator, tx, logIndex, at);
   }
 
-  // King of the hill on TAPE: the slices above filled the pot, the last buyer won it when the
-  // timer ran out.
-  {
-    const b = bySymbol.get("TAPE")!;
-    const king = wallets[12]!;
-    const crownedAt = now - 6 * DAY + 4 * 60_000;
-    const endsAt = crownedAt + 60_000;
-    const wonAt = endsAt + 12_000;
-    const crown = txOf("king:TAPE:crown");
-    const won = txOf("king:TAPE:won");
-    line("king_crowned", b.token, kingPot, crownedAt, crown, { king, ends_at: new Date(endsAt).toISOString() });
-    line("king_won", b.token, kingPot, wonAt, won, { king }, king);
-    await pool.query(
-      `insert into king_rounds (token, king, pot, ends_at, won_amount, won_at, tx, log_index) values ($1,$2,$3,$4,$3,$5,$6,$7)
-       on conflict (tx, log_index) do nothing`,
-      [b.token, king, kingPot.toString(), new Date(endsAt), new Date(wonAt), won, nextLog(won)],
-    );
-  }
-
-  // The sniper auction on QUIET: four bids for the first slot, half to holders, half into liquidity.
-  {
-    const b = bySymbol.get("QUIET")!;
-    const launched = b.launchedAt.getTime();
-    const endBlock = b.block + 21;
-    const bids: [number, number, number][] = [[40, 0.05, 2], [41, 0.08, 6], [42, 0.12, 11], [43, 0.2, 17]];
-    for (const [i, [w, amount, blocks]] of bids.entries()) {
-      const at = launched + blocks * 100;
-      line("auction_bid", b.token, eth(amount), at, txOf(`auction:QUIET:${i}`), { bidder: wallets[w]!, end_block: endBlock });
-    }
-    const winner = wallets[43]!;
-    const amount = eth(0.2);
-    const toHolders = amount / 2n;
-    const at = launched + 22 * 100;
-    const tx = txOf("auction:QUIET:settled");
-    line("auction_settled", b.token, amount, at, tx, { winner, to_holders: toHolders.toString(), to_liquidity: (amount - toHolders).toString() }, winner);
-    await pool.query(
-      `insert into auctions (token, end_block, top_bidder, top_bid, bids, settled, winner, to_holders, to_liquidity, updated_at)
-       values ($1,$2,$3,$4,$5,true,$3,$6,$7,$8) on conflict (token) do nothing`,
-      [b.token, endBlock, winner, amount.toString(), bids.length, toHolders.toString(), (amount - toHolders).toString(), new Date(at)],
-    );
-    await deposit(b, "auction", winner, toHolders, at, tx);
-  }
-
-  // Bots buy the dip: a sell tax, as collected, bought the token back at once.
-  for (const symbol of ["TAPE", "QUIET", "BLOCK"]) {
+  // Boosts: three slots this hour and one bought ahead for the next, each paid by its creator into
+  // the Payday of the hour it runs.
+  const currentEpoch = Math.floor(now / HOUR);
+  const hourStart = currentEpoch * HOUR;
+  const slots: [string, number, number][] = [["BOOTS", currentEpoch, 0], ["ENVL", currentEpoch, 1], ["SLICE", currentEpoch, 2], ["PAPER", currentEpoch + 1, 0]];
+  for (const [i, [symbol, hour, slot]] of slots.entries()) {
     const b = bySymbol.get(symbol)!;
-    const sells = b.trades.filter((t) => t.side === "sell");
-    const t = sells[Math.floor(sells.length / 2)];
-    if (!t) continue;
-    const spent = (t.pairAmount * 500n) / 10_000n;
-    const burned = t.price > 0n ? (spent * ONE) / t.price : 0n;
-    line("buyback", b.token, spent, t.ts.getTime(), t.tx, { spent: spent.toString(), burned: burned.toString() });
+    const at = Math.min(now - 60_000, hourStart + (i + 1) * 90_000);
+    const tx = txOf(`boost:${symbol}:${hour}`);
+    boosts.push([hour, slot, b.token, b.creator, SLOT_PRICE.toString(), tx, new Date(at)]);
+    line("boost", b.token, SLOT_PRICE, at, tx, { epoch: hour, slot, buyer: b.creator });
+    intake("boost", b.token, SLOT_PRICE, [["payday", PAYDAY, SLOT_PRICE]], at, tx);
+    fundPayday(SLOT_PRICE, at, tx, hour);
   }
 
   // Payday. Every closed hour was paid: the older ones are kept as their totals, the last two in
   // full, with the hour's points holders and the slice to the ten launches before the hour's end,
   // worked out the way the keeper works them out. The current hour is open.
-  const currentEpoch = Math.floor(now / HOUR);
   const epochs = [...funded.keys()].filter((e) => e < currentEpoch).sort((a, b) => a - b);
   const detailed = new Set(epochs.slice(-2));
   let carried = 0n;
@@ -1037,18 +957,6 @@ async function seedBag(built: Built[], wallets: string[], now: number, head: num
       [currentEpoch, zeroAddress, funded.get(currentEpoch)!.toString()],
     );
     paydayEpochs++;
-  }
-
-  // Boosts: three slots this hour and one bought ahead for the next, each paid by its creator.
-  const hourStart = currentEpoch * HOUR;
-  const slots: [string, number, number][] = [["BOOTS", currentEpoch, 0], ["ENVL", currentEpoch, 1], ["SLICE", currentEpoch, 2], ["PAPER", currentEpoch + 1, 0]];
-  for (const [i, [symbol, hour, slot]] of slots.entries()) {
-    const b = bySymbol.get(symbol)!;
-    const at = Math.min(now - 60_000, hourStart + (i + 1) * 90_000);
-    const tx = txOf(`boost:${symbol}:${hour}`);
-    boosts.push([hour, slot, b.token, b.creator, SLOT_PRICE.toString(), tx, new Date(at)]);
-    line("boost", b.token, SLOT_PRICE, at, tx, { epoch: hour, slot, buyer: b.creator });
-    intake("house", b.token, SLOT_PRICE, [["house", HOUSE, SLOT_PRICE]], at, tx);
   }
 
   // The burn clock bought the house coin at the top of the last hour with most of what it held and

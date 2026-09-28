@@ -11,11 +11,12 @@ import {BagSource, BagOutlet} from "../src/bag/BagTypes.sol";
 import {IHoodBoosts} from "../src/interfaces/IHoodBoosts.sol";
 import {MockBagFactory, MockVault} from "./mocks/BagMocks.sol";
 
-/// @notice Boost slots: the price, the hour, the slot rules, and the money landing in the house.
+/// @notice Boost slots: the price, the hour, the slot rules, and the money landing in that hour's Payday.
 contract BoostsTest is Test {
     MockBagFactory internal factory;
     HoodBag internal bag;
     HoodBoosts internal boosts;
+    HoodPayday internal payday;
 
     address internal house = makeAddr("house");
     address internal tokenA = makeAddr("tokenA");
@@ -28,7 +29,7 @@ contract BoostsTest is Test {
         vm.warp(1_000_000);
         factory = new MockBagFactory(address(this));
         MockVault vault = new MockVault();
-        HoodPayday payday = new HoodPayday(address(factory));
+        payday = new HoodPayday(address(factory));
         HoodBurnClock burnClock = new HoodBurnClock(address(factory), makeAddr("poolManager"));
         bag = new HoodBag(house, address(vault), address(payday), address(burnClock));
         boosts = new HoodBoosts(address(factory), address(bag));
@@ -56,7 +57,7 @@ contract BoostsTest is Test {
         }
     }
 
-    function test_buy_pays_the_house_through_the_bag_and_fills_the_slot() public {
+    function test_buy_pays_the_hours_payday_through_the_bag_and_fills_the_slot() public {
         uint64 e = boosts.epoch();
         uint256 price = boosts.slotPrice();
         vm.expectEmit(true, true, true, true, address(boosts));
@@ -70,9 +71,10 @@ contract BoostsTest is Test {
         address[] memory board = boosts.boosted(e);
         assertEq(board[2], tokenA);
         assertEq(board[0], address(0));
-        assertEq(house.balance, price);
-        assertEq(bag.totalIn(address(0), BagSource.House), price);
-        assertEq(bag.totalOut(address(0), BagOutlet.House), price);
+        assertEq(house.balance, 0, "the house keeps nothing from a boost");
+        assertEq(payday.funded(e, address(0)), price, "the traders of the boosted hour are paid for it");
+        assertEq(bag.totalIn(address(0), BagSource.Boost), price);
+        assertEq(bag.totalOut(address(0), BagOutlet.Payday), price);
         assertEq(address(boosts).balance, 0);
         assertEq(address(bag).balance, 0);
     }
@@ -121,7 +123,9 @@ contract BoostsTest is Test {
         assertEq(board[1], tokenB);
         (address t,) = boosts.slotOf(e + 1, 0);
         assertEq(t, tokenA);
-        assertEq(house.balance, 3 * price);
+        assertEq(payday.funded(e, address(0)), 2 * price, "two slots this hour");
+        assertEq(payday.funded(e + 1, address(0)), price, "and one for the next hour, paid to the next hour");
+        assertEq(house.balance, 0);
     }
 
     function test_all_four_slots_of_an_hour_can_fill() public {
@@ -174,6 +178,6 @@ contract BoostsTest is Test {
         vm.expectRevert(HoodBoosts.WrongPrice.selector);
         boosts.buy{value: 0.005 ether}(tokenA, e, 0);
         _buy(buyer, tokenA, e, 0);
-        assertEq(house.balance, 0.05 ether);
+        assertEq(payday.funded(e, address(0)), 0.05 ether);
     }
 }

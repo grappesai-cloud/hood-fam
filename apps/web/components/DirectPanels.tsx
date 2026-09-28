@@ -7,6 +7,7 @@ import { useAccount, usePublicClient, useReadContract, useReadContracts, useWrit
 import { hoodLaunchHookAbi, hoodRevenueSplitterAbi, hoodLockerAbi, hoodBuybackModuleAbi, minOutFromQuote, quoteBuybackRun } from "@hood/sdk";
 import { fmt, pairDecimals, pairSymbol } from "@/lib/format";
 import { snipeCountdown } from "@/lib/direct";
+import { SNIPE_SCHEDULE_BPS, SNIPE_WINDOW_SECONDS } from "@hood/sdk";
 
 /// A run is permissionless and swaps a real pool, so it gets the same floor the keeper sends:
 /// one percent under a quote of the run itself.
@@ -35,8 +36,6 @@ export function DirectPanels({ token, hook, splitter, locker, quote, launchedAt,
     contracts: [
       { address: hook, abi: hoodLaunchHookAbi, functionName: "buyTaxBps" },
       { address: hook, abi: hoodLaunchHookAbi, functionName: "sellTaxBps" },
-      { address: hook, abi: hoodLaunchHookAbi, functionName: "snipeTaxBps" },
-      { address: hook, abi: hoodLaunchHookAbi, functionName: "snipeDecaySeconds" },
       { address: hook, abi: hoodLaunchHookAbi, functionName: "bonded" },
     ] as never,
     query: { refetchInterval: 4_000 },
@@ -44,9 +43,11 @@ export function DirectPanels({ token, hook, splitter, locker, quote, launchedAt,
   const h = (hookData ?? []) as { result?: unknown }[];
   const buyTax = Number((h[0]?.result as number | undefined) ?? 0);
   const sellTax = Number((h[1]?.result as number | undefined) ?? 0);
-  const snipeTax = Number((h[2]?.result as number | undefined) ?? 0);
-  const decay = Number((h[3]?.result as number | undefined) ?? 0);
-  const bonded = Boolean(h[4]?.result);
+  // The opening tax is the same schedule on every launch (SnipeSchedule): its peak and its window
+  // are constants, not the hook's.
+  const snipeTax = SNIPE_SCHEDULE_BPS[0];
+  const decay = SNIPE_WINDOW_SECONDS;
+  const bonded = Boolean(h[2]?.result);
 
   const { data: splitterData } = useReadContracts({
     contracts: [
@@ -82,13 +83,13 @@ export function DirectPanels({ token, hook, splitter, locker, quote, launchedAt,
   // The hook is the clock: what it charges this second is what a trade pays this second. The
   // wall-clock estimate only animates the bar between reads.
   const { data: liveSnipe } = useReadContract({
-    address: hook, abi: hoodLaunchHookAbi, functionName: "currentSnipeBps", query: { refetchInterval: 1_000 },
+    address: hook, abi: hoodLaunchHookAbi, functionName: "currentSnipeTaxBps", args: [address ?? zeroAddress], query: { refetchInterval: 1_000 },
   });
   const chainSnipeBps = Number((liveSnipe as bigint | undefined) ?? 0n);
   const estimate = snipeCountdown(launchedAt, decay, now);
   const countdown = chainSnipeBps === 0
     ? { active: false, remaining: 0, fraction: 0 }
-    : { active: true, remaining: estimate.remaining, fraction: snipeTax === 0 ? 0 : chainSnipeBps / snipeTax };
+    : { active: true, remaining: estimate.remaining, fraction: chainSnipeBps / snipeTax };
   const isCreator = address?.toLowerCase() === creator.toLowerCase();
 
   /// Quote the run by running it, then send it with a floor. Nothing to buy means nothing is sent.
@@ -111,11 +112,11 @@ export function DirectPanels({ token, hook, splitter, locker, quote, launchedAt,
     <>
       {countdown.active && (
         <div className="panel border-[var(--color-red)] p-4">
-          <h3 className="font-semibold text-[var(--color-red)]">Opening surcharge</h3>
+          <h3 className="font-semibold text-[var(--color-red)]">Opening tax</h3>
           <p className="mt-1 text-xs dim">
-            An extra {(chainSnipeBps / 100).toFixed(1)}% on top of the tax right now, falling to nothing
-            within {decay}s of the open. It exists so the first block belongs to people rather than to
-            whoever has the fastest bot.
+            An extra {(chainSnipeBps / 100).toFixed(2)}% on a buy right now{address ? " for your wallet" : ""}, gone
+            within {decay}s of the open. Every launch opens this way, so the first block belongs to people rather than to
+            whoever has the fastest bot. Wallets the launch named pay none of it.
           </p>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--color-ink)]">
             <div className="h-full bg-[var(--color-red)]" style={{ width: `${countdown.fraction * 100}%` }} />

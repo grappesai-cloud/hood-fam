@@ -30,13 +30,13 @@ abstract contract BagRig is Test {
     /// @dev The one hook every graduated pool runs. The caller still has to name it on the
     ///      graduator (`setHook`, factory owner only) before any curve launches: `prepare` refuses
     ///      to open a pool without it.
-    function _graduationHook(address poolManager, address factory, address bag, address feeRouter, address vault)
+    function _graduationHook(address poolManager, address factory, address bag, address feeRouter)
         internal
         returns (HoodGraduationHook hook)
     {
         deployCodeTo(
             "HoodGraduationHook.sol:HoodGraduationHook",
-            abi.encode(poolManager, factory, bag, feeRouter, vault),
+            abi.encode(poolManager, factory, bag, feeRouter),
             GRADUATION_HOOK
         );
         hook = HoodGraduationHook(payable(GRADUATION_HOOK));

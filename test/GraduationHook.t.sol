@@ -22,7 +22,7 @@ import {LiquidityAmounts} from "@uniswap/v4-periphery/src/libraries/LiquidityAmo
 
 import {HoodGraduationHook} from "../src/graduation/HoodGraduationHook.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
-import {BagReasons, BagSource, PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {BagSource} from "../src/bag/BagTypes.sol";
 import {PoolKey as GradPoolKey} from "../src/interfaces/IExternal.sol";
 import {
     MockBag,
@@ -79,7 +79,7 @@ abstract contract GraduationFixture is Test {
         factory.setModules(address(feeRouter), address(vault), graduator, address(bag));
         deployCodeTo(
             "HoodGraduationHook.sol:HoodGraduationHook",
-            abi.encode(pm, address(factory), address(bag), address(feeRouter), address(vault)),
+            abi.encode(pm, address(factory), address(bag), address(feeRouter)),
             HOOK_ADDRESS
         );
         hook = HoodGraduationHook(payable(HOOK_ADDRESS));
@@ -154,38 +154,6 @@ abstract contract GraduationFixture is Test {
         revert("no Taxed event");
     }
 
-    struct PenaltyLog {
-        bytes32 reason;
-        address payer;
-        address token;
-        uint256 amount;
-        uint256 toHolders;
-        uint256 toBag;
-    }
-
-    function _penalties(Vm.Log[] memory logs) internal view returns (PenaltyLog[] memory out) {
-        bytes32 sig = keccak256("Penalty(bytes32,address,address,uint256,uint256,uint256)");
-        uint256 n;
-        for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter == address(hook) && logs[i].topics[0] == sig) ++n;
-        }
-        out = new PenaltyLog[](n);
-        uint256 j;
-        for (uint256 i; i < logs.length; ++i) {
-            Vm.Log memory l = logs[i];
-            if (l.emitter != address(hook) || l.topics[0] != sig) continue;
-            (uint256 amount, uint256 toHolders, uint256 toBag) = abi.decode(l.data, (uint256, uint256, uint256));
-            out[j++] = PenaltyLog({
-                reason: l.topics[1],
-                payer: address(uint160(uint256(l.topics[2]))),
-                token: address(uint160(uint256(l.topics[3]))),
-                amount: amount,
-                toHolders: toHolders,
-                toBag: toBag
-            });
-        }
-    }
-
     function _hookRevert(bytes4 entry, bytes4 reason) internal view returns (bytes memory) {
         return abi.encodeWithSelector(
             CustomRevert.WrappedError.selector,
@@ -199,17 +167,10 @@ abstract contract GraduationFixture is Test {
     function _tick(PoolKey memory key) internal view returns (int24 tick) {
         (, tick,,) = pm.getSlot0(key.toId());
     }
-
-    /// @dev How far the tick moved, whichever way: the token sorts as currency1 against ETH, so a
-    ///      sell moves it UP; the hook measures the distance, not the direction.
-    function _tickMove(int24 before, int24 after_) internal pure returns (uint256) {
-        int256 d = int256(after_) - int256(before);
-        return uint256(d < 0 ? -d : d);
-    }
 }
 
 /// @notice A graduated pool paired with native ETH: the platform fee on every shape of swap, the
-///         flush, the sell-side penalties and who may register.
+///         flush, and who may register.
 contract GraduationHookTest is GraduationFixture {
     using PoolIdLibrary for PoolKey;
 
@@ -238,26 +199,13 @@ contract GraduationHookTest is GraduationFixture {
         token.approve(address(swapRouter), type(uint256).max);
     }
 
-    function _none() internal pure returns (PenaltyConfig memory p) {}
-
-    function _jeet(bool toVault) internal pure returns (PenaltyConfig memory p) {
-        p.jeetTaxBps = 500;
-        p.jeetWindowSeconds = 300;
-        p.penaltiesToVault = toVault;
+    function _register() internal {
+        _registerWith(address(pot));
     }
 
-    function _whale() internal pure returns (PenaltyConfig memory p) {
-        p.whaleTaxBps = 1_000;
-        p.whaleTickLimit = 100;
-    }
-
-    function _register(PenaltyConfig memory p) internal {
-        _registerWith(address(pot), p);
-    }
-
-    function _registerWith(address pot_, PenaltyConfig memory p) internal {
+    function _registerWith(address pot_) internal {
         vm.prank(graduator);
-        hook.register(key, address(token), pot_, p);
+        hook.register(key, address(token), pot_);
     }
 
     function _buyExactIn(address who, uint256 ethIn) internal returns (BalanceDelta) {
@@ -279,7 +227,7 @@ contract GraduationHookTest is GraduationFixture {
     // ---------------------------------------------------------------- the platform fee
 
     function test_an_exact_input_buy_holds_one_percent_of_the_quote_as_a_claim() public {
-        _register(_none());
+        _register();
         uint256 fee = 1 ether * 100 / 10_000;
 
         vm.recordLogs();
@@ -297,32 +245,32 @@ contract GraduationHookTest is GraduationFixture {
         assertEq(bag.tradeFee(address(0), address(token)), 0);
     }
 
-    function test_a_flush_pays_thirty_bps_to_the_fee_router_and_seventy_to_the_bag() public {
-        _register(_none());
+    function test_a_flush_pays_seventy_bps_to_the_fee_router_and_thirty_to_the_bag() public {
+        _register();
         _buyExactIn(alice, 1 ether);
         uint256 fee = 0.01 ether;
 
         vm.expectEmit(true, true, true, true, address(hook));
-        emit HoodGraduationHook.ClaimsFlushed(poolId, address(token), 0.003 ether, 0.007 ether);
+        emit HoodGraduationHook.ClaimsFlushed(poolId, address(token), 0.007 ether, 0.003 ether);
         vm.prank(bob);
         hook.flushClaims(key);
 
-        assertEq(feeRouter.accrued(address(token)), fee * 30 / 100, "30 bps of the trade, as the creator leg");
-        assertEq(address(feeRouter).balance, 0.003 ether);
-        assertEq(bag.tradeFee(address(0), address(token)), fee * 70 / 100, "70 bps of the trade, into the Bag");
-        assertEq(bag.totalIn(address(0), BagSource.Trade), 0.007 ether);
-        assertEq(address(bag).balance, 0.007 ether);
+        assertEq(feeRouter.accrued(address(token)), fee * 70 / 100, "70 bps of the trade, as the creator leg");
+        assertEq(address(feeRouter).balance, 0.007 ether);
+        assertEq(bag.tradeFee(address(0), address(token)), fee * 30 / 100, "30 bps of the trade, into the Bag");
+        assertEq(bag.totalIn(address(0), BagSource.Trade), 0.003 ether);
+        assertEq(address(bag).balance, 0.003 ether);
         assertEq(hook.claimsHeld(poolId), 0);
         assertEq(pm.balanceOf(address(hook), NATIVE_ID), 0);
         assertEq(address(hook).balance, 0, "nothing sticks to the hook");
 
         // a second flush with nothing held is a no-op
         hook.flushClaims(key);
-        assertEq(feeRouter.accrued(address(token)), 0.003 ether);
+        assertEq(feeRouter.accrued(address(token)), 0.007 ether);
     }
 
     function test_an_exact_output_buy_pays_one_percent_of_the_quote_the_pool_charged() public {
-        _register(_none());
+        _register();
         uint256 before = alice.balance;
 
         vm.recordLogs();
@@ -340,7 +288,7 @@ contract GraduationHookTest is GraduationFixture {
     }
 
     function test_an_exact_input_sell_pays_one_percent_of_the_quote_paid_out() public {
-        _register(_none());
+        _register();
         _buyExactIn(alice, 10 ether);
         hook.flushClaims(key);
         uint256 tokens = token.balanceOf(alice);
@@ -361,8 +309,8 @@ contract GraduationHookTest is GraduationFixture {
         assertEq(address(hook).balance, 0);
     }
 
-    function test_an_exact_output_sell_pays_the_fee_on_a_pool_without_penalties() public {
-        _register(_none());
+    function test_an_exact_output_sell_pays_the_fee() public {
+        _register();
         _buyExactIn(alice, 10 ether);
         hook.flushClaims(key);
         uint256 before = alice.balance;
@@ -385,7 +333,7 @@ contract GraduationHookTest is GraduationFixture {
     function test_swaps_after_the_interval_flush_the_prior_claims_and_a_broken_bag_never_blocks_a_trade() public {
         uint256 start = 1_000_000;
         vm.warp(start);
-        _register(_none());
+        _register();
         _buyExactIn(alice, 1 ether);
         uint256 f1 = 0.01 ether;
 
@@ -400,8 +348,8 @@ contract GraduationHookTest is GraduationFixture {
         vm.warp(start + hook.FLUSH_INTERVAL());
         _buyExactIn(bob, 3 ether);
         uint256 f3 = 0.03 ether;
-        assertEq(feeRouter.accrued(address(token)), (f1 + f2) * 30 / 100);
-        assertEq(bag.tradeFee(address(0), address(token)), (f1 + f2) * 70 / 100);
+        assertEq(feeRouter.accrued(address(token)), (f1 + f2) * 70 / 100);
+        assertEq(bag.tradeFee(address(0), address(token)), (f1 + f2) * 30 / 100);
         assertEq(hook.claimsHeld(poolId), f3, "this swap's own fee is still a claim");
         assertEq(hook.poolOf(poolId).lastFlushAt, uint40(start + hook.FLUSH_INTERVAL()));
 
@@ -411,7 +359,7 @@ contract GraduationHookTest is GraduationFixture {
         _buyExactIn(alice, 1 ether);
         assertEq(hook.claimsHeld(poolId), f3 + f1, "nothing was flushed and nothing was lost");
         assertEq(pm.balanceOf(address(hook), NATIVE_ID), f3 + f1);
-        assertEq(feeRouter.accrued(address(token)), (f1 + f2) * 30 / 100, "the router leg reverted with the Bag's");
+        assertEq(feeRouter.accrued(address(token)), (f1 + f2) * 70 / 100, "the router leg reverted with the Bag's");
         assertEq(
             hook.poolOf(poolId).lastFlushAt,
             uint40(start + 2 * hook.FLUSH_INTERVAL()),
@@ -424,176 +372,8 @@ contract GraduationHookTest is GraduationFixture {
         bag.setBroken(false);
         hook.flushClaims(key);
         assertEq(hook.claimsHeld(poolId), 0);
-        assertEq(feeRouter.accrued(address(token)), (f1 + f2 + f3 + f1) * 30 / 100);
-        assertEq(bag.tradeFee(address(0), address(token)), (f1 + f2 + f3 + f1) * 70 / 100);
-    }
-
-    // ---------------------------------------------------------------- penalties
-
-    /// @dev Same absolute-timestamp rule as the flush test.
-    function test_a_flip_inside_the_jeet_window_pays_the_jeet_tax_split_80_20() public {
-        uint256 start = 1_000_000;
-        vm.warp(start);
-        _register(_jeet(false));
-        _buyExactIn(alice, 10 ether);
-        assertEq(hook.lastBuyAt(poolId, alice), start, "the buy is recorded by tx.origin");
-        hook.flushClaims(key);
-        uint256 tokens = token.balanceOf(alice);
-        uint256 before = alice.balance;
-
-        vm.warp(start + 100);
-        vm.recordLogs();
-        _sellExactIn(alice, tokens / 2);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        (, uint256 fee, uint256 gross) = _lastTaxed(logs);
-        PenaltyLog[] memory p = _penalties(logs);
-
-        assertEq(p.length, 1);
-        assertEq(p[0].reason, BagReasons.JEET);
-        assertEq(p[0].payer, alice);
-        assertEq(p[0].token, address(token));
-        assertEq(p[0].amount, gross * 500 / 10_000, "five percent of the gross");
-        assertEq(p[0].toHolders, p[0].amount * 80 / 100);
-        assertEq(p[0].toBag, p[0].amount - p[0].toHolders);
-        assertEq(alice.balance - before, gross - fee - p[0].amount, "the seller paid the fee and the penalty");
-
-        assertEq(pot.depositCount(), 1);
-        MockPot.Deposit memory d = pot.lastDeposit();
-        assertEq(d.amount, p[0].toHolders);
-        assertEq(d.reason, BagReasons.JEET);
-        assertEq(d.payer, alice);
-        assertEq(address(pot).balance, p[0].toHolders, "the pot holds the money");
-        assertEq(bag.penaltyCut(address(0), address(token)), p[0].toBag);
-        assertEq(bag.totalIn(address(0), BagSource.Penalty), p[0].toBag);
-        assertEq(vault.rewards(address(0)), 0);
-        assertEq(address(hook).balance, 0);
-
-        // somebody who never bought here is not a jeet
-        vm.prank(alice);
-        token.transfer(bob, tokens / 4);
-        vm.recordLogs();
-        _sellExactIn(bob, tokens / 4);
-        assertEq(_penalties(vm.getRecordedLogs()).length, 0);
-        assertEq(pot.depositCount(), 1);
-
-        // and past the window the buyer is not one either
-        vm.warp(start + 300);
-        vm.recordLogs();
-        _sellExactIn(alice, tokens / 4);
-        assertEq(_penalties(vm.getRecordedLogs()).length, 0);
-        assertEq(pot.depositCount(), 1);
-    }
-
-    function test_a_dump_past_the_tick_limit_pays_the_whale_tax() public {
-        _register(_whale());
-        token.transfer(alice, 200e18);
-        int24 tickBefore = _tick(key);
-
-        // a sell that barely moves the pool is not a dump
-        vm.recordLogs();
-        _sellExactIn(alice, 0.1e18);
-        assertEq(_penalties(vm.getRecordedLogs()).length, 0);
-        assertLt(_tickMove(tickBefore, _tick(key)), 100);
-        assertEq(pot.depositCount(), 0);
-
-        // one that moves it past the limit is
-        uint256 before = alice.balance;
-        vm.recordLogs();
-        _sellExactIn(alice, 100e18);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        (, uint256 fee, uint256 gross) = _lastTaxed(logs);
-        PenaltyLog[] memory p = _penalties(logs);
-        assertGt(_tickMove(tickBefore, _tick(key)), 100, "the price moved more than the limit");
-
-        assertEq(p.length, 1);
-        assertEq(p[0].reason, BagReasons.WHALE);
-        assertEq(p[0].payer, alice);
-        assertEq(p[0].amount, gross * 1_000 / 10_000, "ten percent of the gross");
-        assertEq(p[0].toHolders, p[0].amount * 80 / 100);
-        assertEq(p[0].toBag, p[0].amount - p[0].toHolders);
-        assertEq(alice.balance - before, gross - fee - p[0].amount);
-        assertEq(pot.depositCount(), 1);
-        MockPot.Deposit memory d = pot.lastDeposit();
-        assertEq(d.reason, BagReasons.WHALE);
-        assertEq(d.payer, alice);
-        assertEq(d.amount, p[0].toHolders);
-        assertEq(bag.penaltyCut(address(0), address(token)), p[0].toBag);
-    }
-
-    function test_a_flip_that_is_also_a_dump_pays_both() public {
-        PenaltyConfig memory cfg = _jeet(false);
-        cfg.whaleTaxBps = 1_000;
-        cfg.whaleTickLimit = 100;
-        _register(cfg);
-        _buyExactIn(alice, 200 ether);
-        uint256 tokens = token.balanceOf(alice);
-
-        vm.recordLogs();
-        _sellExactIn(alice, tokens);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        (,, uint256 gross) = _lastTaxed(logs);
-        PenaltyLog[] memory p = _penalties(logs);
-        assertEq(p.length, 2);
-        assertEq(p[0].reason, BagReasons.JEET);
-        assertEq(p[0].amount, gross * 500 / 10_000);
-        assertEq(p[1].reason, BagReasons.WHALE);
-        assertEq(p[1].amount, gross * 1_000 / 10_000);
-        assertEq(pot.depositCount(), 2);
-        assertEq(pot.totalDeposited(), p[0].toHolders + p[1].toHolders);
-        assertEq(bag.penaltyCut(address(0), address(token)), p[0].toBag + p[1].toBag);
-    }
-
-    function test_lockers_eat_the_jeets_sends_the_holder_share_to_the_vault() public {
-        _register(_jeet(true));
-        _buyExactIn(alice, 10 ether);
-        uint256 tokens = token.balanceOf(alice);
-
-        vm.warp(block.timestamp + 10);
-        vm.recordLogs();
-        _sellExactIn(alice, tokens);
-        PenaltyLog[] memory p = _penalties(vm.getRecordedLogs());
-        assertEq(p.length, 1);
-        assertEq(p[0].reason, BagReasons.JEET);
-        assertEq(vault.rewards(address(0)), p[0].toHolders, "the holders' share went to the lockers");
-        assertEq(address(vault).balance, p[0].toHolders);
-        assertEq(pot.depositCount(), 0, "and not to the pot");
-        assertEq(bag.penaltyCut(address(0), address(token)), p[0].toBag, "the Bag's fifth is the same either way");
-    }
-
-    function test_a_launch_without_a_pot_pays_the_holder_share_to_the_vault() public {
-        _registerWith(address(0), _jeet(false));
-        _buyExactIn(alice, 10 ether);
-        uint256 tokens = token.balanceOf(alice);
-
-        vm.warp(block.timestamp + 10);
-        vm.recordLogs();
-        _sellExactIn(alice, tokens);
-        PenaltyLog[] memory p = _penalties(vm.getRecordedLogs());
-        assertEq(p.length, 1);
-        assertEq(vault.rewards(address(0)), p[0].toHolders);
-        assertEq(bag.penaltyCut(address(0), address(token)), p[0].toBag);
-    }
-
-    function test_an_exact_output_sell_is_refused_on_a_pool_with_penalties() public {
-        _register(_whale());
-        token.transfer(alice, 10e18);
-        assertEq(hook.claimsHeld(poolId), 0);
-
-        vm.prank(alice, alice);
-        vm.expectRevert(_hookRevert(IHooks.beforeSwap.selector, HoodGraduationHook.ExactOutputSellRefused.selector));
-        swapRouter.swap(
-            key,
-            SwapParams({
-                zeroForOne: false, amountSpecified: int256(1 ether), sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
-            }),
-            _settings(),
-            ""
-        );
-        assertEq(token.balanceOf(alice), 10e18, "nothing left her wallet");
-
-        // the same ask as an exact-input sell goes through
-        _sellExactIn(alice, 1e18);
-        assertGt(hook.claimsHeld(poolId), 0);
+        assertEq(feeRouter.accrued(address(token)), (f1 + f2 + f3 + f1) * 70 / 100);
+        assertEq(bag.tradeFee(address(0), address(token)), (f1 + f2 + f3 + f1) * 30 / 100);
     }
 
     // ---------------------------------------------------------------- registration
@@ -617,7 +397,7 @@ contract GraduationHookTest is GraduationFixture {
         foreign.fee = 10_000;
         foreign.tickSpacing = 200;
         pm.initialize(foreign, SQRT_PRICE_1_1);
-        _register(_none());
+        _register();
         vm.prank(alice, alice);
         vm.expectRevert(_hookRevert(IHooks.beforeSwap.selector, HoodGraduationHook.NotRegistered.selector));
         swapRouter.swap{value: 1 ether}(
@@ -633,33 +413,27 @@ contract GraduationHookTest is GraduationFixture {
     }
 
     function test_only_the_graduator_can_register_and_only_once() public {
-        PenaltyConfig memory cfg = _jeet(false);
-
         vm.prank(alice);
         vm.expectRevert(HoodGraduationHook.NotGraduator.selector);
-        hook.register(key, address(token), address(pot), cfg);
+        hook.register(key, address(token), address(pot));
 
         vm.prank(owner);
         vm.expectRevert(HoodGraduationHook.NotGraduator.selector);
-        hook.register(key, address(token), address(pot), cfg);
+        hook.register(key, address(token), address(pot));
 
         vm.expectEmit(true, true, true, true, address(hook));
-        emit HoodGraduationHook.PoolRegistered(poolId, address(token), address(pot), cfg);
+        emit HoodGraduationHook.PoolRegistered(poolId, address(token), address(pot));
         vm.prank(graduator);
-        hook.register(key, address(token), address(pot), cfg);
+        hook.register(key, address(token), address(pot));
 
         HoodGraduationHook.Pool memory row = hook.poolOf(poolId);
         assertEq(row.token, address(token));
         assertEq(row.pot, address(pot));
-        assertEq(row.jeetTaxBps, 500);
-        assertEq(row.jeetWindowSeconds, 300);
-        assertEq(row.whaleTaxBps, 0);
-        assertFalse(row.penaltiesToVault);
         assertEq(row.lastFlushAt, uint40(block.timestamp));
 
         vm.prank(graduator);
         vm.expectRevert(HoodGraduationHook.AlreadyRegistered.selector);
-        hook.register(key, address(token), address(pot), cfg);
+        hook.register(key, address(token), address(pot));
     }
 
     function test_the_handler_a_curve_was_born_with_may_still_register_after_a_rotation() public {
@@ -670,32 +444,25 @@ contract GraduationHookTest is GraduationFixture {
 
         vm.prank(graduator);
         vm.expectRevert(HoodGraduationHook.NotGraduator.selector);
-        hook.register(key, address(token), address(pot), _none());
+        hook.register(key, address(token), address(pot));
 
         vm.prank(oldHandler);
-        hook.register(key, address(token), address(pot), _none());
+        hook.register(key, address(token), address(pot));
         assertEq(hook.poolOf(poolId).token, address(token));
     }
 
-    function test_register_checks_the_key_and_the_penalties() public {
+    function test_register_checks_the_key() public {
         vm.startPrank(graduator);
 
         PoolKey memory noHook = key;
         noHook.hooks = IHooks(address(0));
         vm.expectRevert(HoodGraduationHook.WrongHook.selector);
-        hook.register(noHook, address(token), address(pot), _none());
+        hook.register(noHook, address(token), address(pot));
 
         vm.expectRevert(HoodGraduationHook.TokenNotInPool.selector);
-        hook.register(key, makeAddr("otherToken"), address(pot), _none());
+        hook.register(key, makeAddr("otherToken"), address(pot));
 
-        PenaltyConfig memory tooMuch;
-        tooMuch.jeetTaxBps = 5_000;
-        tooMuch.whaleTaxBps = 4_950; // 99.5% plus the 1% fee is over the line
-        vm.expectRevert(HoodGraduationHook.BadPenalty.selector);
-        hook.register(key, address(token), address(pot), tooMuch);
-
-        tooMuch.whaleTaxBps = 4_900; // exactly 100% all in is allowed
-        hook.register(key, address(token), address(pot), tooMuch);
+        hook.register(key, address(token), address(pot));
         vm.stopPrank();
     }
 
@@ -747,7 +514,7 @@ contract GraduationHookErc20Test is GraduationFixture {
 
     function test_an_erc20_quote_is_flushed_by_approve_and_pull() public {
         vm.prank(graduator);
-        hook.register(key, address(token), address(pot), PenaltyConfig(0, 0, 0, 0, 0, false));
+        hook.register(key, address(token), address(pot));
         uint256 quoteId = uint256(uint160(address(usd)));
 
         _swap(key, address(token), alice, true, -int256(uint256(1_000e6)), 0);
@@ -755,36 +522,12 @@ contract GraduationHookErc20Test is GraduationFixture {
         assertEq(pm.balanceOf(address(hook), quoteId), 10e6);
 
         hook.flushClaims(key);
-        assertEq(feeRouter.accrued(address(token)), 3e6);
-        assertEq(usd.balanceOf(address(feeRouter)), 3e6, "transferred before the call");
-        assertEq(bag.tradeFee(address(usd), address(token)), 7e6);
-        assertEq(usd.balanceOf(address(bag)), 7e6, "pulled by the Bag");
+        assertEq(feeRouter.accrued(address(token)), 7e6);
+        assertEq(usd.balanceOf(address(feeRouter)), 7e6, "transferred before the call");
+        assertEq(bag.tradeFee(address(usd), address(token)), 3e6);
+        assertEq(usd.balanceOf(address(bag)), 3e6, "pulled by the Bag");
         assertEq(usd.balanceOf(address(hook)), 0);
         assertEq(usd.allowance(address(hook), address(bag)), 0, "nothing left approved");
-    }
-
-    function test_an_erc20_jeet_penalty_reaches_the_pot_and_the_bag() public {
-        PenaltyConfig memory cfg;
-        cfg.jeetTaxBps = 500;
-        cfg.jeetWindowSeconds = 300;
-        vm.prank(graduator);
-        hook.register(key, address(token), address(pot), cfg);
-
-        _swap(key, address(token), alice, true, -int256(uint256(10_000e6)), 0);
-        uint256 tokens = token.balanceOf(alice);
-        vm.warp(block.timestamp + 10);
-        vm.recordLogs();
-        _swap(key, address(token), alice, false, -int256(tokens), 0);
-        PenaltyLog[] memory p = _penalties(vm.getRecordedLogs());
-
-        assertEq(p.length, 1);
-        assertEq(p[0].reason, BagReasons.JEET);
-        assertEq(p[0].payer, alice);
-        assertEq(usd.balanceOf(address(pot)), p[0].toHolders);
-        assertEq(pot.lastDeposit().payer, alice);
-        assertEq(bag.penaltyCut(address(usd), address(token)), p[0].toBag);
-        assertEq(usd.balanceOf(address(bag)), p[0].toBag);
-        assertEq(usd.balanceOf(address(hook)), 0);
     }
 }
 
@@ -800,7 +543,6 @@ contract GraduatorWiringTest is GraduationFixture {
     MockPositionManager internal posm;
     UniswapV4Graduator internal grad;
     PoolKey internal key;
-    PenaltyConfig internal cfg;
 
     function setUp() public {
         _deployMachine();
@@ -818,11 +560,6 @@ contract GraduatorWiringTest is GraduationFixture {
         factory.setModules(address(feeRouter), address(vault), address(grad), address(bag));
         // this contract plays the curve
         factory.setLaunch(address(token), address(this), address(0), address(pot));
-        cfg.jeetTaxBps = 300;
-        cfg.jeetWindowSeconds = 120;
-        cfg.whaleTaxBps = 800;
-        cfg.whaleTickLimit = 250;
-        factory.setPenalties(address(token), cfg);
         pot.setExcluder(address(grad));
         key = _keyFor(address(token), address(0));
     }
@@ -879,7 +616,7 @@ contract GraduatorWiringTest is GraduationFixture {
         token.mint(address(grad), 200e18);
 
         vm.expectEmit(true, true, true, true, address(hook));
-        emit HoodGraduationHook.PoolRegistered(key.toId(), address(token), address(pot), cfg);
+        emit HoodGraduationHook.PoolRegistered(key.toId(), address(token), address(pot));
         grad.graduate{value: 10 ether}(address(token), address(0), 200e18, 10 ether, POOL_FEE, SPACING);
 
         assertTrue(grad.isGraduated(address(token)));
@@ -888,10 +625,6 @@ contract GraduatorWiringTest is GraduationFixture {
         HoodGraduationHook.Pool memory row = hook.poolOf(key.toId());
         assertEq(row.token, address(token));
         assertEq(row.pot, address(pot));
-        assertEq(row.jeetTaxBps, cfg.jeetTaxBps);
-        assertEq(row.jeetWindowSeconds, cfg.jeetWindowSeconds);
-        assertEq(row.whaleTaxBps, cfg.whaleTaxBps);
-        assertEq(row.whaleTickLimit, cfg.whaleTickLimit);
         assertTrue(pot.excluded(address(pm)), "the pool's reserves never count as a holder");
         assertTrue(pot.excluded(HOOK_ADDRESS), "and neither does the hook");
         assertEq(posm.calls(), 1, "the position was minted");

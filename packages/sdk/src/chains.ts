@@ -162,7 +162,6 @@ export interface HoodAddresses {
   burnClock?: `0x${string}`;
   boosts?: `0x${string}`;
   graduationHook?: `0x${string}`;
-  openingAuction?: `0x${string}`;
 }
 
 export function addressesFromEnv(env: Record<string, string | undefined> = process.env): HoodAddresses {
@@ -185,7 +184,6 @@ export function addressesFromEnv(env: Record<string, string | undefined> = proce
     burnClock: maybe("HOOD_BURN_CLOCK"),
     boosts: maybe("HOOD_BOOSTS"),
     graduationHook: maybe("HOOD_GRADUATION_HOOK"),
-    openingAuction: maybe("HOOD_OPENING_AUCTION"),
   };
 }
 

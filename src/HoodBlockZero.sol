@@ -188,6 +188,17 @@ contract HoodBlockZero is ITeamEvents, ReentrancyGuard {
         lp = p;
         lp.salt = saltFor(msg.sender, p.salt);
         if (lp.creatorFeeRecipient == address(0)) lp.creatorFeeRecipient = msg.sender;
+        // The factory exempts its caller (this contract) and the fee recipient from the opening
+        // tax. The wallet that launched through here is the launcher, so it is named too when it
+        // is not already the fee recipient; it counts against the factory's MAX_EXEMPT.
+        if (lp.creatorFeeRecipient != msg.sender) {
+            address[] memory named = new address[](p.exempt.length + 1);
+            for (uint256 i; i < p.exempt.length; ++i) {
+                named[i] = p.exempt[i];
+            }
+            named[p.exempt.length] = msg.sender;
+            lp.exempt = named;
+        }
     }
 
     /// @dev `existing` legs are already on the registry for this token (a follow-up), so the cap

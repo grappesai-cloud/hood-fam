@@ -12,6 +12,9 @@ interface IHoodPayday {
 
     /// @notice Same payment convention as the Bag. Credits the current epoch.
     function fund(address asset, uint256 amount) external payable;
+    /// @notice Same, for a named epoch that has not closed yet (the current one or later). A boost
+    ///         bought for the next hour pays that hour's traders.
+    function fundEpoch(address asset, uint256 amount, uint64 epoch_) external payable;
 
     /// @notice Pays a closed epoch. `wallets` and `amounts` are the hour's points holders,
     ///         `pots` are up to ten launch pots that share the launch slice (at most

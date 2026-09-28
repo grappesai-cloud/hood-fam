@@ -11,7 +11,7 @@ interface IHoodPot {
     function asset() external view returns (address);
 
     /// @notice Books `amount` for every eligible holder, pro rata to balance. `reason` is one of
-    ///         BagReasons, `payer` is who the money came from (the sniper, the creator, the Bag).
+    ///         BagReasons, `payer` is who the money came from (the creator, Payday, the Bag).
     function depositForHolders(uint256 amount, bytes32 reason, address payer) external payable;
 
     /// @notice What `account` can take right now.

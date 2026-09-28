@@ -1,0 +1,6 @@
+/* The opening tax schedule on both launch forms: four rows, the seconds and what a buy pays. */
+.opening-tax-table { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.opening-tax-table > div { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--glass-line); border-radius: 12px; background: #ffffff06; }
+.opening-tax-table span { color: var(--color-dim); font-size: 11px; }
+.opening-tax-table strong { font-family: var(--font-mono); font-size: 15px; }
+@media (max-width: 640px) { .opening-tax-table { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

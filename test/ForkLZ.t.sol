@@ -16,8 +16,7 @@ import {HoodStaking} from "../src/HoodStaking.sol";
 import {HoodBridgeFactory} from "../src/omnichain/HoodBridgeFactory.sol";
 import {HoodOFTAdapter} from "../src/omnichain/HoodOFTAdapter.sol";
 import {UniswapV4Graduator} from "../src/graduation/UniswapV4Graduator.sol";
-import {CurveConfig, CurveGuard, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
-import {PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {CurveConfig, FeeSplit, LaunchParams} from "../src/HoodTypes.sol";
 
 /// @notice The omnichain leg against the real LayerZero V2 endpoint on 4663.
 /// @dev The endpoint on this chain is NOT at the canonical 0x1a44... address. It is at
@@ -64,7 +63,7 @@ contract ForkLZTest is BagRig {
         bridge = new HoodBridgeFactory(owner, address(factory), LZ_ENDPOINT);
         (HoodBag bag,,) = _bagStack(address(factory), treasury, address(staking), POOL_MANAGER);
         HoodGraduationHook hook =
-            _graduationHook(POOL_MANAGER, address(factory), address(bag), address(feeRouter), address(staking));
+            _graduationHook(POOL_MANAGER, address(factory), address(bag), address(feeRouter));
 
         vm.startPrank(owner);
         factory.setModules(address(feeRouter), address(staking), address(graduator));
@@ -107,8 +106,7 @@ contract ForkLZTest is BagRig {
                 firstBuyLock: 0,
                 salt: bytes32(uint256(1)),
                 econ: bytes32(0),
-                penalties: PenaltyConfig(0, 0, 0, 0, 0, false),
-                guard: CurveGuard(0, 0, 0, 0)
+                exempt: new address[](0)
             })
         );
         token = t;

@@ -55,7 +55,6 @@ export interface DirectLaunchRow {
   creator: Address;
   positionId: bigint;
   launchedAt: number;
-  restrictionsEndBlock: bigint;
   exists: boolean;
 }
 
@@ -114,21 +113,17 @@ export interface DirectLaunchInput {
   /// Taxes are per side and fixed forever: 100 to 1000 bps.
   buyTaxBps?: number;
   sellTaxBps?: number;
-  /// The surcharge at the open, decaying to nothing. Launch tax plus this is capped at 9,900.
-  snipeTaxBps?: number;
-  snipeDecaySeconds?: number;
-  /// Pons-style opening window. Zero disables it entirely, launch block included.
-  restrictionBlocks?: number;
-  maxHoldBps?: number;
-  maxBuyBps?: number;
+  /// Wallets that pay no opening tax, on top of the launcher and the fee recipient (at most 32).
+  /// The opening tax itself is not a setting: 99%, 6.18%, 0.19% over the first three seconds.
+  exempt?: Address[];
   /// Where the price starts and where the launch counts as bonded.
   tickStart: number;
   tickBond: number;
   /// The creator's nine tenths, split four ways. Must add up to 10,000.
   allocations?: { creatorBps: number; buybackBps: number; dividendsBps: number; liquidityBps: number };
   salt?: `0x${string}`;
-  /// Quote spent on the creator's own first buy, inside the launch transaction. The window's buy
-  /// cap applies to it, so it is first dibs, not the whole open.
+  /// Quote spent on the creator's own first buy, inside the launch transaction, where the opening
+  /// tax does not reach it.
   initialBuy?: bigint;
 }
 
@@ -150,11 +145,6 @@ const DEFAULTS = {
   tickSpacing: 200,
   buyTaxBps: 500,
   sellTaxBps: 500,
-  snipeTaxBps: 5_000,
-  snipeDecaySeconds: 3,
-  restrictionBlocks: 30,
-  maxHoldBps: 500,
-  maxBuyBps: 550,
   allocations: { creatorBps: 2_500, buybackBps: 2_500, dividendsBps: 4_000, liquidityBps: 1_000 },
 } as const;
 
@@ -228,14 +218,10 @@ export function createDirectClient({
       config: {
         buyTaxBps: input.buyTaxBps ?? DEFAULTS.buyTaxBps,
         sellTaxBps: input.sellTaxBps ?? DEFAULTS.sellTaxBps,
-        snipeTaxBps: input.snipeTaxBps ?? DEFAULTS.snipeTaxBps,
-        snipeDecaySeconds: input.snipeDecaySeconds ?? DEFAULTS.snipeDecaySeconds,
-        restrictionBlocks: input.restrictionBlocks ?? DEFAULTS.restrictionBlocks,
-        maxHoldBps: input.maxHoldBps ?? DEFAULTS.maxHoldBps,
-        maxBuyBps: input.maxBuyBps ?? DEFAULTS.maxBuyBps,
         tickStart: input.tickStart,
         tickBond: input.tickBond,
         allocations,
+        exempt: input.exempt ?? [],
       },
       salt: input.salt ?? keccak256(encodeAbiParameters(parseAbiParameters("string, uint256"), [input.symbol, BigInt(Date.now())])),
       initialBuy: input.initialBuy ?? 0n,
@@ -283,19 +269,19 @@ export function createDirectClient({
       creator: row.creator as Address,
       positionId: row.positionId as bigint,
       launchedAt: Number(row.launchedAt),
-      restrictionsEndBlock: row.restrictionsEndBlock as bigint,
       exists: Boolean(row.exists),
     };
   }
 
-  /// What a trade pays right now, and how much of that is the snipe surcharge still burning off.
+  /// What a trade pays right now for a wallet that is not exempt, and how much of that is the
+  /// opening tax (zero from the third second on).
   async function taxes(hook: Address) {
     const [buy, sell, snipe, bonded, baseBuy, baseSell] = await publicClient.multicall({
       allowFailure: false,
       contracts: [
         { address: hook, abi: hoodLaunchHookAbi, functionName: "currentTaxBps", args: [true] },
         { address: hook, abi: hoodLaunchHookAbi, functionName: "currentTaxBps", args: [false] },
-        { address: hook, abi: hoodLaunchHookAbi, functionName: "currentSnipeBps" },
+        { address: hook, abi: hoodLaunchHookAbi, functionName: "currentSnipeTaxBps", args: [zeroAddress] },
         { address: hook, abi: hoodLaunchHookAbi, functionName: "bonded" },
         { address: hook, abi: hoodLaunchHookAbi, functionName: "buyTaxBps" },
         { address: hook, abi: hoodLaunchHookAbi, functionName: "sellTaxBps" },
