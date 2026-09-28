@@ -9,6 +9,10 @@ import { Prov } from "@/components/Provenance";
 /// the one rule a reader needs (the last ten launches share a tenth of it). The clock is the wall
 /// clock, because the epoch is `timestamp / 1 hours` on chain and needs no read; the pot is the
 /// indexer's sum of Funded events, and is a dash with the reason until the API serves it.
+///
+/// The clock is read only in the browser. A page rendered on the server (or prerendered at build
+/// time) would carry the server's second in its HTML, the browser would compute its own on the
+/// first render, and React would throw the whole page away over the mismatch (error #418).
 
 function clock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -16,15 +20,16 @@ function clock(seconds: number): string {
 }
 
 export function PaydayStrip() {
-  const [now, setNow] = useState(() => Date.now() / 1000);
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
+    setNow(Date.now() / 1000);
     const t = setInterval(() => setNow(Date.now() / 1000), 1_000);
     return () => clearInterval(t);
   }, []);
   const bag = useBag();
   const payday = bag.data?.payday;
   const endsAt = payday?.endsAt ? new Date(payday.endsAt).getTime() / 1000 : NaN;
-  const left = (Number.isFinite(endsAt) && endsAt > now ? endsAt : (Math.floor(now / 3600) + 1) * 3600) - now;
+  const left = now === null ? null : (Number.isFinite(endsAt) && endsAt > now ? endsAt : (Math.floor(now / 3600) + 1) * 3600) - now;
 
   const pots = (payday?.pot ?? [])
     .map((p) => ({ ...assetOf(p.asset, p), amount: big(p.funded) + big(p.carried) }))
@@ -36,7 +41,7 @@ export function PaydayStrip() {
     <div className="payday-strip" aria-label="Payday">
       <div className="payday-clock-wrap">
         <span className="payday-kicker">Payday</span>
-        <strong className="payday-clock mono">{clock(left)}</strong>
+        <strong className="payday-clock mono" suppressHydrationWarning>{left === null ? "--:--" : clock(left)}</strong>
         <span className="payday-sub">to the hour</span>
       </div>
       <div className="payday-pot">

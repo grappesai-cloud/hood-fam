@@ -47,7 +47,7 @@ const ADMIN_TOKEN = process.env.E2E_ADMIN_TOKEN ?? "rehearsal-token-0123456789ab
 const ETH_USD_FALLBACK = process.env.HOOD_ETH_USD ?? "4000";
 
 const USDG = pairs.usdg.address;
-const LAUNCH_FEE = parseEther("0.0005");
+const LAUNCH_FEE = parseEther("0.002");
 
 // ---------------------------------------------------------------- the checklist
 
@@ -453,9 +453,9 @@ export async function checkWiring({ client, a, owner: ownerAddress, treasury: tr
   // further along than it used to, and the pair itself is worth checking: a preset pointing at the
   // wrong asset would open at a valuation nobody chose.
   const expected = [
-    { pair: zeroAddress, startCap: parseEther("1"), graduationCap: parseEther("10"), liquidityBps: 9000 },
-    { pair: zeroAddress, startCap: parseEther("2"), graduationCap: parseEther("40"), liquidityBps: 9500 },
-    { pair: USDG, startCap: 5_000_000_000n, graduationCap: 50_000_000_000n, liquidityBps: 9000 },
+    { pair: zeroAddress, startCap: parseEther("1.1"), graduationCap: parseEther("11.025"), liquidityBps: 9000 },
+    { pair: zeroAddress, startCap: parseEther("2"), graduationCap: parseEther("40"), liquidityBps: 9000 },
+    { pair: USDG, startCap: 5_500_000_000n, graduationCap: 55_125_000_000n, liquidityBps: 9000 },
   ];
   for (let i = 0; i < Math.min(configCount, expected.length); i++) {
     const c = configs[i];
@@ -556,13 +556,16 @@ async function curveMachine(a) {
   check("the protocol's cut of the first buy is booked on the curve, not pushed",
     booked === protocolCut,
     `${formatEther(booked)} ETH booked, 30 of the 100 bps the first buy paid`);
-  // Permissionless on purpose: the keeper does it, and if the keeper dies anybody can.
-  const beforeClaim = await balanceOf(zeroAddress, treasury.address);
-  await send(alice, curve, hoodCurveAbi, "claimProtocol");
-  check("anybody can push the booked protocol fee to the treasury",
-    (await balanceOf(zeroAddress, treasury.address)) - beforeClaim === booked
+  // Permissionless on purpose: the keeper does it, and if the keeper dies anybody can. The money
+  // goes to the Bag (thirds to the house, the vault and Payday), not to the treasury, and the Bag
+  // forwards it on arrival, so the proof is the curve's own event rather than a balance.
+  const curveClaimReceipt = await send(alice, curve, hoodCurveAbi, "claimProtocol");
+  const curveClaimed = eventIn(curveClaimReceipt, curve, parseAbiItem("event ProtocolClaimed(address indexed to, uint256 amount)"));
+  const curveBag = await read(curve, hoodCurveAbi, "bag");
+  check("anybody can push the booked protocol fee to the Bag",
+    Boolean(curveClaimed) && same(curveClaimed.to, curveBag) && curveClaimed.amount === booked
       && (await read(curve, hoodCurveAbi, "protocolClaimable")) === 0n,
-    `${formatEther(booked)} ETH claimed by a wallet that is not the treasury`);
+    `${formatEther(booked)} ETH claimed by a wallet that is not the treasury, sent to the Bag`);
   const creatorBag = await balanceOf(token, creator.address);
   check("the creator's first buy landed in the creator's wallet, not the factory's", creatorBag > 0n,
     `${formatEther(creatorBag)} RFAM for ${formatEther(firstBuy)} ETH`);
@@ -810,7 +813,9 @@ async function directMachine(a) {
   const swept = eventIn(await send(keeper, row.splitter, parseAbi(["function sweep()"]), "sweep"), row.splitter, sweptEvent);
   const buckets = await direct(creator).buckets(row.splitter);
   const rest = swept.total - swept.protocol;
-  check("the protocol's tenth came off the top first", swept.protocol === (swept.total * 1000n) / 10000n,
+  // The platform's leg leaves at trade time now, from the hook straight to the Bag, so a sweep has
+  // nothing to take off the top: everything it finds is the creator's tax, split four ways.
+  check("the sweep takes nothing off the top: the Bag's leg left at trade time", swept.protocol === 0n,
     `${formatEther(swept.protocol)} of ${formatEther(swept.total)} ETH`);
   check("the rest split four ways exactly as the launch declared",
     swept.creator === (rest * BigInt(buckets.allocations.creatorBps)) / 10000n
@@ -828,18 +833,21 @@ async function directMachine(a) {
 
   const creatorEth = await balanceOf(zeroAddress, creator.address);
   const creatorClaim = buckets.creatorClaimable;
-  const claimReceipt = await send(creator, row.splitter, parseAbi(["function claim(address) returns (uint256)"]), "claim", [creator.address]);
+  // `claim(account)` is the holders' dividend road (IHoodPot); the creator's bucket has its own.
+  const claimReceipt = await send(creator, row.splitter, parseAbi(["function claimCreator(address) returns (uint256)"]), "claimCreator", [creator.address]);
   check("the creator's bucket pays the creator",
     (await balanceOf(zeroAddress, creator.address)) - creatorEth + claimReceipt.gasUsed * claimReceipt.effectiveGasPrice === creatorClaim,
     `${formatEther(creatorClaim)} ETH`);
 
+  // Nothing is ever booked for the treasury on a new launch; claimProtocol is a legacy path and
+  // refuses when there is nothing to pull.
   const protocolClaimable = await direct(creator).protocolClaimable(row.splitter);
-  const treasuryBefore = await balanceOf(zeroAddress, treasury.address);
-  check("nothing reached the treasury before somebody pulled it", protocolClaimable === swept.protocol);
-  await send(keeper, row.splitter, parseAbi(["function claimProtocol() returns (uint256)"]), "claimProtocol");
-  check("claimProtocol pays the portal's current treasury",
-    (await balanceOf(zeroAddress, treasury.address)) - treasuryBefore === protocolClaimable,
-    `${formatEther(protocolClaimable)} ETH`);
+  check("no protocol cut is booked on the splitter: the platform's fee is the Bag's", protocolClaimable === 0n);
+  let legacyClaimRefused = false;
+  try {
+    await send(keeper, row.splitter, parseAbi(["function claimProtocol() returns (uint256)"]), "claimProtocol");
+  } catch { legacyClaimRefused = true; }
+  check("the legacy protocol claim refuses when nothing is booked", legacyClaimRefused);
 
   const supplyBefore = await read(token, erc20Abi, "totalSupply");
   const expectedBurn = await direct(keeper).quoteBuyback(token);
@@ -1046,8 +1054,10 @@ async function checkApi(a, curve, direct) {
     direct.token);
   check("the api counted the direct pool's swaps", Number(directRow.body.trades_total) > 0
     && BigInt(directRow.body.volume_total) > 0n, `${directRow.body.trades_total} trades`);
+  // The opening tax is one fixed schedule now, not a per-launch number, so the row carries only
+  // the two trade taxes.
   check("the api carries the direct launch's tax shape",
-    directRow.body.buy_tax_bps === 500 && directRow.body.sell_tax_bps === 500 && directRow.body.snipe_tax_bps === 5000);
+    directRow.body.buy_tax_bps === 500 && directRow.body.sell_tax_bps === 500);
 
   const stats = await api("/stats");
   // Four: the house coin, the curve launch, the direct one and the dollar quoted direct one.

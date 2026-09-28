@@ -171,14 +171,31 @@ try {
   await sleep(1200);
   await page.screenshot({ path: join(SHOTS, "wizard-1-filled.png") });
 
+  // The form is a stepper: name and market, then fees, then the first buy, then the review, where
+  // the permanent terms are ticked before the button goes live. Walk it the way a person does.
+  for (let i = 0; i < 8; i++) {
+    const moved = await page.evaluate(() => {
+      if ([...document.querySelectorAll("button")].some((b) => /create the token|^approve /i.test(b.textContent.trim()))) return "review";
+      const next = [...document.querySelectorAll("button")].find((b) => /continue to (next step|review)/i.test(b.textContent));
+      if (!next || next.disabled) return next ? "blocked" : "missing";
+      next.click();
+      return "next";
+    });
+    if (moved !== "next") { if (moved !== "review") console.log(`       step ${i + 1}: ${moved}`); break; }
+    await sleep(900);
+  }
+  await page.evaluate(() => [...document.querySelectorAll("input[type=checkbox]")].filter((c) => !c.checked).forEach((c) => c.click()));
+  await sleep(800);
+  await page.screenshot({ path: join(SHOTS, "wizard-1b-review.png") });
+
   const before = await client.getBalance({ address: wallet });
   const pressed = await page.evaluate(() => {
     const button = [...document.querySelectorAll("button")].find((b) => /create the token/i.test(b.textContent));
-    if (!button || button.disabled) return button ? "disabled" : "missing";
+    if (!button || button.disabled) return button ? `disabled: ${document.querySelector(".launch-bar-why")?.textContent ?? ""}` : "missing";
     button.click();
     return "clicked";
   });
-  check("the create button is live once the form is filled", pressed === "clicked", pressed);
+  check("the create button is live once the form is filled and the terms are reviewed", pressed === "clicked", pressed);
 
   // The app redirects to the token page as soon as the receipt lands.
   let onToken = false;
