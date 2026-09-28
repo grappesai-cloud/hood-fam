@@ -23,30 +23,6 @@ import { hoodBlockZeroAbi, hoodFactoryAbi, hoodPortalAbi } from "@hood/sdk";
 /// upgrade is still pending. The selectors every generation must come out to are pinned in
 /// EXPECTED_LAUNCH_SELECTORS and checked at load.
 
-export interface PenaltyConfig {
-  jeetTaxBps: number;
-  jeetWindowSeconds: number;
-  whaleTaxBps: number;
-  whaleTickLimit: number;
-  kingBps: number;
-  penaltiesToVault: boolean;
-}
-
-/// Everything off. What a launch that touched none of the cards sends.
-export const PENALTIES_OFF: PenaltyConfig = {
-  jeetTaxBps: 0, jeetWindowSeconds: 0, whaleTaxBps: 0, whaleTickLimit: 0, kingBps: 0, penaltiesToVault: false,
-};
-
-/// The contracts' own ceilings, so the form refuses what the chain would refuse.
-export const PENALTY_CAPS = {
-  jeetTaxBps: 2_500,
-  jeetWindowSeconds: 3_600,
-  whaleTaxBps: 2_500,
-  whaleTickLimit: 2_000,
-  kingBps: 5_000,
-  auctionBlocks: 300,
-} as const;
-
 const PENALTY_COMPONENTS: readonly AbiParameter[] = [
   { name: "jeetTaxBps", type: "uint16", internalType: "uint16" },
   { name: "jeetWindowSeconds", type: "uint32", internalType: "uint32" },
@@ -184,9 +160,8 @@ export const createTeamLaunchSelector = toFunctionSelector(createTeamLaunchV4);
 export const portalTakesTeam = (code: `0x${string}` | undefined) =>
   Boolean(code && code.toLowerCase().includes(createTeamLaunchSelector.slice(2).toLowerCase()));
 
-/// v3 carried the creator penalties and the auction; v4 names the open buyers instead, and has
-/// no opening rules or caps of its own.
-export const portalTakesPenalties = (g: PortalGeneration | undefined) => g === "v3";
+/// v4 names the open buyers and has no opening rules or caps of its own; v3 carried the creator
+/// penalties and the auction, which the form no longer sends. Its ABI stays for detection.
 export const portalTakesExempt = (g: PortalGeneration | undefined) => g === "v4";
 
 /// Which `createLaunch` the deployed portal answers to, read off its bytecode. `undefined` means
@@ -255,10 +230,8 @@ export const launchSelectors: Record<FactoryGeneration, { launch: `0x${string}`;
   v5: { launch: toFunctionSelector(launchV5), launchCustom: toFunctionSelector(launchCustomV5) },
 };
 
-/// v3 and v4 take creator penalties; v4 takes the curve's opening rules; v5 names the open buyers
-/// instead of either.
-export const factoryTakesPenalties = (g: FactoryGeneration | undefined) => g === "v3" || g === "v4";
-export const factoryTakesGuard = (g: FactoryGeneration | undefined) => g === "v4";
+/// v5 names the open buyers; the generations before it carried creator penalties (v3, v4) and the
+/// curve's opening rules (v4), which the forms no longer send. Their ABIs stay for detection.
 export const factoryTakesExempt = (g: FactoryGeneration | undefined) => g === "v5";
 
 export function detectFactoryGeneration(code: `0x${string}` | undefined): FactoryGeneration | undefined {
@@ -344,77 +317,4 @@ export function launchSelectorMismatches(): string[] {
 {
   const mismatches = launchSelectorMismatches();
   if (mismatches.length) console.error(`launchAbi: the derived launch selectors are off, do not launch with this build: ${mismatches.join("; ")}`);
-}
-
-// ---------------------------------------------------------------- the form's side of it
-
-/// What the penalties step holds. Percentages and minutes, the units a person thinks in; the
-/// conversion to basis points and seconds happens once, in `encodePenalties`.
-export interface PenaltyForm {
-  jeetOn: boolean; jeetPct: number; jeetMinutes: number;
-  whaleOn: boolean; whalePct: number; whaleTicks: number;
-  kingOn: boolean; kingPct: number;
-  lockersEat: boolean;
-  auctionOn: boolean; auctionBlocks: number;
-}
-
-/// The wizard's defaults: every creator option off, with the value it takes the moment it is
-/// turned on already in place, so a switch is one decision and not three.
-export const PENALTY_FORM_DEFAULTS: PenaltyForm = {
-  jeetOn: false, jeetPct: 5, jeetMinutes: 10,
-  whaleOn: false, whalePct: 5, whaleTicks: 300,
-  kingOn: false, kingPct: 20,
-  lockersEat: false,
-  auctionOn: false, auctionBlocks: 30,
-};
-
-export function encodePenalties(p: PenaltyForm): PenaltyConfig {
-  return {
-    jeetTaxBps: p.jeetOn ? Math.round(p.jeetPct * 100) : 0,
-    jeetWindowSeconds: p.jeetOn ? Math.round(p.jeetMinutes * 60) : 0,
-    whaleTaxBps: p.whaleOn ? Math.round(p.whalePct * 100) : 0,
-    whaleTickLimit: p.whaleOn ? Math.round(p.whaleTicks) : 0,
-    kingBps: p.kingOn ? Math.round(p.kingPct * 100) : 0,
-    penaltiesToVault: p.lockersEat,
-  };
-}
-
-export const encodeAuctionBlocks = (p: PenaltyForm) => p.auctionOn ? Math.round(p.auctionBlocks) : 0;
-
-/// Whether anything at all is on. A launch with nothing on can still go to a v2 contract without
-/// losing a choice the creator made, which is what decides whether the old ABI is acceptable.
-export function penaltiesInUse(p: PenaltyForm): boolean {
-  return p.jeetOn || p.whaleOn || p.kingOn || p.lockersEat || p.auctionOn;
-}
-
-/// The reason the encoded values would be refused on chain, or nothing.
-export function penaltyProblem(p: PenaltyForm): string | undefined {
-  const e = encodePenalties(p);
-  if (e.jeetTaxBps > PENALTY_CAPS.jeetTaxBps) return "The jeet tax cannot go above 25%.";
-  if (p.jeetOn && e.jeetWindowSeconds === 0) return "A jeet tax needs a window above zero.";
-  if (e.jeetWindowSeconds > PENALTY_CAPS.jeetWindowSeconds) return "The jeet window cannot go past 60 minutes.";
-  if (e.whaleTaxBps > PENALTY_CAPS.whaleTaxBps) return "The whale dump tax cannot go above 25%.";
-  if (p.whaleOn && e.whaleTickLimit === 0) return "A whale dump tax needs a tick limit above zero.";
-  if (e.whaleTickLimit > PENALTY_CAPS.whaleTickLimit) return "The tick limit cannot go past 2000.";
-  if (e.kingBps > PENALTY_CAPS.kingBps) return "The king of the hill slice cannot go above 50%.";
-  if (p.auctionOn && (p.auctionBlocks < 1 || p.auctionBlocks > PENALTY_CAPS.auctionBlocks)) return "The auction must last between 1 and 300 blocks.";
-  return undefined;
-}
-
-/// One line per penalty that is on, for the review step. Nothing on is one honest line.
-export function penaltyReviewRows(p: PenaltyForm, opts: { snipe?: { pct: number; seconds: number }; postGraduation?: boolean } = {}): { label: string; value: string }[] {
-  const rows: { label: string; value: string }[] = [];
-  if (opts.snipe) {
-    rows.push({ label: "Snipe tax", value: opts.snipe.pct > 0 ? `${opts.snipe.pct}% extra at the open, gone after ${opts.snipe.seconds}s, paid to holders` : "Off" });
-  }
-  const to = p.lockersEat ? "Vault lockers" : "holders";
-  if (p.jeetOn) rows.push({ label: "Jeet tax", value: `${p.jeetPct}% on a sell within ${p.jeetMinutes} min of buying, to ${to}` });
-  if (p.whaleOn) rows.push({ label: "Whale dump tax", value: `${p.whalePct}% on a sell that moves the pool past ${p.whaleTicks} ticks, to ${to}` });
-  if (p.kingOn) rows.push({ label: "King of the hill", value: `${p.kingPct}% of every sell tax fills the pot; the last buyer after 60 s of quiet wins it` });
-  if (p.lockersEat) rows.push({ label: "Lockers eat the jeets", value: "Jeet and whale taxes go to Vault lockers instead of holders" });
-  if (p.auctionOn) rows.push({ label: "Sniper auction", value: `The first slot is auctioned for ${p.auctionBlocks} blocks; half to holders, half into locked liquidity` });
-  if (!p.jeetOn && !p.whaleOn && !p.kingOn && !p.lockersEat && !p.auctionOn) {
-    rows.push({ label: "Creator penalties", value: opts.postGraduation ? "None after graduation" : "None beyond the defaults" });
-  }
-  return rows;
 }
