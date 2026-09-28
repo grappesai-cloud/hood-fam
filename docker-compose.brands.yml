@@ -1,8 +1,9 @@
 # The other faces.
 #
 # One launchpad, one indexer, one API, several front ends (apps/web/brands). Each service here is the
-# same image built with a different BRAND, serving a different name. They all read the same
-# api.hood.grappes.dev and write to the same contracts; nothing below the browser is duplicated.
+# same image built with a different BRAND, serving a different name. They all read the same API
+# (ox as api.famdotfun.com, the others as api.hood.grappes.dev) and write to the same contracts;
+# nothing below the browser is duplicated.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.brands.yml \
 #     build web-ox web-klimb web-pit web-bodega
@@ -54,7 +55,8 @@ services:
       args:
         <<: *web-build-args
         BRAND: ox
-        NEXT_PUBLIC_SITE_URL: ${SITE_OX:-https://0x.grappes.dev}
+        NEXT_PUBLIC_SITE_URL: ${SITE_OX:-https://famdotfun.com}
+        NEXT_PUBLIC_API_URL: ${API_OX:-https://api.famdotfun.com}
 
   web-klimb:
     <<: *brand-web

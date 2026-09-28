@@ -7,9 +7,18 @@ http:
   routers:
     hood-web-ox:
       entryPoints: [https]
-      rule: "Host(`0x.grappes.dev`)"
+      rule: "Host(`0x.grappes.dev`) || Host(`famdotfun.com`)"
       priority: 1000
       service: hood-web-ox
+      tls:
+        certResolver: letsencrypt
+    # www is a name for the apex, never a second copy of the site
+    hood-web-ox-www:
+      entryPoints: [https]
+      rule: "Host(`www.famdotfun.com`)"
+      priority: 1000
+      service: noop@internal
+      middlewares: [hood-ox-apex]
       tls:
         certResolver: letsencrypt
     hood-web-klimb:
@@ -35,7 +44,7 @@ http:
         certResolver: letsencrypt
     hood-brands-http:
       entryPoints: [http]
-      rule: "(Host(`0x.grappes.dev`) || Host(`klimb.grappes.dev`) || Host(`pit.grappes.dev`) || Host(`bodega.grappes.dev`)) && !PathPrefix(`/.well-known/acme-challenge/`)"
+      rule: "(Host(`0x.grappes.dev`) || Host(`famdotfun.com`) || Host(`www.famdotfun.com`) || Host(`klimb.grappes.dev`) || Host(`pit.grappes.dev`) || Host(`bodega.grappes.dev`)) && !PathPrefix(`/.well-known/acme-challenge/`)"
       priority: 100
       service: noop@internal
       middlewares: [hood-brands-https]
@@ -43,6 +52,11 @@ http:
     hood-brands-https:
       redirectScheme:
         scheme: https
+        permanent: true
+    hood-ox-apex:
+      redirectRegex:
+        regex: "^https://www\\.famdotfun\\.com/(.*)"
+        replacement: "https://famdotfun.com/${1}"
         permanent: true
   services:
     hood-web-ox:

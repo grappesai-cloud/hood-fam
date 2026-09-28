@@ -35,7 +35,7 @@ function save(m: Msg[]) {
 /// Hosts a link in an answer may point at. The assistant reads token metadata, tickets and whatever
 /// a user pastes, so a URL in its output is not necessarily one it chose: anything else is shown as
 /// text, which is still readable and cannot be clicked into somebody's drainer.
-const LINKABLE = [new URL(EXPLORER).host, "hood.fam", "www.hood.fam"];
+const LINKABLE = [new URL(EXPLORER).host, "hood.fam", "www.hood.fam", "famdotfun.com", "www.famdotfun.com"];
 
 function linkable(raw: string): string | null {
   try {
