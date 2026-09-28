@@ -167,20 +167,21 @@ funds that are not already in their path.
 ## Static analysis
 
 Slither 0.11.6, run over `src/` with dependencies, tests and scripts excluded, informational and
-low findings dropped. The 18-09-2026 run had 59 results, no high or medium
-finding that is not answered below. Every high and medium finding was read and is answered here, so the next
-person does not have to re-derive the verdicts.
+low findings dropped. The v3 run (28-09-2026, the Bag, pots, Payday, burn clock and the graduation
+hook included) has 120 results. Every one of them was read and is answered here, so the next person
+does not have to re-derive the verdicts. `docs/slither-baseline.json` lists them, and CI fails on
+any finding that is not in it (`scripts/slither-gate.mjs`).
 
 | Detector | Count | Verdict |
 |---|---|---|
 | `arbitrary-send-erc20` | 1 | False positive. `PairTransfer.pull` pulls from `msg.sender` at every call site; the "arbitrary" address is the caller. |
-| `arbitrary-send-eth` | 1 | False positive. `HoodFeeRouter._flush` pays the registry's creator fee recipient or the treasury, never a caller-supplied address. |
-| `reentrancy-eth` | 4 | Guarded. `graduate`, `_flush`, `unstake` and `demote` are `nonReentrant` and write state before the transfer. The four splitter movers dropped off this list once the protocol tenth stopped being pushed from inside `sweep()`. |
-| `reentrancy-no-eth` | 3 | Harmless. `deployAdapter` could only be re-entered by LayerZero's endpoint, and a second CREATE2 with the same salt reverts anyway. `_afterSwap` can only be reached through the PoolManager's lock. `HoodBuybackModule.run` is `nonReentrant`. |
-| `incorrect-equality` | 17 | Not exploitable. They are `== 0` on amounts this contract computed, or `block.number == launchBlock`, not balance comparisons somebody can move with a donation. |
-| `uninitialized-local` | 4 | False positive. Structs filled field by field, a tuple assigned by a ternary, and `released` in `run`, which is zero unless the try branch sets it. |
-| `unused-return` | 27 | Accepted. `initialize`, `unlock`, `settle`, `donate` and `getSlot0` return values we do not need; each of them reverts on failure rather than returning a code. |
-| `divide-before-multiply` | 2 | Intentional, both. `(MAX_TICK / spacing) * spacing` floors a tick to its spacing. The buyback's gross-up divides by the pool fee and then by the buy tax, losing at most a wei a step, which is why it ends `+ 1`: the swap must ask for at least what it needs, never a wei less. |
+| `arbitrary-send-eth` | 12 | False positive. Every destination is fixed by the protocol, never passed by a caller: the fee router pays the registry's creator fee recipient, the Bag, the launch's own curve or graduation handler; the Bag pays the house address, the Payday and a launch's own pot; the Payday pays the wallets and pots the keeper's epoch names, from its own balance; the pots and the splitter push a holder's own dividend; the launch hook pays the referral the portal's registry names; `finalize` pays the Bag. Pushes to wallets carry a gas cap (30k to 60k) and fall back to a claim. |
+| `reentrancy-eth` | 14 | Guarded. `takeTradeFee`, `takeGraduationFee`, `takePenaltyCut`, both `pushMany`, `graduate`, `flush`, `unstake` and `demote` are `nonReentrant`, and their outgoing ETH calls are gas-capped or go to protocol contracts. `buybackInline` can only be called by the hook itself (`NotSelf`), from inside the PoolManager's lock. |
+| `reentrancy-no-eth` | 10 | Harmless. `releaseHeld`, `takeHouseCoinLeg`, `HoodBurnClock.burn` (keeper only) and `HoodBuybackModule.run` are `nonReentrant`. `deployAdapter` could only be re-entered by LayerZero's endpoint, and a second CREATE2 with the same salt reverts anyway. `_beforeSwap`, `_afterSwap` and `_flushClaims` are reached only through the PoolManager's lock. `HoodStaking._settle` runs under `unstake`/`demote`/`claim`, all `nonReentrant`. |
+| `incorrect-equality` | 28 | Not exploitable. They are `== 0` on amounts this contract computed, or `block.number == launchBlock`, not balance comparisons somebody can move with a donation. |
+| `uninitialized-local` | 14 | False positive. Structs filled field by field, tuples assigned by a ternary or a try branch, and counters and flags (`released`, `burned`, `ret`, `pen2`) that are meant to start at zero. |
+| `unused-return` | 40 | Accepted. `initialize`, `unlock`, `settle`, `donate` and `getSlot0` return values we do not need; each of them reverts on failure rather than returning a code. |
+| `divide-before-multiply` | 1 | Intentional. `(MAX_TICK / spacing) * spacing` floors a tick to its spacing. |
 
 Slither cannot build IR for `HoodPortal._mintPosition` under via-IR and says so; that function is
 covered by the fork suite and by `test/DirectSwap.t.sol` instead.
@@ -194,8 +195,9 @@ changing a signature now would silently break every consumer pinned to the old o
 still raise it; the answer is that it is a cost paid once, at a version boundary, not never.
 
 Reproduce with `slither . --filter-paths "lib/|node_modules/|test/|script/" --exclude-dependencies
---exclude-informational --exclude-optimization --exclude-low`. CI runs it on every push and posts
-the report without gating, so a new finding is visible rather than blocking.
+--exclude-informational --exclude-optimization --exclude-low --json slither.json`, then
+`node scripts/slither-gate.mjs slither.json`. A new finding fails CI until someone reads it, answers
+it here and rewrites the baseline with `--write`.
 
 ## The 4663 trap that bites payouts
 

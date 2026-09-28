@@ -1,0 +1,41 @@
+name: fork
+
+# The suites that talk to the real Uniswap v4 and the real LayerZero endpoint on 4663. They fork the
+# public RPC, which sits behind Cloudflare and rate limits, so they run only when the contracts or
+# their tests change (or by hand), two suites at a time, and a run that failed is retried twice
+# after a pause: a rate limit clears, a real failure fails all three times.
+on:
+  push:
+    branches: [main]
+    paths: ["src/**", "test/**", "foundry.toml", "lib/**", ".github/workflows/fork.yml"]
+  pull_request:
+    paths: ["src/**", "test/**", "foundry.toml", "lib/**", ".github/workflows/fork.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: fork-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fork:
+    runs-on: ubuntu-latest
+    env:
+      RPC: https://rpc.mainnet.chain.robinhood.com
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: npm ci
+      - run: forge build
+      - name: fork suites
+        run: |
+          flags="--fork-url $RPC -j 2 --fork-retries 8 --fork-retry-backoff 2000 -vv"
+          forge test --match-path 'test/Fork*.t.sol' $flags && exit 0
+          for attempt in 2 3; do
+            echo "retrying the failed tests in 90 s (attempt $attempt)"
+            sleep 90
+            forge test --rerun $flags && exit 0
+          done
+          exit 1

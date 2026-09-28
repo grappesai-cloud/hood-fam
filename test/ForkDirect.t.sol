@@ -19,7 +19,7 @@ import {HoodRevenueSplitter} from "../src/direct/HoodRevenueSplitter.sol";
 import {HoodBuybackModule} from "../src/direct/HoodBuybackModule.sol";
 import {HoodOpeningAuction} from "../src/direct/HoodOpeningAuction.sol";
 import {Allocations, DirectConfig, Socials} from "../src/direct/DirectTypes.sol";
-import {PenaltyConfig} from "../src/bag/BagTypes.sol";
+import {BagSplits, PenaltyConfig} from "../src/bag/BagTypes.sol";
 import {ExactInputSingleParams, PoolKey as RhPoolKey, V4Actions} from "../src/interfaces/IExternal.sol";
 import {HoodFactory} from "../src/HoodFactory.sol";
 import {HoodDeployer} from "../src/HoodDeployer.sol";
@@ -542,18 +542,20 @@ contract ForkDirectTest is Test {
         _buy(alice, 1 ether);
         assertGt(token.balanceOf(alice), 0);
 
-        // a buy's tax is held as a claim until its input is settled; anyone can then flush it
-        assertApproxEqRel(hook.claimsHeld(), 0.05 ether, 0.02e18, "five percent, held as a claim");
+        // a buy's tax is held as a claim until its input is settled; anyone can then flush it. The
+        // claim is the whole take: 5% creator tax plus the 1% platform fee.
+        assertApproxEqRel(hook.claimsHeld(), 0.06 ether, 0.02e18, "six percent, held as a claim");
         hook.flushClaims();
         uint256 taxed = address(splitter).balance - before;
-        assertApproxEqRel(taxed, 0.05 ether, 0.02e18, "five percent of the trade, in ETH");
+        // the splitter gets the creator's road: the 5% tax and the platform fee's 30 bps
+        assertApproxEqRel(taxed, 0.053 ether, 0.02e18, "the creator's 5.3% of the trade, in ETH");
         assertEq(hook.claimsHeld(), 0);
 
         // and the next swap flushes on its own, no call needed
         _buy(bob, 1 ether);
-        assertApproxEqRel(hook.claimsHeld(), 0.05 ether, 0.02e18);
+        assertApproxEqRel(hook.claimsHeld(), 0.06 ether, 0.02e18);
         _buy(alice, 0.5 ether);
-        assertApproxEqRel(hook.claimsHeld(), 0.025 ether, 0.02e18, "only this swap's slice is still a claim");
+        assertApproxEqRel(hook.claimsHeld(), 0.03 ether, 0.02e18, "only this swap's slice is still a claim");
     }
 
     /// @dev Selling through the router is the path the app takes, and it is the one path where
@@ -596,7 +598,11 @@ contract ForkDirectTest is Test {
         uint256 received = alice.balance - aliceEthBefore;
         uint256 taxed = address(splitter).balance - splitterBefore;
         assertGt(received, 0, "she got ETH back");
-        assertApproxEqRel(taxed, (received + taxed) * 5 / 100, 0.02e18, "five percent of the gross, taken on the way out");
+        // the gross is what she got plus everything taken: the creator's 5.3% (to the splitter) and
+        // the Bag's 0.7%, so what she got is 94% of it
+        uint256 creatorBps = 500 + BagSplits.PLATFORM_CREATOR_BPS;
+        uint256 gross = received * 10_000 / (10_000 - 500 - BagSplits.PLATFORM_FEE_BPS);
+        assertApproxEqRel(taxed, gross * creatorBps / 10_000, 0.02e18, "the creator's 5.3% of the gross, taken on the way out");
         assertEq(hook.claimsHeld(), 0, "an output-side tax is taken directly, not held as a claim");
     }
 
@@ -611,7 +617,7 @@ contract ForkDirectTest is Test {
         assertLt(afterOne, atOpen);
 
         vm.warp(block.timestamp + 5);
-        assertEq(hook.currentTaxBps(true), 500, "and then it is just the launch tax");
+        assertEq(hook.currentTaxBps(true), 500 + BagSplits.PLATFORM_FEE_BPS, "and then it is just the launch tax and the platform fee");
         assertEq(hook.currentSnipeBps(), 0);
     }
 
@@ -660,7 +666,7 @@ contract ForkDirectTest is Test {
 
         uint256 recipientBefore = alice.balance;
         vm.prank(alice);
-        splitter.claim(alice);
+        splitter.claimCreator(alice);
         assertGt(alice.balance, recipientBefore, "the configured fee recipient can claim");
     }
 

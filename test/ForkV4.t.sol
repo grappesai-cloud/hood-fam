@@ -245,7 +245,7 @@ contract ForkV4Test is BagRig {
 
         // native currency sorts first, so currency0 is ETH and currency1 is the token
         PoolKey memory key =
-            PoolKey({currency0: address(0), currency1: token, fee: 3000, tickSpacing: 60, hooks: address(0)});
+            PoolKey({currency0: address(0), currency1: token, fee: 3000, tickSpacing: 60, hooks: address(hook)});
         (uint160 sqrtPriceX96,,,) = IStateView(STATE_VIEW).getSlot0(_poolId(key));
         assertGt(sqrtPriceX96, 0, "nobody gets to open this pool before we do");
 
@@ -316,7 +316,9 @@ contract ForkV4Test is BagRig {
     ///      nothing: it walks the price to whatever limit it is handed, for the cost of gas. So a
     ///      stranger (or the creator, on a launch whose split pays them) could pick the price
     ///      the raise gets minted at, and with it how much of the raise ends up in the pool at all.
-    ///      Graduation therefore pins the price to the ratio actually raised.
+    ///      Since v3 the pool sits behind the graduation hook, which refuses every swap on a pool it
+    ///      has not registered yet, so the empty pool cannot be walked at all. Graduation still pins
+    ///      the price to the ratio actually raised.
     function test_fork_a_stranger_cannot_choose_the_price_the_raise_graduates_at() public {
         (address token, HoodCurve curve) = _launch(_toCreator(), "FAM5");
         uint256 lpSupply = curve.lpSupply();
@@ -327,11 +329,12 @@ contract ForkV4Test is BagRig {
         assertGt(openedAt, 0, "the launch opened the pool");
         assertEq(IStateView(STATE_VIEW).getLiquidity(id), 0, "and it is empty until graduation");
 
-        // one transaction, no capital, no token: the price is now at the floor
+        // one transaction, no capital, no token: the hook turns the walk down before it starts
         EmptyPoolPriceMover mover = new EmptyPoolPriceMover(POOL_MANAGER);
+        vm.expectRevert();
         mover.move(key, true, MIN_SQRT_PRICE + 1);
         (uint160 moved,,,) = IStateView(STATE_VIEW).getSlot0(id);
-        assertEq(moved, MIN_SQRT_PRICE + 1, "anybody can walk an empty pool anywhere");
+        assertEq(moved, openedAt, "nobody can walk the empty pool before graduation");
 
         // sell the curve out and graduate into that pool
         uint256 left = curve.remaining();
@@ -345,7 +348,7 @@ contract ForkV4Test is BagRig {
         uint256 creatorBefore = creator.balance;
         curve.finalize();
 
-        // the position is where the raise says it is, not where the stranger left the price
+        // the position is where the raise says it is
         (uint160 graduatedAt,,,) = IStateView(STATE_VIEW).getSlot0(id);
         assertApproxEqRel(graduatedAt, openedAt, 0.05e18, "priced by the raise, not by the stranger");
         assertGt(IStateView(STATE_VIEW).getLiquidity(id), 0);
@@ -356,9 +359,9 @@ contract ForkV4Test is BagRig {
     }
 
     /// @dev The key of a pool that has been opened but not yet graduated into. Native sorts first,
-    ///      the handler is hookless, and the fee and spacing come from the preset.
-    function _emptyKeyFor(address token) internal pure returns (PoolKey memory) {
-        return PoolKey({currency0: address(0), currency1: token, fee: 3000, tickSpacing: 60, hooks: address(0)});
+    ///      the pool sits behind the graduation hook, and the fee and spacing come from the preset.
+    function _emptyKeyFor(address token) internal view returns (PoolKey memory) {
+        return PoolKey({currency0: address(0), currency1: token, fee: 3000, tickSpacing: 60, hooks: address(hook)});
     }
 }
 

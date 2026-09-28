@@ -1,8 +1,9 @@
 name: ci
 
-# Two gates, both of which have caught something real: the contracts have to pass their own tests
-# and stay inside the size an account may hold, and the TypeScript that talks to them has to
-# compile against ABIs generated from those same artifacts.
+# Three gates, all of which have caught something real: the contracts have to pass their own tests
+# and stay inside the size an account may hold, the TypeScript that talks to them has to compile
+# against ABIs generated from those same artifacts, and static analysis may not report anything
+# nobody has read. The suites that fork 4663 live in fork.yml.
 on:
   push:
     branches: [main]
@@ -12,8 +13,8 @@ jobs:
   contracts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - uses: foundry-rs/foundry-toolchain@v1
@@ -30,25 +31,11 @@ jobs:
             console.log('all contracts fit');
           "
 
-  fork:
-    runs-on: ubuntu-latest
-    # The fork suites are the ones that talk to the real Uniswap v4 and the real LayerZero endpoint
-    # on 4663. They need the public RPC, which rate limits, so they do not gate a pull request.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: foundry-rs/foundry-toolchain@v1
-      - run: npm ci
-      - run: forge test --match-path 'test/Fork*.t.sol' --fork-url https://rpc.mainnet.chain.robinhood.com -vv
-
   typescript:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - uses: foundry-rs/foundry-toolchain@v1
@@ -65,18 +52,19 @@ jobs:
 
   static-analysis:
     runs-on: ubuntu-latest
-    # Reported, not gating: the verdicts on the current findings live in docs/SECURITY.md, and a
-    # new one should be read by a person rather than fail a build on its own.
-    continue-on-error: true
+    # Gating on what nobody has read: every current finding has a verdict in docs/SECURITY.md and a
+    # line in docs/slither-baseline.json, and a new one fails the build until it gets both.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - uses: foundry-rs/foundry-toolchain@v1
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: npm ci
-      - run: pip install slither-analyzer
-      - run: slither . --filter-paths "lib/|node_modules/|test/|script/" --exclude-dependencies --exclude-informational --exclude-optimization --exclude-low
+      - run: pip install slither-analyzer==0.11.6
+      # Slither exits non-zero whenever it reports anything; the gate below is the verdict.
+      - run: slither . --filter-paths "lib/|node_modules/|test/|script/" --exclude-dependencies --exclude-informational --exclude-optimization --exclude-low --json slither.json || true
+      - run: node scripts/slither-gate.mjs slither.json
