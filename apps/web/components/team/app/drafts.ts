@@ -40,10 +40,6 @@ export interface Draft {
   holderLock: number;
   devLock: number;
   gas: string;
-  snipePct: number;
-  snipeSeconds: number;
-  capBlocks: number;
-  capPct: number;
   wallets: string[];
   /// The wallet set the holder wallets were taken from, if a set was used.
   holdersSet: string;
@@ -104,7 +100,6 @@ function blank(): Draft {
     name: "", symbol: "", description: "", image: "", twitter: "", telegram: "", website: "",
     devPct: "2", holdersPct: "8", holdersCount: "5", preset: "quick",
     holderLock: 0, devLock: 0, gas: "0",
-    snipePct: 50, snipeSeconds: 3, capBlocks: 30, capPct: 1,
     wallets: [], holdersSet: "", openBuyers: [], buyersSet: "",
   };
 }

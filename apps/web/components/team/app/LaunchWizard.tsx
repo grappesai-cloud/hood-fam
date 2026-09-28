@@ -9,8 +9,7 @@ import { useAccount, usePublicClient, useReadContract, useReadContracts, useWait
 import { hoodFactoryAbi, hoodStakingAbi } from "@hood/sdk";
 import { addresses, API, blockZeroAddress } from "@/lib/config";
 import { fmt, imageUrl, pairDecimals, pairSymbol } from "@/lib/format";
-import { blockZeroAbis, detectBlockZeroGeneration, encodePenalties, MAX_OPEN_BUYERS, PENALTY_FORM_DEFAULTS } from "@/lib/launchAbi";
-import { encodeGuard, guardProblem, CURVE_GUARD_CAPS } from "@/components/CurveGuardOptions";
+import { blockZeroAbis, detectBlockZeroGeneration, MAX_OPEN_BUYERS } from "@/lib/launchAbi";
 import { MAX_TEAM_LEGS, TEAM_LOCKS } from "@/components/TeamLegsEditor";
 import { VaultPanel } from "@/components/team/VaultPanel";
 import plannedPairs from "@/lib/plannedPairs.json";
@@ -18,7 +17,7 @@ import { removeDraft, saveDraft, useDrafts, newDraft, type BuildPreset, type Dra
 import { buildPlan, type CurveCfg } from "./plan";
 import { normalizeAddresses, setName, useWalletSets, type WalletSet } from "./walletSets";
 import {
-  IconArchive, IconBolt, IconChevron, IconClock, IconCoins, IconCrown, IconCubes, IconGas, IconHelp, IconHex,
+  IconArchive, IconBolt, IconChevron, IconCoins, IconCrown, IconCubes, IconGas, IconHelp, IconHex,
   IconInfo, IconLock, IconMap, IconPalette, IconPencil, IconRocket, IconShield, IconUpload, IconUsers, IconWallet,
 } from "./icons";
 
@@ -119,8 +118,9 @@ function useLaunchChain(draft: Draft) {
   const { address } = useAccount();
   const publicClient = usePublicClient();
 
-  // Which shape the deployed periphery takes, read off its bytecode: v4 sends the curve's opening
-  // rules, v5 names the open buyers. The factory behind it is the same generation by construction.
+  // Which shape the deployed periphery takes, read off its bytecode. The console launches only
+  // through v5, the one that names the open buyers; the opening tax is a fixed schedule there and
+  // nothing about it is a setting.
   const generation = useQuery({
     queryKey: ["block-zero-generation", blockZeroAddress ?? ""],
     queryFn: async () => detectBlockZeroGeneration(await publicClient!.getCode({ address: blockZeroAddress! })) ?? null,
@@ -128,17 +128,14 @@ function useLaunchChain(draft: Draft) {
     staleTime: Infinity,
   });
   const gen = generation.data ?? undefined;
-  const namesBuyers = gen === "v5";
-  const openBuyers = namesBuyers ? normalizeAddresses(draft.openBuyers ?? []) : [];
+  const openBuyers = normalizeAddresses(draft.openBuyers ?? []);
   // The factory exempts its caller and the fee recipient by itself. When the fee recipient is
   // somebody other than the funder, block zero names the funder on the list too, which takes
   // one of the 32 places.
   const feeElsewhere = draft.feeTo === "wallet" && isAddress(draft.feeRecipient.trim())
     && draft.feeRecipient.trim().toLowerCase() !== (address ?? "").toLowerCase();
   const openBuyersCap = MAX_OPEN_BUYERS - (feeElsewhere ? 1 : 0);
-  const holderWalletsNotNamed = namesBuyers
-    ? draft.wallets.filter((w) => isAddress(w) && !openBuyers.some((b) => b.toLowerCase() === w.toLowerCase())).length
-    : 0;
+  const holderWalletsNotNamed = draft.wallets.filter((w) => isAddress(w) && !openBuyers.some((b) => b.toLowerCase() === w.toLowerCase())).length;
   const { data: configCount } = useReadContract({ address: addresses.factory, abi: hoodFactoryAbi, functionName: "configCount" });
   const { data: configs } = useReadContracts({
     contracts: Array.from({ length: Number(configCount ?? 0n) }, (_, i) => ({
@@ -217,7 +214,6 @@ function useLaunchChain(draft: Draft) {
     seen.add(k);
     return false;
   });
-  const guard = { snipePct: draft.snipePct, snipeSeconds: draft.snipeSeconds, capBlocks: draft.capBlocks, capPct: draft.capPct };
 
   const blocked = !blockZeroAddress ? "Block zero is not deployed on this build yet (NEXT_PUBLIC_BLOCK_ZERO is empty)."
     : !address ? "Connect the funder wallet: it pays for the launch and every team buy."
@@ -226,7 +222,7 @@ function useLaunchChain(draft: Draft) {
     : symbolFree === false ? "That symbol is taken by a launch trading right now."
     : !cfg ? (draft.market === "stocks" ? "Choose a stock to launch against." : "Choose a launch currency.")
     : generation.isLoading ? "Checking the block zero version."
-    : !gen ? "Block zero on this build is not a version this console knows (v4 or v5)."
+    : gen !== "v5" ? "Block zero on this build is not the version that names open buyers (v5)."
     : devBps + holdersBps === 0 ? "Set a developer buy or a holders buy."
     : holdersBps > 0 && count === 0 ? "Set how many holder wallets buy."
     : walletsNeeded > 0 ? `Import ${walletsNeeded} more holder wallet${walletsNeeded === 1 ? "" : "s"}.`
@@ -236,12 +232,12 @@ function useLaunchChain(draft: Draft) {
     : splitTotal !== 100 ? `The fee split adds up to ${splitTotal}%, it must be 100%.`
     : draft.feeTo === "wallet" && !isAddress(draft.feeRecipient.trim()) ? "The fee recipient is not an address."
     : openBuyers.length > openBuyersCap ? `At most ${openBuyersCap} open buyers${feeElsewhere ? " when the fee recipient is not the funder (the funder takes one place)" : ""}; ${openBuyers.length} are listed.`
-    : (gen === "v4" ? guardProblem(guard) : undefined) ?? (launchFee === undefined ? "Reading the launch fee." : undefined);
+    : launchFee === undefined ? "Reading the launch fee." : undefined;
 
   return {
     address, publicClient, generation, presets, cfg, custom, stock, pair, dec, sym, isNative, canPayStakers,
-    symbolFree, econ, plan, gasEach, gasTotal, fee, value, needsApproval, usd, blocked, guard, count, holderWallets,
-    gen, namesBuyers, openBuyers, openBuyersCap, holderWalletsNotNamed,
+    symbolFree, econ, plan, gasEach, gasTotal, fee, value, needsApproval, usd, blocked, count, holderWallets,
+    gen, openBuyers, openBuyersCap, holderWalletsNotNamed,
   };
 }
 type Chain = ReturnType<typeof useLaunchChain>;
@@ -505,18 +501,12 @@ function SettingsTab({ draft, set, chain }: { draft: Draft; set: (p: Partial<Dra
           value={draft.holdersPct} unit="%" onChange={(v) => custom({ holdersPct: num(v) })} />
         <NumField icon={<IconUsers size={15} />} title="Holders Count" hint={`(0-${MAX_HOLDERS})`} req help="How many holder wallets buy. Each one is recorded on chain and labelled as the team."
           value={draft.holdersCount} onChange={(v) => custom({ holdersCount: v.replace(/\D/g, "") })} />
-        {!chain.namesBuyers && (
-          <NumField icon={<IconShield size={15} />} title="Opening Tax" hint={`(0-${CURVE_GUARD_CAPS.snipePct})`} help="Extra paid by buyers right after the launch, falling to nothing. 80% goes to holders, 20% to the Bag. The team's buys are inside the launch, so they pay none."
-            value={String(draft.snipePct)} unit="%" onChange={(v) => custom({ snipePct: Math.min(CURVE_GUARD_CAPS.snipePct, Number(v.replace(/\D/g, "")) || 0) })} />
-        )}
       </div>
 
-      {chain.namesBuyers && (
-        <div className="tw-banner">
-          <IconShield size={18} />
-          <p>Opening tax: every launch runs the same schedule, 99% of a buy in the launch's own second, 6% the next, under 1% the one after, then nothing. The team&apos;s buys are inside the launch and pay none. Wallets named below as open buyers pay none either, and the holder map labels them.</p>
-        </div>
-      )}
+      <div className="tw-banner">
+        <IconShield size={18} />
+        <p>Opening tax: every launch runs the same schedule, 99% of a buy in the launch's own second, 6% the next, under 1% the one after, then nothing. The team&apos;s buys are inside the launch and pay none. Wallets named below as open buyers pay none either, and the holder map labels them.</p>
+      </div>
 
       <FieldLabel icon={<IconCubes size={15} />} title="Block-0 Preset" />
       <div className="tw-tiles cols-3 presets">
@@ -533,29 +523,6 @@ function SettingsTab({ draft, set, chain }: { draft: Draft; set: (p: Partial<Dra
         ))}
       </div>
 
-      {!chain.namesBuyers && (
-        <>
-          <NumField icon={<IconMap size={15} />} title="Wallet Cap at Open" hint="(% of supply per wallet)" help="For the first blocks after the launch, no outside wallet may buy more than this. 0 turns it off."
-            value={String(draft.capBlocks > 0 ? draft.capPct : 0)} unit="%" onChange={(v) => {
-              const pct = Number(num(v)) || 0;
-              custom({ capPct: pct, capBlocks: pct > 0 ? (draft.capBlocks || 30) : 0 });
-            }} />
-
-          <FieldLabel icon={<IconClock size={15} />} title="Protection Window" hint="(optional)" help="How long the opening tax takes to fall away, and how many blocks the wallet cap lasts. Blocks are 100 ms here." />
-          <div className="tw-split-time">
-            <label><small>SEC</small>
-              <input value={String(draft.snipeSeconds).padStart(2, "0")} inputMode="numeric" aria-label="Opening tax seconds"
-                onChange={(e) => custom({ snipeSeconds: Math.min(CURVE_GUARD_CAPS.snipeSeconds, Number(e.target.value.replace(/\D/g, "")) || 0) })} />
-            </label>
-            <span>:</span>
-            <label><small>BLOCKS</small>
-              <input value={String(draft.capBlocks)} inputMode="numeric" aria-label="Wallet cap blocks"
-                onChange={(e) => custom({ capBlocks: Math.min(CURVE_GUARD_CAPS.capBlocks, Number(e.target.value.replace(/\D/g, "")) || 0) })} />
-            </label>
-          </div>
-        </>
-      )}
-
       <hr className="tw-hr" />
 
       <button type="button" className="tw-import" onClick={() => setImportOpen((v) => !v)} aria-expanded={importOpen}>
@@ -565,8 +532,7 @@ function SettingsTab({ draft, set, chain }: { draft: Draft; set: (p: Partial<Dra
       </button>
       {importOpen && <WalletImport draft={draft} set={set} needed={chain.count} />}
 
-      {chain.namesBuyers && (
-        <>
+      <>
           <button type="button" className="tw-import" onClick={() => setBuyersOpen((v) => !v)} aria-expanded={buyersOpen}>
             <span className="tw-import-icon"><IconUsers size={20} /></span>
             <strong>Open Buyers</strong>
@@ -579,8 +545,7 @@ function SettingsTab({ draft, set, chain }: { draft: Draft; set: (p: Partial<Dra
             </small>
           </button>
           {buyersOpen && <OpenBuyersImport draft={draft} set={set} cap={chain.openBuyersCap} />}
-        </>
-      )}
+      </>
 
       <label className="tw-check">
         <input type="checkbox" checked={Number(draft.gas) > 0} onChange={(e) => custom({ gas: e.target.checked ? "0.0005" : "0" })} />
@@ -794,9 +759,7 @@ function SidePanel({ draft, chain, onEdit }: { draft: Draft; chain: Chain; onEdi
           <div className="tw-est-row"><span>Funding Estimation</span><strong>{fmt(total, 18, 4)} ETH{!chain.isNative && plan ? ` + ${fmt(plan.pairTotal, chain.dec, 4)} ${chain.sym}` : ""}</strong></div>
           <div className="tw-est-row dim"><span>Team buys</span><span>{plan ? `${fmt(plan.pairTotal, chain.dec, 4)} ${chain.sym}` : "–"}</span></div>
           <div className="tw-est-row dim"><span>Gas for wallets <Help text="Sent along to every team wallet." /></span><span>{fmt(chain.gasTotal, 18, 4)} ETH</span></div>
-          {chain.namesBuyers && (
-            <div className="tw-est-row dim"><span>Open buyers <Help text="Named on chain in the launch. No opening tax for them in the first seconds; labelled on the holder map." /></span><span>{chain.openBuyers.length} wallet{chain.openBuyers.length === 1 ? "" : "s"}</span></div>
-          )}
+          <div className="tw-est-row dim"><span>Open buyers <Help text="Named on chain in the launch. No opening tax for them in the first seconds; labelled on the holder map." /></span><span>{chain.openBuyers.length} wallet{chain.openBuyers.length === 1 ? "" : "s"}</span></div>
           <div className="tw-est-row dim"><span>Launch fee</span><span>{fmt(chain.fee, 18, 4)} ETH</span></div>
           <div className="tw-est-row warn"><span>If a buy fails <Help text="The whole launch reverts. The funder pays the network fee and nothing else." /></span><span>gas only</span></div>
         </div>
@@ -834,7 +797,7 @@ function LaunchButton({ draft, chain, className }: { draft: Draft; chain: Chain;
 
   async function go() {
     const { address, publicClient, cfg, plan, pair, gen } = chain;
-    if (chain.blocked || !address || !blockZeroAddress || !cfg || !plan || !publicClient || !gen) return;
+    if (chain.blocked || !address || !blockZeroAddress || !cfg || !plan || !publicClient || gen !== "v5") return;
     setError(null);
     try {
       if (chain.needsApproval) {
@@ -852,11 +815,8 @@ function LaunchButton({ draft, chain, className }: { draft: Draft; chain: Chain;
         firstBuy: 0n, firstBuyLock: 0n, salt,
         econ: chain.custom ? ZERO32 : ((chain.econ as `0x${string}` | undefined) ?? ZERO32),
       };
-      // v5 names the open buyers; v4 sends the penalties (all off) and the curve's opening rules.
-      const params = gen === "v5"
-        ? { ...base, exempt: chain.openBuyers }
-        : { ...base, penalties: encodePenalties(PENALTY_FORM_DEFAULTS), guard: encodeGuard(chain.guard) };
-      const abi = blockZeroAbis[gen];
+      const params = { ...base, exempt: chain.openBuyers };
+      const abi = blockZeroAbis.v5;
       const legs = plan.legs.map((l) => ({
         wallet: l.wallet.trim() as Address,
         pairIn: l.pairIn,

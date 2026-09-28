@@ -11,6 +11,7 @@ import { API } from "@/lib/config";
 import { fmt, imageUrl, shortAddress } from "@/lib/format";
 import { usePreferredConnector } from "@/lib/safe";
 import { importDraft, newDraft, useDrafts, type Draft } from "./drafts";
+import { isTeamWallet, TEAM_WALLETS, CONSOLE_OPEN_TO_ALL } from "./access";
 import { lockAll, useUnlocked } from "./walletSets";
 import { useIdleLock } from "../useIdleLock";
 import {
@@ -22,12 +23,18 @@ import "./team-app.css";
 /// The team console's own frame: drafts down the left, the form in the middle, the chain's pulse
 /// along the bottom. It sits over the site's shell for every page under /launch/team, so the
 /// console reads as one tool, the way a launch desk should, and the site is one link away.
+///
+/// The console is private. Until the connected wallet is one of the team's (see access.ts) every
+/// page under it shows the gate and nothing else, and any keys that were open are dropped.
 
 export function TeamApp({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const path = usePathname();
   const params = useSearchParams();
+  const { address } = useAccount();
+  const allowed = isTeamWallet(address);
+  useEffect(() => { if (!allowed) lockAll(); }, [allowed]);
 
   // A route change on a phone closes the drawer, so the page it opened is what shows.
   useEffect(() => { setOpen(false); }, [path, params]);
@@ -42,6 +49,25 @@ export function TeamApp({ children }: { children: ReactNode }) {
     return () => document.documentElement.classList.remove("tapp-open");
   }, []);
   if (!mounted) return null;
+
+  if (!allowed) {
+    return createPortal(
+      <div className="tapp tapp-gated">
+        <div className="tapp-gate" role="dialog" aria-labelledby="tapp-gate-title">
+          <p className="tapp-brand"><span className="tapp-brand-dot" aria-hidden="true" /><span className="tapp-brand-name">{brand.name}</span><span className="tapp-brand-ver">block 0</span></p>
+          <h1 id="tapp-gate-title">Team console</h1>
+          <p>
+            This console is private. It opens for the team&apos;s own funder wallets and for nobody else.
+            {address ? " The wallet you connected is not one of them." : " Connect the funder wallet to continue."}
+            {TEAM_WALLETS.length === 0 && !CONSOLE_OPEN_TO_ALL ? " No wallet is named on this build, so it is closed." : ""}
+          </p>
+          <Funder />
+          <Link href="/discover" className="tapp-feature dim"><IconBack size={17} />Back to {brand.name}</Link>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
 
   return createPortal(
     <div className={`tapp${collapsed ? " tapp-collapsed" : ""}`}>

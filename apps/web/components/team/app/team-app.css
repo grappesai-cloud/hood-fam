@@ -133,6 +133,14 @@ html.tapp-open, html.tapp-open body { overflow: hidden; }
 .tapp-tag { padding: 3px 8px; border-radius: 5px; background: var(--t-accent-bg); color: var(--t-accent-ink); font-size: 12px; }
 .tapp-scrim { display: none; }
 
+/* ------------------------------------------------------------------------------ the gate */
+.tapp-gated { display: grid; place-items: center; grid-template-columns: none; }
+.tapp-gate { display: grid; gap: 16px; width: min(440px, calc(100vw - 32px)); padding: 28px; border: 1px solid var(--t-line); border-radius: 12px; background: var(--t-card); }
+.tapp-gate .tapp-brand { margin: 0; }
+.tapp-gate h1 { margin: 0; font-size: 24px; font-weight: 500; }
+.tapp-gate > p { margin: 0; color: var(--t-dim); line-height: 1.5; }
+.tapp-gate .tapp-feature { justify-self: start; }
+
 /* ------------------------------------------------------------------------------ status bar */
 .tapp-status { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 16px; padding: 0 20px; border-top: 1px solid var(--t-line); background: var(--t-side); color: var(--t-dim); font-size: 14px; white-space: nowrap; }
 .tapp-live { display: flex; align-items: center; gap: 8px; color: var(--t-good); }
