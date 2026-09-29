@@ -1,0 +1,27 @@
+# The same stack on the testnet (Robinhood Chain 46630), beside the mainnet one on the same box.
+#
+#   docker compose -p hood-tn --env-file .env.testnet \
+#     -f docker-compose.yml -f docker-compose.proxy.yml -f docker-compose.brands.yml \
+#     -f docker-compose.testnet.yml --profile keeper up -d db api keeper web web-ox web-klimb web-pit web-bodega
+#
+# A project of its own (-p hood-tn), so its database volume, its images and its default network are
+# its own; this file only renames the containers the proxy reaches by name, which would otherwise
+# collide with the mainnet ones. .env.testnet is the mainnet .env with the testnet's addresses,
+# HOOD_CHAIN_ID=46630, HOOD_USDG, the testnet RPC and the testnet keeper; nothing else in it is
+# testnet specific. deploy/traefik-hood-fam.yaml and deploy/traefik-hood-brands.yaml send the
+# grappes.dev names here and famdotfun.com to the mainnet containers.
+services:
+  db:
+    container_name: hood-tn-db
+  api:
+    container_name: hood-tn-api
+  web:
+    container_name: hood-tn-web
+  web-ox:
+    container_name: hood-tn-web-ox
+  web-klimb:
+    container_name: hood-tn-web-klimb
+  web-pit:
+    container_name: hood-tn-web-pit
+  web-bodega:
+    container_name: hood-tn-web-bodega

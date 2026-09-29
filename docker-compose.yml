@@ -28,6 +28,9 @@ services:
     environment:
       DATABASE_URL: postgres://hood:${POSTGRES_PASSWORD}@db:5432/hood
       HOOD_RPC: ${HOOD_RPC}
+      # 46630 is the testnet (docker-compose.testnet.yml); empty is mainnet
+      HOOD_CHAIN_ID: ${HOOD_CHAIN_ID:-}
+      HOOD_USDG: ${HOOD_USDG:-}
       HOOD_FACTORY: ${HOOD_FACTORY}
       HOOD_FEE_ROUTER: ${HOOD_FEE_ROUTER}
       HOOD_STAKING: ${HOOD_STAKING}
@@ -115,6 +118,8 @@ services:
         NEXT_PUBLIC_GRADUATION_HOOK: ${HOOD_GRADUATION_HOOK:-}
         NEXT_PUBLIC_BLOCK_ZERO: ${HOOD_BLOCK_ZERO:-}
         NEXT_PUBLIC_TEAM_WALLETS: ${NEXT_PUBLIC_TEAM_WALLETS:-}
+        NEXT_PUBLIC_CHAIN_ID: ${HOOD_CHAIN_ID:-}
+        NEXT_PUBLIC_USDG: ${HOOD_USDG:-}
         NEXT_PUBLIC_HOUSE_COIN: ${HOOD_HOUSE_COIN:-}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
         NEXT_PUBLIC_DEMO: ${NEXT_PUBLIC_DEMO:-}
@@ -136,6 +141,8 @@ services:
     depends_on: [api]
     environment:
       HOOD_RPC: ${HOOD_RPC}
+      HOOD_CHAIN_ID: ${HOOD_CHAIN_ID:-}
+      HOOD_USDG: ${HOOD_USDG:-}
       HOOD_API: http://api:8080
       HOOD_FACTORY: ${HOOD_FACTORY}
       HOOD_FEE_ROUTER: ${HOOD_FEE_ROUTER}

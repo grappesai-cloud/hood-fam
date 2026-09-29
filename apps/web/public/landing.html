@@ -227,7 +227,7 @@ html.bf-anim:not(.bf-ready) .bf-fam{opacity:0}html.bf-anim.bf-ready .bf-fam{anim
 #bf-loader{position:fixed;inset:0;z-index:2147483600;display:grid;place-items:center;background:#0a0a0a;transition:transform .8s cubic-bezier(.77,0,.18,1),opacity .8s ease}
 #bf-loader.bf-out{transform:translateY(-100%);opacity:.7}
 .bf-l-name{display:flex;overflow:hidden;padding:.06em 0 .12em;font:500 clamp(64px,12vw,180px)/1 "Helvetica Neue",Helvetica,Arial,sans-serif;letter-spacing:-.05em;color:#f4f4f4}
-.bf-l-name span{display:block;animation:bfUp .8s cubic-bezier(.22,1,.36,1) both}.bf-l-name span:first-child{animation-delay:.12s}.bf-l-name span:last-child{animation-delay:.24s;background:linear-gradient(172deg,#dbeafe 0%,#93c5fd 30%,#3b82f6 70%,#1d4ed8 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.bf-l-name span{display:block;animation:bfUp .8s cubic-bezier(.22,1,.36,1) both}.bf-l-name span:first-child{animation-delay:.12s}.bf-l-name span:last-child{animation-delay:.24s;margin-left:.03em;background:linear-gradient(172deg,#dbeafe 0%,#93c5fd 30%,#3b82f6 70%,#1d4ed8 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
 #bf-loader.bf-done .bf-l-name{animation:bfFade .5s ease forwards}
 @keyframes bfUp{from{transform:translateY(105%)}to{transform:none}}@keyframes bfFade{to{opacity:0;transform:translateY(-16px)}}
 @media (max-width:767px){.bf-l-name{font-size:19vw}}

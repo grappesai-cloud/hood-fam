@@ -1,0 +1,56 @@
+# hood.fam, running from /root/hood-fam as plain compose stacks on the coolify network.
+# Copy to /data/coolify/proxy/dynamic/hood-fam.yaml; Traefik picks it up without a restart.
+#
+# Two stacks: mainnet (compose project hood-fam: hood-api, hood-web-ox) and the testnet (project
+# hood-tn, docker-compose.testnet.yml: hood-tn-api, hood-tn-web and the brand sites). famdotfun.com
+# and its API are mainnet; hood.grappes.dev and api.hood.grappes.dev are the testnet. The brand
+# sites are routed in traefik-hood-brands.yaml.
+# The site and the API each need a name of their own: /api/... is the app's own route namespace.
+# The ACME path is carved out of the http redirect so Let's Encrypt can still reach the challenge.
+http:
+  routers:
+    hood-web:
+      entryPoints: [https]
+      rule: "Host(`hood.grappes.dev`)"
+      priority: 1000
+      service: hood-tn-web
+      tls:
+        certResolver: letsencrypt
+    hood-api:
+      entryPoints: [https]
+      rule: "Host(`api.famdotfun.com`)"
+      priority: 1000
+      service: hood-api
+      tls:
+        certResolver: letsencrypt
+    hood-tn-api:
+      entryPoints: [https]
+      rule: "Host(`api.hood.grappes.dev`)"
+      priority: 1000
+      service: hood-tn-api
+      tls:
+        certResolver: letsencrypt
+    hood-http:
+      entryPoints: [http]
+      rule: "(Host(`hood.grappes.dev`) || Host(`api.hood.grappes.dev`) || Host(`api.famdotfun.com`)) && !PathPrefix(`/.well-known/acme-challenge/`)"
+      priority: 100
+      service: noop@internal
+      middlewares: [hood-https]
+  middlewares:
+    hood-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+  services:
+    hood-tn-web:
+      loadBalancer:
+        servers:
+          - url: "http://hood-tn-web:4665"
+    hood-api:
+      loadBalancer:
+        servers:
+          - url: "http://hood-api:8080"
+    hood-tn-api:
+      loadBalancer:
+        servers:
+          - url: "http://hood-tn-api:8080"

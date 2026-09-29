@@ -1,4 +1,6 @@
-# The other faces of hood.fam, on the same box and the same API.
+# The other faces of hood.fam, on the same box. famdotfun.com is the mainnet site (the hood-fam
+# compose project); every grappes.dev name is the testnet one (project hood-tn, containers hood-tn-*,
+# docker-compose.testnet.yml).
 # Copy to /data/coolify/proxy/dynamic/hood-brands.yaml on the host; Traefik picks it up without a
 # restart. Each host needs an A record pointing at the box first: grappes.dev has no wildcard, so a
 # name without a record gets no certificate and no route.
@@ -7,9 +9,16 @@ http:
   routers:
     hood-web-ox:
       entryPoints: [https]
-      rule: "Host(`0x.grappes.dev`) || Host(`famdotfun.com`)"
+      rule: "Host(`famdotfun.com`)"
       priority: 1000
       service: hood-web-ox
+      tls:
+        certResolver: letsencrypt
+    hood-tn-web-ox:
+      entryPoints: [https]
+      rule: "Host(`0x.grappes.dev`)"
+      priority: 1000
+      service: hood-tn-web-ox
       tls:
         certResolver: letsencrypt
     # www is a name for the apex, never a second copy of the site
@@ -63,15 +72,19 @@ http:
       loadBalancer:
         servers:
           - url: "http://hood-web-ox:4665"
+    hood-tn-web-ox:
+      loadBalancer:
+        servers:
+          - url: "http://hood-tn-web-ox:4665"
     hood-web-klimb:
       loadBalancer:
         servers:
-          - url: "http://hood-web-klimb:4665"
+          - url: "http://hood-tn-web-klimb:4665"
     hood-web-pit:
       loadBalancer:
         servers:
-          - url: "http://hood-web-pit:4665"
+          - url: "http://hood-tn-web-pit:4665"
     hood-web-bodega:
       loadBalancer:
         servers:
-          - url: "http://hood-web-bodega:4665"
+          - url: "http://hood-tn-web-bodega:4665"
