@@ -23,7 +23,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import {
   buildSwap, createDirectClient, createHoodClient, hoodBagAbi, hoodBlockZeroAbi, hoodBoostsAbi, hoodCurveAbi,
-  hoodFactoryAbi, hoodFeeRouterAbi, hoodLaunchHookAbi, hoodPaydayAbi, hoodStakingAbi, robinhood, uniswapV4,
+  hoodFactoryAbi, hoodFeeRouterAbi, hoodLaunchHookAbi, hoodPaydayAbi, hoodPortalAbi, hoodStakingAbi, robinhood, uniswapV4,
   universalRouterAbi,
 } from "../../packages/sdk/dist/index.js";
 
@@ -87,8 +87,17 @@ const deadline = async (s = 3600) => (await pc.getBlock()).timestamp + BigInt(s)
 const hood = (w) => createHoodClient({ publicClient: pc, walletClient: w.client, addresses: { factory: A.factory, feeRouter: A.feeRouter, staking: A.staking, graduator: A.graduator, bridgeFactory: A.bridge } });
 const direct = (w) => createDirectClient({ publicClient: pc, walletClient: w.client, addresses: { portal: A.portal, deployer: A.directDeployer, buybackModule: A.buyback } });
 
+/// Every ETH amount below is a multiple of this. 0.001 by default; the testnet run uses 0.0001,
+/// because its faucet pays 0.01 ETH a day and the whole scenario has to fit in that.
+const UNIT = parseEther(process.env.SCENARIO_ETH_UNIT ?? "0.001");
+const u = (n) => (UNIT * BigInt(Math.round(n * 10))) / 10n;
+
 /// The Pons table, measured on 4663 and now ours: 99%, 6.18%, 0.19% in the first three seconds.
 const SCHEDULE = [9900, 618, 19];
+/// Who makes the calls anyone may make (claimProtocol, flush, finalize, flushClaims, sweep). Not the
+/// keeper: when the local stack is up its keeper signs with that key too, and two senders on one
+/// key race for the same nonce.
+const POKE = () => W.trader_2;
 const bpsAt = (elapsed) => (elapsed < SCHEDULE.length ? SCHEDULE[elapsed] : 0);
 
 const BagSource = { Trade: 0, Graduation: 1, Boost: 2, House: 3, HouseCoin: 4 };
@@ -103,6 +112,25 @@ function bagFlow(receipt) {
   const deferred = events(receipt, hoodBagAbi, "DevDeferred", A.bag).reduce((s, l) => s + l.args.amount, 0n);
   return { inBy, outBy, deferred };
 }
+
+/// The opening seconds on a public RPC: every simulate and estimate costs a round trip, and the
+/// careful path above lands a buy several seconds late, past the window it came to test. These go
+/// out at once with a fixed gas limit, the way a sniper sends them, and are read back afterwards.
+/// Nonce and fees are read before the launch, so firing is one eth_sendRawTransaction and nothing else.
+async function prepare(w) {
+  const [nonce, fees] = await Promise.all([pc.getTransactionCount({ address: w.address, blockTag: "pending" }), pc.estimateFeesPerGas()]);
+  return { nonce, maxFeePerGas: fees.maxFeePerGas * 2n, maxPriorityFeePerGas: fees.maxPriorityFeePerGas };
+}
+async function fire(w, prep, address, abi, functionName, args, value, gas = 700_000n) {
+  return w.client.writeContract({ address, abi, functionName, args, value, gas, ...prep });
+}
+async function fireSwap(w, prep, key, amountIn, tokenIn, tokenOut) {
+  const { commands, inputs } = buildSwap({ key, zeroForOne: same(tokenIn, key.currency0), amountIn, minAmountOut: 0n, tokenIn, tokenOut });
+  const args = [commands, inputs, BigInt(Math.floor(Date.now() / 1000) + 3600)];
+  return w.client.writeContract({ address: uniswapV4.universalRouter, abi: universalRouterAbi, functionName: "execute", args, value: tokenIn === zeroAddress ? amountIn : 0n, gas: 900_000n, ...prep });
+}
+/// Receipts that may revert: a buy fired blind is judged by what it did, not assumed to work.
+const settle = (hash) => pc.waitForTransactionReceipt({ hash, timeout: 120_000 });
 
 async function swapThrough(key, w, amountIn, tokenIn, tokenOut) {
   const { commands, inputs } = buildSwap({ key, zeroForOne: same(tokenIn, key.currency0), amountIn, minAmountOut: 0n, tokenIn, tokenOut });
@@ -132,7 +160,7 @@ async function house() {
     const salt = await direct(W.deployer).hookSalt();
     const launched = await direct(W.deployer).launch({
       name: "fam house (testnet)", symbol: "tFAM", description: "the testnet house coin",
-      tickStart: tickFor(10), tickBond: tickFor(100), initialBuy: parseEther("0.001"), salt: salt.salt,
+      tickStart: tickFor(10), tickBond: tickFor(100), initialBuy: u(1), salt: salt.salt,
     });
     const r = await wait(launched.hash);
     const log = r.logs.find((l) => same(l.address, A.portal) && l.topics.length >= 4);
@@ -172,7 +200,7 @@ async function curve() {
   check("an ETH preset is enabled", configId >= 0, `#${configId}`);
   const econ = await read(A.factory, hoodFactoryAbi, "previewLaunchEconomics", [BigInt(configId), zeroAddress]);
   const team = [W.team_1, W.team_2, W.team_3];
-  const LEG = parseEther("0.002");
+  const LEG = u(2);
   const legs = team.map((w) => ({ wallet: w.address, pairIn: LEG, minTokensOut: 0n, lock: 0n, gas: 0n }));
   const params = {
     name: "Testnet Fam", symbol: "TFAM1", image: "", description: "block zero on the testnet", website: "", twitter: "", telegram: "",
@@ -182,10 +210,17 @@ async function curve() {
     salt: keccak256(`0x${Date.now().toString(16).padStart(16, "0")}`), econ,
     exempt: team.map((w) => w.address),
   };
+  const pairIn = u(2);
+  const [snipePrep, teamPrep] = await Promise.all([prepare(W.sniper), prepare(W.team_1)]);
   const r = await send(W.creator, A.blockZero, hoodBlockZeroAbi, "launch", [params, legs], launchFee + LEG * 3n);
   const [launched] = events(r, hoodBlockZeroAbi, "TeamLaunched");
   const token = launched.args.token;
   const curveAddr = launched.args.market;
+  // The open, on the chain's clock: the sniper and an open buyer go the moment the launch is mined.
+  const [snipeHash, teamHash] = await Promise.all([
+    fire(W.sniper, snipePrep, curveAddr, hoodCurveAbi, "buy", [pairIn, 0n, W.sniper.address], pairIn),
+    fire(W.team_1, teamPrep, curveAddr, hoodCurveAbi, "buy", [u(1), 0n, W.team_1.address], u(1)),
+  ]);
   state.curve = { token, curve: curveAddr };
   save();
   check("the team launch mined, three legs in the launch transaction", events(r, hoodBlockZeroAbi, "TeamLeg").length === 3, token);
@@ -195,13 +230,9 @@ async function curve() {
   }
   check("a stranger is not", !(await read(curveAddr, hoodCurveAbi, "snipeExempt", [W.sniper.address])));
 
-  // The open, on the chain's clock: the sniper goes as soon as the launch is mined. Where it lands
-  // decides the rate, so the check is against the second it actually landed in.
   const launchedAt = await read(curveAddr, hoodCurveAbi, "launchedAt");
-  const pairIn = parseEther("0.002");
-  const est = await pc.estimateContractGas({ address: curveAddr, abi: hoodCurveAbi, functionName: "buy", args: [pairIn, 0n, W.sniper.address], value: pairIn, account: W.sniper.account });
-  const sr = await send(W.sniper, curveAddr, hoodCurveAbi, "buy", [pairIn, 0n, W.sniper.address], pairIn);
-  console.log(`   gas: estimated ${est}, used ${sr.gasUsed} (${Number((sr.gasUsed * 1000n) / est) / 10}% of the estimate)`);
+  const [sr, tr] = await Promise.all([settle(snipeHash), settle(teamHash)]);
+  check("the sniper's buy and the open buyer's buy both went through", sr.status === "success" && tr.status === "success");
   const elapsed = Number((await pc.getBlock({ blockNumber: sr.blockNumber })).timestamp - launchedAt);
   const sniped = events(sr, hoodCurveAbi, "Sniped", curveAddr);
   const expected = (pairIn * BigInt(bpsAt(elapsed)) + 9_999n) / 10_000n;
@@ -214,17 +245,14 @@ async function curve() {
     check("a buy past the window pays no opening tax", sniped.length === 0);
   }
   state.curve.snipe = { elapsed, tax: sniped[0]?.args.tax ?? 0n };
-
-  // An open buyer in the same seconds pays nothing.
-  const tr = await send(W.team_1, curveAddr, hoodCurveAbi, "buy", [parseEther("0.001"), 0n, W.team_1.address], parseEther("0.001"));
   const tElapsed = Number((await pc.getBlock({ blockNumber: tr.blockNumber })).timestamp - launchedAt);
   check(`an open buyer ${tElapsed}s in pays no opening tax`, events(tr, hoodCurveAbi, "Sniped").length === 0);
 
   // Past the window everyone pays the same 1%.
   while (Number((await pc.getBlock()).timestamp - launchedAt) < 4) await sleep(300);
   check("the curve's opening tax is over for everyone", (await read(curveAddr, hoodCurveAbi, "currentSnipeTaxBps", [W.sniper.address])) === 0n);
-  for (const [w, eth] of [[W.trader_1, "0.003"], [W.trader_2, "0.002"], [W.sniper, "0.001"]]) {
-    const br = await send(w, curveAddr, hoodCurveAbi, "buy", [parseEther(eth), 0n, w.address], parseEther(eth));
+  for (const [w, n] of [[W.trader_1, 3], [W.trader_2, 2], [W.sniper, 1]]) {
+    const br = await send(w, curveAddr, hoodCurveAbi, "buy", [u(n), 0n, w.address], u(n));
     check(`${w.role} buys after the window with no opening tax`, events(br, hoodCurveAbi, "Sniped").length === 0);
   }
   const bag = await balanceOf(token, W.trader_2.address);
@@ -234,7 +262,7 @@ async function curve() {
 
   // The protocol's 30% of every fee, the opening tax included, pulled into the Bag and split in
   // thirds: the Vault, this hour's Payday, the house.
-  const claimR = await send(W.keeper, curveAddr, hoodCurveAbi, "claimProtocol");
+  const claimR = await send(POKE(), curveAddr, hoodCurveAbi, "claimProtocol");
   const flow = bagFlow(claimR);
   const into = flow.inBy[BagSource.Trade] ?? 0n;
   const third = (into * 3333n) / 10_000n; // BagSplits: 3333 bps each to the Vault and Payday, the house the rest
@@ -248,7 +276,7 @@ async function curve() {
   const accrued = await read(A.feeRouter, hoodFeeRouterAbi, "accrued", [token]);
   check("the creator's share is booked in the fee router", accrued > 0n, `${formatEther(accrued)} ETH`);
   const before = await balanceOf(zeroAddress, W.fee_recipient.address);
-  await send(W.keeper, A.feeRouter, hoodFeeRouterAbi, "flush", [token]);
+  await send(POKE(), A.feeRouter, hoodFeeRouterAbi, "flush", [token]);
   const got = (await balanceOf(zeroAddress, W.fee_recipient.address)) - before;
   check("the flush paid the fee recipient its half of the creator's share", got > 0n && got <= accrued / 2n + 1n, `${formatEther(got)} ETH`);
 }
@@ -285,7 +313,7 @@ async function grad() {
   check("the curve sold out", (await hood(W.trader_1).getCurveState(curveAddr)).phase === "sold", `${formatUnits(pairIn, 6)} tUSDG`);
 
   const devBefore = await balanceOf(A.usdg, W.fee_recipient.address);
-  const fr = await send(W.keeper, curveAddr, hoodCurveAbi, "finalize");
+  const fr = await send(POKE(), curveAddr, hoodCurveAbi, "finalize");
   const [g] = events(fr, hoodCurveAbi, "Graduated", curveAddr);
   const fee = g.args.graduationFee;
   const flow = bagFlow(fr);
@@ -309,11 +337,21 @@ async function directPhase() {
   const launched = await direct(W.creator).launch({
     name: "Testnet Pool Fam", symbol: "TFAMP", description: "straight into a pool",
     creatorFeeRecipient: W.fee_recipient.address, exempt: [W.team_1.address],
-    tickStart: tickFor(10), tickBond: tickFor(100), initialBuy: parseEther("0.001"), salt: salt.salt,
+    tickStart: tickFor(10), tickBond: tickFor(100), initialBuy: u(1), salt: salt.salt,
   });
+  const [snipePrep, teamPrep] = await Promise.all([prepare(W.sniper), prepare(W.team_1)]);
   const r = await wait(launched.hash);
-  const log = r.logs.find((l) => same(l.address, A.portal) && l.topics.length >= 4);
-  const token = `0x${log.topics[1].slice(26)}`;
+  const [dl] = events(r, hoodPortalAbi, "DirectLaunched", A.portal);
+  const token = dl.args.token;
+  // The pool key from the launch event and the SDK's defaults (fee 10000, spacing 200), so the
+  // first swaps need no read at all.
+  const [c0, c1] = BigInt(zeroAddress) < BigInt(token) ? [zeroAddress, token] : [token, zeroAddress];
+  const fastKey = { currency0: c0, currency1: c1, fee: 10_000, tickSpacing: 200, hooks: dl.args.hook };
+  const amountIn = u(2);
+  const [snipeHash, teamHash] = await Promise.all([
+    fireSwap(W.sniper, snipePrep, fastKey, amountIn, zeroAddress, token),
+    fireSwap(W.team_1, teamPrep, fastKey, u(1), zeroAddress, token),
+  ]);
   const row = await direct(W.creator).getLaunch(token);
   const key = await direct(W.creator).poolKey(row.locker);
   state.direct = { token, hook: row.hook, splitter: row.splitter, locker: row.locker, key };
@@ -322,9 +360,10 @@ async function directPhase() {
   check("the creator's first buy paid no opening tax", events(r, hoodLaunchHookAbi, "Sniped").length === 0);
   check("the open buyer is exempt on the hook", await read(row.hook, hoodLaunchHookAbi, "snipeExempt", [W.team_1.address]));
 
+  check("the pool key the swaps were fired at is the launch's", JSON.stringify(key).toLowerCase() === JSON.stringify(fastKey).toLowerCase());
   const launchTime = await read(row.hook, parseAbi(["function launchTime() view returns (uint64)"]), "launchTime");
-  const amountIn = parseEther("0.002");
-  const sr = await swapThrough(key, W.sniper, amountIn, zeroAddress, token);
+  const [sr, tr] = await Promise.all([settle(snipeHash), settle(teamHash)]);
+  check("the sniper's swap and the open buyer's swap both went through", sr.status === "success" && tr.status === "success");
   const elapsed = Number((await pc.getBlock({ blockNumber: sr.blockNumber })).timestamp - launchTime);
   const sniped = events(sr, hoodLaunchHookAbi, "Sniped", row.hook);
   if (elapsed < 3) {
@@ -336,19 +375,18 @@ async function directPhase() {
   } else {
     check("a pool buy past the window pays no opening tax", sniped.length === 0, `${elapsed}s in`);
   }
-  const tr = await swapThrough(key, W.team_1, parseEther("0.001"), zeroAddress, token);
   check("the open buyer's swap in the opening seconds paid none", events(tr, hoodLaunchHookAbi, "Sniped").length === 0);
 
   while (Number((await pc.getBlock()).timestamp - launchTime) < 4) await sleep(300);
-  const calm = await swapThrough(key, W.trader_1, parseEther("0.003"), zeroAddress, token);
+  const calm = await swapThrough(key, W.trader_1, u(3), zeroAddress, token);
   check("after the window a pool buy pays only the launch's tax and the platform's 1%", events(calm, hoodLaunchHookAbi, "Sniped").length === 0);
   const bag = await balanceOf(token, W.trader_1.address);
   await approveForRouter(W.trader_1, token);
   await swapThrough(key, W.trader_1, bag / 2n, token, zeroAddress);
   check("a sell through the hook went through", (await balanceOf(token, W.trader_1.address)) < bag);
 
-  await send(W.keeper, row.hook, parseAbi(["function flushClaims()"]), "flushClaims");
-  const sw = await send(W.keeper, row.splitter, parseAbi(["function sweep()"]), "sweep");
+  await send(POKE(), row.hook, parseAbi(["function flushClaims()"]), "flushClaims");
+  const sw = await send(POKE(), row.splitter, parseAbi(["function sweep()"]), "sweep");
   check("the splitter swept the launch's own tax", sw.status === "success");
   const hookBag = await pc.getLogs({ address: A.bag, event: parseAbi(["event BagIn(uint8 indexed source, address indexed asset, uint256 amount, address indexed token)"])[0], args: { token }, fromBlock: r.blockNumber });
   check("the platform's 30% of the pool's fee reached the Bag, keyed to this token", hookBag.length > 0,
@@ -386,7 +424,7 @@ async function vault() {
   step("vault: a trader buys the house coin and locks it");
   if (!state.house) { check("the house coin exists", false, "run the house phase first"); return; }
   const { token, key } = state.house;
-  await swapThrough(key, W.trader_2, parseEther("0.002"), zeroAddress, token);
+  await swapThrough(key, W.trader_2, u(2), zeroAddress, token);
   const held = await balanceOf(token, W.trader_2.address);
   check("the trader holds the house coin", held > 0n, formatEther(held));
   await send(W.trader_2, token, erc20Abi, "approve", [A.staking, maxUint256]);

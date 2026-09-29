@@ -7,10 +7,15 @@
 #   bash scripts/testnet/run.sh dollar          tUSDG, six decimals, 100,000 minted to every wallet
 #   bash scripts/testnet/run.sh deploy          Deploy.s.sol with OWNER=TREASURY=the Safe, KEEPER=keeper
 #   bash scripts/testnet/run.sh accept          the Safe accepts every contract, two signatures, executed
+#   bash scripts/testnet/run.sh tune            the Safe lowers the launch fee and the boost price to TESTNET_FEE
 #   bash scripts/testnet/run.sh scenario [phase ...]   scripts/testnet/scenario.mjs
 #   bash scripts/testnet/run.sh stack           local api + indexer + keeper + web against the testnet
 #   bash scripts/testnet/run.sh stop            stops the local stack
-#   bash scripts/testnet/run.sh all             fund, safe, dollar, deploy, accept, stack, scenario
+#   bash scripts/testnet/run.sh all             fund, safe, dollar, deploy, accept, tune, stack, scenario
+#
+# The faucet pays 0.01 ETH a day, so by default the run is lean: every trade is a tenth of the full
+# size (SCENARIO_ETH_UNIT 0.0001), the fees are cut to 0.0001 ETH from the Safe, and the role budgets
+# below add up to about 0.0075 ETH. TESTNET_BUDGET=full restores the sizes the fork dry run used.
 #
 # Keys live in .deploy/testnet/wallets.json (gitignored, mode 600) and are read inside this shell
 # only; nothing here prints one. What the steps learn goes to .deploy/testnet/testnet.env.
@@ -42,6 +47,16 @@ PY
 loadenv() { set -a; source "$ENVF"; set +a; }
 ROLES="deployer safe_signer_1 safe_signer_2 keeper creator fee_recipient team_1 team_2 team_3 sniper trader_1 trader_2"
 export HOOD_CHAIN_ID=46630 RPC_URL=$RPC HOOD_RPC=$RPC
+BUDGET=${TESTNET_BUDGET:-lean}
+if [[ $BUDGET == full ]]; then
+  export SCENARIO_ETH_UNIT=${SCENARIO_ETH_UNIT:-0.001}
+  SHARES="safe_signer_1:0.003 safe_signer_2:0.001 keeper:0.01 creator:0.04 fee_recipient:0.002 team_1:0.008 team_2:0.003 team_3:0.003 sniper:0.01 trader_1:0.012 trader_2:0.01"
+else
+  export SCENARIO_ETH_UNIT=${SCENARIO_ETH_UNIT:-0.0001}
+  # Only wallets that send transactions need gas; team_2, team_3 and the fee recipient only receive.
+  SHARES="safe_signer_1:0.0003 keeper:0.0005 creator:0.0025 team_1:0.0004 sniper:0.0007 trader_1:0.0009 trader_2:0.0008"
+fi
+FEE=${TESTNET_FEE:-100000000000000} # 0.0001 ETH, the launch fee and the boost slot price on the testnet
 
 step=${1:-help}; shift || true
 case $step in
@@ -60,8 +75,7 @@ case $step in
     # What each role spends in the scenario, with room: launches cost 0.002 ETH in fees, trades a
     # few thousandths, gas on this chain is nothing. The deployer keeps the rest for the deploy.
     PK=$(key deployer)
-    for pair in safe_signer_1:0.003 safe_signer_2:0.001 keeper:0.01 creator:0.04 fee_recipient:0.002 \
-                team_1:0.008 team_2:0.003 team_3:0.003 sniper:0.01 trader_1:0.012 trader_2:0.01; do
+    for pair in $SHARES; do
       r=${pair%%:*}; eth=${pair#*:}
       a=$(addr $r); have=$(cast balance "$a" --rpc-url $RPC)
       want=$(cast to-wei "$eth")
@@ -109,6 +123,17 @@ case $step in
     done
     ;;
 
+  tune)
+    # From the Safe, like every owner call: the fees stay what they are on mainnet everywhere else.
+    loadenv
+    for call in "$HOOD_FACTORY setLaunchFee(uint256)" "$HOOD_PORTAL setLaunchFee(uint256)" "$HOOD_BOOSTS setSlotPrice(uint256)"; do
+      set -- $call
+      ( cd "$DIR" && SAFE_SIGNER_KEYS="$(key safe_signer_1),$(key safe_signer_2)" EXECUTOR_KEY=$(key safe_signer_1) \
+        node "$ROOT/scripts/safe.mjs" call "$1" "$2" "$FEE" --sign --exec | grep -E "executed|call " )
+    done
+    echo "factory fee $(cast call "$HOOD_FACTORY" 'launchFee()(uint256)' --rpc-url $RPC) portal fee $(cast call "$HOOD_PORTAL" 'launchFee()(uint256)' --rpc-url $RPC) boost $(cast call "$HOOD_BOOSTS" 'slotPrice()(uint256)' --rpc-url $RPC)"
+    ;;
+
   scenario)
     loadenv
     WALLETS="$WALLETS" SCENARIO_STATE="$ROOT/$DIR/scenario.json" HOOD_API=${HOOD_API:-} node scripts/testnet/scenario.mjs "$@"
@@ -147,7 +172,7 @@ case $step in
     ;;
 
   all)
-    for s in fund safe dollar deploy accept stack; do echo; echo "== $s"; bash "$0" $s; done
+    for s in fund safe dollar deploy accept tune stack; do echo; echo "== $s"; bash "$0" $s; done
     sleep 20; echo; echo "== scenario"; bash "$0" scenario
     ;;
 
