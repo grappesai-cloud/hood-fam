@@ -21,6 +21,7 @@ const SECTIONS = [
   ["curve", "Launch on the curve"],
   ["direct", "Launch a direct pool"],
   ["opening", "The opening tax"],
+  ["team", "Team launches"],
   ["trade", "How to trade"],
   ["holders", "How you get paid as a holder"],
   ["payday", "Payday for traders"],
@@ -41,6 +42,8 @@ const PAGES: [string, string][] = [
   ["/token/[address]", "One token: chart, trades, holders, the creator's terms, buy and sell."],
   ["/trader/[address]", "One wallet: its trades, launches and points."],
   ["/portfolio", "Your tokens, positions, launches and what you are owed."],
+  ["/creator", "Your launches: what each is worth now, and the transactions that are yours to send."],
+  ["/following", "The traders you follow and the launches you watch."],
   ["/bag", "The Bag: what came in, where it went, Payday and the burn clock, live."],
   ["/lock", "The Vault: lock the house coin, claim rewards."],
   ["/leaderboard", "Points and ranks for the season."],
@@ -89,7 +92,7 @@ const GLOSSARY: [string, string][] = [
   ["The token's pot", "The contract that pays a token's holders in proportion to what they hold. A HoodPot on curve launches, the revenue splitter on direct launches."],
   ["Payday", "The hourly payout to traders, split by points, with a slice for the pots of the ten newest launches."],
   ["The Vault", "The staking contract for the house coin. Lock tiers from flexible (1x) to 180 days (2.5x). Rewards arrive in the assets the fees were paid in."],
-  ["The burn clock", "The contract that buys the house coin once an hour per asset and burns it. It is fed by 77% of every graduation fee."],
+  ["The burn clock", "The contract that buys the house coin once an hour and burns it. It is fed by 77% of every graduation fee. It can spend one asset only, the one the house coin's pool is quoted in. A burn share paid in any other asset stays in the clock."],
   ["The keeper", "Our off-chain service. It pushes pot payouts every 5 minutes, calls Payday and the burn every hour, and pays the gas."],
   ["The curve", "A bonding curve: a contract that sells a token at a price that rises as more is sold, then graduates into a pool when it sells out."],
   ["Direct pool", "A launch whose whole supply goes straight into a Uniswap v4 pool, with a hook that takes the fee and the creator's terms on every swap."],
@@ -107,6 +110,9 @@ const GLOSSARY: [string, string][] = [
   ["Allocations", "On a direct launch, how the creator leg and the creator's tax split: creator, buyback, dividends to holders, liquidity. They add up to 100%."],
   ["Opening tax", "A fixed tax on buys in the first seconds of every launch, on both machines: 99% in the launch's own second, 6.18% in the next, 0.19% in the one after, then 0%. Split like the trade fee: 70% to the creator leg, 30% to the Bag."],
   ["Exempt wallets", "Wallets that pay no opening tax: the wallet that launches, the creator fee recipient and up to 32 more the creator names at launch. The list is public on chain."],
+  ["Open buyer", "The label the token page and the holder map give a wallet the creator named as exempt from the opening tax."],
+  ["Block Zero", "A team launch: the token is printed and up to 40 team wallets buy in the same transaction, before anyone else can trade. Every wallet is written on chain."],
+  ["Team wallet", "A wallet that bought inside a Block Zero launch. The chain holds what it paid, what it got and when its lock opens. The token page and the holder map label it team."],
   ["The snipers' wall", "The list on the Bag page of the wallets that paid the opening tax."],
   ["The creator slash", "On a direct launch, when the creator sells into the pool, the creator's unclaimed fees move to the holders."],
   ["First-buy lock", "A creator's own first buy held in HoodTokenLock for 7, 30, 90 or 180 days. It earns nothing."],
@@ -265,7 +271,10 @@ export default function Docs() {
           <li>
             The other 10% is the graduation fee. It goes to the Bag: 23% to your creator fee
             recipient as the dev bonus (about 0.11 ETH on preset 0), 77% to the burn clock, which
-            buys the house coin and burns it (about 0.37 ETH on preset 0).
+            buys the house coin and burns it (about 0.37 ETH on preset 0). The fee is paid in the
+            asset your launch is quoted in, and the clock can spend only the asset the house
+            coin&apos;s pool is quoted in. On a launch quoted in anything else, the clock keeps its
+            share and does not spend it.
           </li>
           <li>
             From now on the pool charges 1% plus its own 0.3% fee. The 1% splits the same way: 70 bps
@@ -350,12 +359,53 @@ export default function Docs() {
           </li>
           <li>Buys made inside the launch transaction never pay it: the creator&apos;s first buy and the team wallets of a Block Zero team launch.</li>
           <li>
+            The token page and the holder map label an exempt wallet <b>open buyer</b>, so you can
+            see who was allowed in early and what they hold.
+          </li>
+          <li>
             On the curve the exemption is keyed on the wallet that receives the tokens. On a direct
-            pool it is keyed on the wallet that sends the swap (<code>tx.origin</code>).
+            pool it is keyed on the wallet that sends the swap (<code>tx.origin</code>), so a
+            contract wallet such as a Safe is not covered there.
           </li>
           <li>On a direct pool the creator&apos;s tax, the 1% and the opening tax together are capped at 99% of a buy.</li>
           <li>A wallet that pays it lands on the snipers&apos; wall on <Link href="/bag">/bag</Link>.</li>
         </ul>
+      </section>
+
+      <section className="panel" id="team">
+        <h2>Team launches</h2>
+        <p>
+          A team launch, Block Zero, prints the token and buys for the team in the same
+          transaction, before anyone else can trade. It exists on both machines: on the curve
+          through <code>HoodBlockZero</code>, on a direct pool through the portal&apos;s{" "}
+          <code>createTeamLaunch</code>.
+        </p>
+        <ul>
+          <li>Up to 40 team wallets per launch. The wallet that launches pays for every one of them.</li>
+          <li>It is all or nothing. If one buy cannot fill, nothing launches and only gas is spent.</li>
+          <li>
+            Each team buy can be locked for 7, 30, 90 or 180 days, and each wallet can be sent ETH
+            in the same transaction for the transactions it makes later.
+          </li>
+          <li>
+            Buys inside the launch transaction pay no opening tax. A team buy in a later
+            transaction pays it like anyone, unless that wallet is exempt.
+          </li>
+          <li>
+            On the curve, a second wave can only be sent by the wallet that launched, and only
+            while outside buyers hold no more than a limit that wallet sets in the call. Past the
+            limit the call reverts and the team keeps its money.
+          </li>
+          <li><code>HoodBlockZero</code> has no owner and no settings.</li>
+        </ul>
+        <h3>What you can see</h3>
+        <p>
+          Nothing about a team launch is hidden. The launch writes every team wallet on the chain:
+          the address, what it paid, what it got and when its lock opens. The token page lists them
+          under Team with what each still holds, so you can see whether the team has sold. The
+          holder map and the top holders label them <b>team</b>, and label the wallets the creator
+          named as exempt from the opening tax <b>open buyer</b>.
+        </p>
       </section>
 
       <section className="panel" id="trade">
@@ -649,6 +699,13 @@ export default function Docs() {
           second, 6.18% in the next, 0.19% in the one after. The token page lists the creator&apos;s
           terms.
         </p>
+        <h3>What do the team and open buyer labels mean?</h3>
+        <p>
+          <b>team</b> is a wallet that bought inside a Block Zero team launch, in the launch
+          transaction itself. <b>open buyer</b> is a wallet the creator named at launch as paying
+          no opening tax. Both lists are on the chain from the launch on, and the token page shows
+          what each wallet holds now. See <a href="#team">team launches</a>.
+        </p>
         <h3>Can the creator change the fees after launch?</h3>
         <p>No. Fees, taxes, allocations, exempt wallets and options are fixed at launch. Nobody can change them, including us.</p>
         <h3>Can anyone take money out of the Bag?</h3>
@@ -700,7 +757,8 @@ export default function Docs() {
               <tr><td><code>GET /tokens/:token</code></td><td>One token, plus holders count, fee flows and staking.</td></tr>
               <tr><td><code>GET /tokens/:token/trades</code></td><td>The tape. <code>limit</code> up to 50.</td></tr>
               <tr><td><code>GET /tokens/:token/candles</code></td><td>OHLC candles. <code>interval</code>: 1 minute, 5 minutes, 15 minutes, 1 hour, 4 hours, 1 day.</td></tr>
-              <tr><td><code>GET /tokens/:token/holders</code></td><td>The top 100 holders by balance.</td></tr>
+              <tr><td><code>GET /tokens/:token/holders</code></td><td>The top 100 holders by balance. Each row says whether the wallet is a team wallet (<code>team</code>) or an open buyer (<code>exempt</code>).</td></tr>
+              <tr><td><code>GET /tokens/:token/team</code></td><td>A team launch&apos;s wallets in the order they bought, with what each paid, got and still holds and when its lock opens, and the launch&apos;s open buyers (<code>exempt</code>).</td></tr>
               <tr><td><code>GET /stats</code></td><td>Launches, graduations, volume, trades and traders for the whole site.</td></tr>
               <tr><td><code>GET /portfolio/:address</code></td><td>A wallet&apos;s tokens, positions and launches.</td></tr>
               <tr><td><code>GET /stakes/:owner</code></td><td>A wallet&apos;s Vault positions.</td></tr>
@@ -724,11 +782,12 @@ export default function Docs() {
               </tr>
             </thead>
             <tbody>
-              <tr><td>Factory</td><td><code>Launched</code>, <code>LaunchMetadata</code>, <code>FirstBuyLocked</code></td></tr>
-              <tr><td>Curve (one per launch)</td><td><code>Bought</code>, <code>Sold</code>, <code>SoldOut</code>, <code>Graduated</code></td></tr>
+              <tr><td>Factory</td><td><code>Launched</code>, <code>LaunchMetadata</code>, <code>FirstBuyLocked</code>, <code>LaunchExempt</code></td></tr>
+              <tr><td>Curve (one per launch)</td><td><code>Bought</code>, <code>Sold</code>, <code>SoldOut</code>, <code>Graduated</code>, <code>Sniped</code>, <code>SnipeExempt</code>, <code>ProtocolClaimed</code></td></tr>
+              <tr><td>Block zero</td><td><code>TeamLaunched</code>, <code>TeamLeg</code>, <code>TeamGas</code>, <code>FollowUp</code></td></tr>
               <tr><td>Fee router</td><td><code>Accrued</code>, <code>Flushed</code></td></tr>
               <tr><td>Portal</td><td><code>DirectLaunched</code>, <code>DirectMetadata</code>, <code>PoolOpened</code></td></tr>
-              <tr><td>Launch hook (one per direct launch)</td><td><code>Taxed</code>, <code>Bonded</code>, <code>ClaimsFlushed</code></td></tr>
+              <tr><td>Launch hook (one per direct launch)</td><td><code>Taxed</code>, <code>Bonded</code>, <code>ClaimsFlushed</code>, <code>Sniped</code>, <code>SnipeExempt</code></td></tr>
               <tr><td>Revenue splitter (one per direct launch)</td><td><code>Swept</code>, <code>DividendsClaimed</code>, <code>CreatorClaimed</code>, <code>ProtocolClaimed</code>, <code>BuybackReleased</code>, <code>LiquidityPushed</code></td></tr>
               <tr><td>Buyback module</td><td><code>BoughtBack</code></td></tr>
               <tr><td>Locker (one per direct launch)</td><td><code>FeesHarvested</code>, <code>LiquidityDeepened</code></td></tr>

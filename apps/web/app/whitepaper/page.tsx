@@ -27,6 +27,7 @@ const SECTIONS = [
   ["burn", "The burn clock"],
   ["graduation", "Graduation"],
   ["opening", "The opening tax"],
+  ["team", "Team launches"],
   ["slash", "The creator slash"],
   ["boosts", "Boosts and the launch fee"],
   ["referrals", "Referrals"],
@@ -105,7 +106,8 @@ export default function Whitepaper() {
           Most of that fee goes back to the people who use the site. The creator of each token gets
           70% of it. Traders are paid every hour by Payday. People who lock the house coin are paid
           by the Vault. Every graduation pays the burn clock, which buys the house coin and burns
-          it. Our own share is called the house. Each of these has a section below.
+          it. The clock can spend one asset only and keeps what it is paid in any other. Our own
+          share is called the house. Each of these has a section below.
         </p>
         <p>
           This paper says who pays, who gets paid, and when. It also says what runs on the chain and
@@ -238,6 +240,11 @@ export default function Whitepaper() {
           graduation fee. It splits: 2,300 bps to the launch&apos;s creator fee recipient as the dev
           bonus, and 7,700 to the burn clock. A launch with no fee recipient sends the whole fee to
           the burn clock.
+        </p>
+        <p>
+          The fee is paid in the asset the launch is quoted in. The dev bonus reaches the creator
+          in that asset. The burn share reaches the clock in that asset too, and the clock can
+          spend only one: see <a href="#burn">the burn clock</a>.
         </p>
         <h3>Rule 3: boosts</h3>
         <p>
@@ -454,6 +461,12 @@ export default function Whitepaper() {
           to <code>0x...dEaD</code>.
         </p>
         <p>
+          In plain terms: if the house coin trades against ETH, the burn share of a graduation
+          quoted in ETH is bought and burned, and the burn share of a graduation quoted in USDG or
+          in any other asset is held by the clock and never spent. It is counted on{" "}
+          <Link href="/bag">/bag</Link> per asset, so what is held is visible.
+        </p>
+        <p>
           Until the factory owner sets the house coin once (<code>setHouseCoin</code>), every burn
           reverts with <code>NoHouseCoin</code>. The money waits.
         </p>
@@ -545,9 +558,15 @@ export default function Whitepaper() {
           </li>
           <li>Buys made inside the launch transaction never pay it: the creator&apos;s first buy and the team wallets of a Block Zero team launch.</li>
           <li>
+            An exempt wallet is labelled <b>open buyer</b> on the token page and on the holder map.
+            The curve and the hook each emit the list once, as <code>SnipeExempt</code>, when the
+            launch is set up.
+          </li>
+          <li>
             On the curve the exemption is keyed on the wallet that receives the tokens. On a direct
             pool it is keyed on the wallet that sends the swap (<code>tx.origin</code>), because the
-            hook only sees the router.
+            hook only sees the router. A contract wallet such as a Safe is therefore not covered on
+            a direct pool.
           </li>
           <li>On a direct pool the creator&apos;s tax, the 1% and the opening tax together are capped at 99% of a buy.</li>
         </ul>
@@ -556,6 +575,36 @@ export default function Whitepaper() {
           Who gets paid: the creator and the Bag, like any fee. Holders of the token at that moment
           earn bounty points, and the wallet that paid is listed on the snipers&apos; wall on{" "}
           <Link href="/bag">/bag</Link>.
+        </p>
+      </section>
+
+      <section className="panel" id="team">
+        <h2>Team launches</h2>
+        <p>
+          A team can take its position inside the launch itself. A Block Zero launch prints the
+          token and buys for up to 40 team wallets in one transaction, so nothing can trade between
+          the launch and the team&apos;s buys. On the curve it goes through{" "}
+          <code>HoodBlockZero</code>, a periphery over the factory with no owner and no settings. On
+          a direct pool it goes through the portal&apos;s <code>createTeamLaunch</code>.
+        </p>
+        <ul>
+          <li>The wallet that launches pays for every team buy. The team wallets are linked to it and to each other on the chain by that fact alone.</li>
+          <li>The transaction is all or nothing: if one buy cannot fill, the launch reverts.</li>
+          <li>Each buy can be locked for 7, 30, 90 or 180 days in the first-buy locker, and each wallet can be sent ETH for the transactions it makes later.</li>
+          <li>Buys inside the launch transaction pay no opening tax. A later team buy pays it like anyone, unless the wallet is exempt.</li>
+          <li>
+            On the curve, the launcher may send a second wave with <code>followUp</code>, and only
+            while outside buyers hold no more than a limit passed in the call. Past it the call
+            reverts with <code>OutsidersAhead</code>.
+          </li>
+        </ul>
+        <p>
+          What is recorded: <code>HoodBlockZero</code> keeps, per token, every team wallet with
+          what it paid, what it got and when its lock opens (<code>teamOf</code>,{" "}
+          <code>isTeamWallet</code>, <code>launcherOf</code>), and emits <code>TeamLaunched</code>{" "}
+          and one <code>TeamLeg</code> per wallet. The token page lists the team with what each
+          wallet still holds, and the holder map labels them <b>team</b>. There is no way to launch
+          through it without being written down.
         </p>
       </section>
 
@@ -678,6 +727,7 @@ export default function Whitepaper() {
         <ul>
           <li>Points are off the chain. The API computes them, and the keeper submits the list Payday pays. The contract only limits how much an hour can pay.</li>
           <li>The house coin is not launched. The Vault and the burn clock wait for it. The Vault&apos;s share waits in the Bag; the burn clock keeps what it is paid.</li>
+          <li>That every burn share is burned. The burn clock can spend one asset only. A burn share paid in any other asset, such as USDG from a launch quoted in USDG, stays in the clock and is never spent.</li>
           <li>The Safe has not accepted ownership yet. The deployer wallet still owns the factory, the portal, the referrals registry and the bridge factory.</li>
           <li>The factory owner can change things for new launches only: presets, the launch fee (up to 0.01 ETH), the boost price (up to 0.05 ETH), referral cuts (up to 5,000 bps of the Bag&apos;s share), the keeper address, and the house coin, once. The owner cannot touch a live token, the Bag, or locked liquidity.</li>
           <li>The keeper&apos;s timing. A push every 5 minutes and a payout every hour are what we run, not what the chain enforces.</li>
@@ -691,6 +741,7 @@ export default function Whitepaper() {
           <li>Most tokens go to zero. A launch is somebody else&apos;s token, not ours. Check the address before you buy.</li>
           <li>A creator&apos;s terms are fixed but they can be harsh: a tax of up to 10% per side on a direct pool. Read the token page first.</li>
           <li>A buy in a launch&apos;s own second pays a 99% opening tax. Check the clock before you buy a new launch.</li>
+          <li>A team can hold a large share from the first block. A team launch buys for up to 40 wallets before anyone else can trade, and up to 32 more wallets can be exempt from the opening tax. The token page lists all of them and what they hold. Read it before you buy.</li>
           <li>Contracts can have bugs. This paper does not claim an independent audit.</li>
           <li>The keeper can be late. Payouts that depend on it wait until it, or the owner, calls.</li>
           <li>Points and the season pool are a score and a policy, not a balance owed to you.</li>
