@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import { brand } from "@/brands";
 
 /// The page itself is a client component, so its share card and its title live here.
 export const metadata: Metadata = {
-  title: "analytics · hood.fam",
+  title: `analytics · ${brand.name}`,
   description: "Launches, graduations, volume, trades and the season pool, counted by our own indexer.",
   openGraph: {
-    title: "analytics · hood.fam",
+    title: `analytics · ${brand.name}`,
     description: "Launches, graduations, volume, trades and the season pool, counted by our own indexer.",
     type: "website",
   },

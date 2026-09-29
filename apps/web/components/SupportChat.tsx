@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAccount } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
 import { API, EXPLORER } from "@/lib/config";
+import { brand } from "@/brands";
 
 /// The help button. A chat with the support assistant, and a ticket form behind it for when the
 /// assistant cannot help or is switched off. The conversation lives in this tab only.
@@ -205,7 +206,7 @@ export function SupportChat() {
               >
                 <input
                   className="input"
-                  placeholder={enabled ? "ask anything about hood.fam" : "assistant offline"}
+                  placeholder={enabled ? `ask anything about ${brand.name}` : "assistant offline"}
                   value={draft}
                   disabled={!enabled || busy !== null}
                   maxLength={4000}

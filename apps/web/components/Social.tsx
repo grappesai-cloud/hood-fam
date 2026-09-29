@@ -7,6 +7,7 @@ import { useAccount } from "wagmi";
 import { api } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { describe, pendingReferral, rememberReferral, useWalletSession } from "@/lib/session";
+import { brand } from "@/brands";
 
 /// The small social controls that appear on other people's pages: follow a trader, watch a launch,
 /// and be told when a launch you watch does something. All three sit behind the pad's one session,
@@ -153,7 +154,7 @@ export function Alerts() {
 
 function say(body: string, href: string) {
   try {
-    const note = new Notification("hood.fam", { body, tag: href });
+    const note = new Notification(brand.name, { body, tag: href });
     note.onclick = () => { window.open(href, "_blank"); };
   } catch {
     /* a browser that refuses to construct one is a browser that said no; nothing to do */

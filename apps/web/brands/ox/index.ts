@@ -5,7 +5,7 @@ import { Wordmark } from "./Wordmark";
 
 export const brand: Brand = {
   id: "ox",
-  name: "hood.fam",
+  name: "famdotfun",
   host: "famdotfun.com",
   tagline: "Launch. Trade. Share the fees.",
   description:
@@ -31,7 +31,7 @@ export const brand: Brand = {
     board: "Discover",
     drop: "Your cut",
     dropTitle: "Your cut",
-    footnote: "hood.fam never takes custody of your funds.",
+    footnote: "famdotfun never takes custody of your funds.",
   },
   Shell,
   Explore,

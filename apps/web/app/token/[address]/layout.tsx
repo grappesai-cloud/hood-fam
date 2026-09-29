@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { API } from "@/lib/config";
+import { brand } from "@/brands";
 
 /// A launchpad's viral unit is the token page, not the home page: what gets pasted into a chat is
 /// `/token/0x...`, and without this it unfurls as the site's own title with no picture. The page
@@ -18,7 +19,7 @@ export async function generateMetadata({ params }: { params: Promise<{ address: 
       name?: string; symbol?: string; description?: string; image?: string;
       mode?: string; status?: string;
     };
-    const title = t.symbol ? `${t.name} ($${t.symbol}) on hood.fam` : "hood.fam";
+    const title = t.symbol ? `${t.name} ($${t.symbol}) on ${brand.name}` : brand.name;
     const machine = t.mode === "direct" ? "the whole supply in the pool from block one" : "on the curve";
     const description = t.description?.trim()
       || `${t.name ?? "A token"} on Robinhood Chain, ${t.status === "graduated" ? "graduated into a locked pool" : machine}.`;
@@ -31,7 +32,7 @@ export async function generateMetadata({ params }: { params: Promise<{ address: 
       twitter: { card: "summary_large_image", title, description },
     };
   } catch {
-    return { title: "hood.fam", description: "A launchpad on Robinhood Chain." };
+    return { title: brand.name, description: "A launchpad on Robinhood Chain." };
   }
 }
 
